@@ -1,30 +1,49 @@
-\documentclass[11pt, a4paper, parskip=half]{scrbook}
+\documentclass[UKenglish, 11pt, a4paper, parskip=half]{scrbook}
 \usepackage[utf8]{inputenc}
 \usepackage[UKenglish]{babel}
 \usepackage{tgpagella}
+\usepackage{makecell}
 \usepackage{microtype}
 \usepackage[pdfa]{hyperref}
 \hypersetup{colorlinks=true, linktoc=all}
-
+\usepackage[style=numeric]{biblatex}
+\addbibresource{refs.bib}
+\defcaptionname{UKenglish}{\bibname}{References}
 \usepackage{listings}
 \lstset{basicstyle=\ttfamily}
-
 \newcommand{\code}[1]{\lstinline{#1}}
+
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{amssymb}
+\usepackage{physics}
+
+\theoremstyle{definition}
+\newtheorem*{definition}{Definition}
+\newtheorem*{claim}{Claim}
+\newtheorem*{theorem}{Theorem}
+\newtheorem*{proposition}{Proposition}
+\newtheorem*{lemma}{Lemma}
+\newtheorem*{corollary}{Corollary}
+\newtheorem*{example}{Example}
+
+\newcommand{\Empty}{{\vb{0}}}
+\newcommand{\Unit}{{\vb{1}}}
+\newcommand{\unit}{{\vb{\star}}}
+\DeclareMathOperator{\id}{id}
 
 \title{Quill and Feather Language Specifications}
 \author{zeramorphic}
 
 \begin{document}
 
+\frontmatter
+
 \maketitle
 
 \tableofcontents
 
-\part{Background}
-
-\chapter{Introduction}
-
-\section{Purpose of this document}
+\chapter{Preface}
 
 The Quill language is a large project, and it has proven difficult to manage such a large project without adequate planning and formal specification.
 Feature bloat has led the language to a place where its current state is difficult to improve upon incrementally; entire crates of code must be thrown out in order to make meaningful refactors.
@@ -32,11 +51,34 @@ This specification aims to codify the functions of each part of code in such a w
 
 The document begins with defining Quill's aims and requirements, and the consequences this has on the language.
 In theory, every feature of Quill should be explained in this document, with a clear rationale for the decisions made and the tradeoffs they imply.
+The design process of Quill should be made clear for any reader sufficiently familiar with language design.
 
 It then continues, describing the various language features of Feather and Quill, making formal definitions where useful for further analysis.
 A general background knowledge of type theory and lambda calculus, as well with general language design theory, will be assumed, although merits of various type systems will be discussed in depth in future sections.
 
+\chapter{Design principles}
+
+\section{Quill and Feather}
+
+This project aims to codify the languages of Quill and Feather.
+They are innately linked, but are not the same.
+Put simply, Quill is the user-facing language, which is transpiled into Feather, a functional intermediate language.
+This is then compiled to an executable file.
+The reasoning behind this choice to separate Quill from Feather is explored later.
+
+Occasionally, we describe features that `Quill has', especially when the separation of responsibility between Quill and Feather is not yet established, however they may apply equally to both languages.
+Quill, being the name of the `end product', is simply used as a synonym for the project in its entirety.
+
 \section{Goals}
+
+\subsection{Opinions and facts}
+
+In this section, I will outline several reasons why certain paradigms were chosen for Quill's design.
+It is important to emphasise that when I say `favour X over Y', I do not mean that statement as a blanket truth for programming as a discipline; rather, I am designing a language with such features because I wish one were to exist.
+The answers to the questions posed below will likely have different answers to different programmers, and different languages likely exist that satisfy those requirements.
+Quill is created simply because there is no language that adequately meets the requirements I would wish for a language, it is not a statement that those requirements are objectively good.
+
+\subsection{Outline of goals}
 
 Quill must be, first and foremost, a functional efficient programming language.
 It is worth elaborating on the definitions and implications of these words, as well as the reasons for having chosen such words.
@@ -123,7 +165,7 @@ Given the emphasis on reading (and understanding) code over writing it, a modula
 Data should be decoupled from the operations performed on them.
 This opposes the paradigm of object-oriented programming, which often ties together any data with its functions.
 With languages like Java, this paradigm falls into the problem that all functions \textit{must} be contained with a class, degrading the meaning of a class as an object that may be instantiated with an inheritance hierarchy.
-Inheritance-based languages also suffer from the \textit{diamond problem}.
+Inheritance-based languages also suffer from the diamond problem.
 These issues are not sufficient to abandon the object-oriented paradigm completely---indeed, object-oriented programming has many benefits, especially in particular domains with concrete inheritance hierarchies---but are enough for our purposes to favour an alternate paradigm.
 
 Processes should be designed in a sufficiently abstract way as to know only what it must.
@@ -132,7 +174,12 @@ Whenever possible, features like Rust's traits or Haskell's typeclasses should b
 
 \subsection{Efficient programming}
 
-Under the aforementioned constraints, Quill should be the most efficient language possible.
+The word \textit{efficient} carries a double meaning: computational efficiency, and efficiency of writing and reading code.
+Quill attempts to satisfy both of these definitions, to an extent.
+The commitment to efficiency of reading code follows from the previous asserted goals, but efficiency of writing code does not.
+Of course, Quill would ideally be an efficient language to write code in, but this must come at a lower priority.
+
+Under the aforementioned constraints, Quill should be the most \textit{computationally} efficient language possible.
 It is important to emphasise here that speed will \textit{never} come at the expense of one of Quill's other goals.
 Quill will never become a `functional C'; the level of independence offered over memory management offered (and required) by C conflicts with, for example, the axiom that catching bugs at compile time is better than catching them at runtime.
 When such languages as Rust exist, which demonstrate the ability for a modern language to have neither a garbage collector nor unsafe memory access, it is difficult to justify the inclusion of such a feature into Quill.
@@ -144,7 +191,7 @@ This provides a clear speed benefit, and the only cost for the programmer is per
 This analysis would imply that the best choice for Quill should be a Rust-like ownership system.
 Such a system has not seen prominence in functional programming languages to date, but we intend to show that this is not as a result of incompatibility of the two paradigms---rather, ownership-based memory management is simply a sufficiently new concept such that many languages have not caught up with the development yet.
 
-Denying the ability for the programmer to write efficient imperative constructs places a burden on the compiler to translate idiomatic functional programs into efficient imperative ones.
+Denying the ability for the programmer to write computationally efficient imperative constructs places a burden on the compiler to translate idiomatic functional programs into efficient imperative ones.
 As a basic example, tail-recursion can be easily translated into iteration.
 Constructs such as lambda abstractions and higher-order functions can in theory be translated into ordinary functions whose efficiency matches that of C.
 
@@ -153,5 +200,350 @@ For example, compile-time optimisation and static analysis is greatly aided by Q
 
 Concurrency may also be implemented in a way that easily aligns with Quill's objectives, by utilising concepts such as the \code{Send} and \code{Sync} marker traits from Rust.
 Again, compile-time guarantees are used to reduce or eliminate the possibility of runtime bugs.
+
+\section{Requirements}
+
+The above goals naturally lead to the following requirements for Quill as a language.
+
+\subsection{Reliability of performance}
+
+For Quill to be as efficient as possible we require a departure from conventional functional programming models, abandoning thunk-based computation in favour of translation to imperative instructions.
+Values will be evaluated eagerly, unless their values are placed behind (for example) a function which must be invoked to compute the value.
+
+In line with adopting an ownership-based memory model, a garbage collector (or a runtime in general) will likely be unnecessary.
+
+\subsection{Immutability by default}
+
+Functions should be pure.
+Pure functions lend themselves better to static analysis and static optimisation, eventually leading to more performant programs with fewer bugs.
+This naturally entails referential transparency and variable immutability as a key principle.
+In a similar way, recursion is to be preferred over iteration.
+
+\subsection{Static type system}
+
+A static type system prevents many classes of runtime bugs, so it should be used in Quill.
+Assuming a static type system is used, the functional programming paradigm requires many features in such a type system, such as higher-order functions and higher-kinded types.
+
+Haskell has several language extensions designed to make the type system more expressive, and this comes at the cost of compiler bloat.
+An alternative is to manipulate abstractions as values \cite{ScrapYourTypeClasses}.
+This has the advantage of allowing the programmer more flexibility when manipulating abstractions, but requires higher-rank functions to be usable directly inside data structures.
+For Quill, which will have heavy compile-time code manipulation, this seems to be a good choice.
+Such abstractions-as-values can be optimised away statically into plain function calls.
+
+It is also possible to represent types themselves as values \cite{ZigComptimeTypes}.
+For a similar reason, this makes sense to implement in Quill.
+This will, however, introduce some subtleties about type equivalence and naming.
+These will be addressed later.
+
+Arguably, representing everything as a value distils functional programming into its purest form.
+Formal type theory often represents types as values, and deals with this by constructing a hierarchy of universes to contain types of types \textit{ad infinitum} \cite[p.~24]{hottbook}.
+
+Thus, we arrive at another axiom for Quill (and hence Feather) to follow: everything is a value.
+
+\subsection{Everything is a value}
+
+In letting types and abstractions be values, the compiler is obligated to perform certain optimisations.
+Types cannot be represented in compiled machine code in the same way they can be represented in Feather, so it falls on the compiler to deduce all types at compile time.
+Higher-rank functions are used often in abstractions, such as in functors, which have a \code{map} function generic over any input type.
+Clearly, the types used inside the functor must be determined statically and converted to ordinary functions so that types do not need to be represented at runtime.
+This also adds the compile-time benefit of optimisation for specific input types; for example, a \code{memcpy} would be unnecessary if the type being copied is zero-sized.
+
+Multiple dispatch from Julia and related languages can be emulated at compile-time by simply allowing the implementation of an abstraction used to be chosen at the time of the function call, rather than forced by the type system \cite{MultipleDispatch}.
+In particular, by providing various implementations of an abstraction to the compiler itself, the compiler can choose the most appropriate abstraction for the task at compile-time using specialisation rules---although since abstractions are values, the programmer is of course free to specify which abstraction to use manually.
+
+\subsection{Code generation}
+
+Since everything is a value, naturally Quill and Feather code should be values.
+It stands to reason that syntax extensions themselves should be writable in the same way as normal Quill code, in a functional style.
+The compiler should be able to evaluate such functions at compile time.
+This foregoes the typical need for a macro system like in C, by simply allowing Quill to be its own macro system.
+Rust's procedural macros fill a similar role, in that they use Rust code to generate more Rust code, and can even parse code blocks and apply transformations \cite{ProcMacros}.
+In accordance with the principle of modularity, Quill's language design should be minimal yet expressive, and syntax extensions should then provide the necessary conveniences for developing idiomatic functional code.
+For example, monadic \code{do} blocks may not be part of the base language.
+
+\section{High-level design}
+
+In this section, we outline the different parts of the Quill project, their responsibilities, and how they interact.
+Each part should be represented as one or more distinct and non-hierarchical modules.
+In particular, any shared data between two parts should be realised as a distinct shared module, not by including one part as a dependency of another.
+These parts will be presented roughly chronologically in the order they are used to compile a Quill program.
+
+\subsection{Lexer (\code{lex})}
+
+Quill programs are read from an input file, or standard input.
+The resulting stream of Unicode code points is converted into a stream of \textit{tokens}, logically indivisible chunks that have a type.
+For example, a symbol such as \code{/} is a token, and a string such as \code{"Hello, world!"} is also a token.
+
+Then, token streams are converted into \textit{token trees}, which are pairs of brackets of matching type and their contents, such as \code{(1 + 2)}.
+Naturally, token trees may be nested.
+
+The lexer supports syntax extensions, which alter the rules it uses to classify tokens.
+For instance, a syntax extension could be used to convert \code{10m} into \code{metres 10}.
+The resulting code \code{metres 10} will be automatically enclosed in a token tree, so that operator precedence is automatically handled, unlike in the C preprocessor.
+
+\subsection{Parser (\code{parse})}
+
+Token trees from the lexer are analysed to check that they match certain patterns defined either by the Quill compiler or by syntax extensions.
+Each pattern may contain sub-patterns that also need to be parsed recursively.
+Names are resolved.
+This results in an untyped abstract syntax tree.
+The nodes of this abstract syntax tree represent expressions or top-level definitions such as functions.
+Syntax extensions cannot create new node types.
+Many nodes in the syntax tree will be given a type, and most nodes in the tree will provide some typing information for the type checker, such as equivalence relations between types of certain nodes.
+
+\subsection{Type checker (\code{typeck})}
+
+The type checker infers types of all variables in a given expression, given the constraints from the parser.
+This may need to execute arbitrary Quill code, especially when types are manipulated as values.
+Thus, this and almost all future parts of the compiler may be executed in parallel.
+This results in a typed syntax tree.
+
+\subsection{Feather transpiler (\code{feathergen})}
+
+Typed syntax trees are converted into Feather, an intermediate language that can be executed and compiled to machine code.
+Expressions in Feather are based on a modified version of \textit{administrative normal form} (ANF), taking influence from \textit{K-normal form} (KNF).
+This representation allows many code transformations and optimisations to be performed \cite{ANFContinued}, while retaining the semantic content of regions to be used for lifetime analysis \cite{KNF}.
+
+\subsection{Interpreter (\code{interpret})}
+
+Feather code can be evaluated directly without compilation.
+The resulting code will likely run slower than compiled code, but no expensive code generation or linking step is required.
+This is used to execute expressions at compile time, such as type manipulation.
+
+\subsection{Monomorphisation (\code{mono})}
+
+Static analysis on Feather expressions is performed, and all values of runtime-incompatible types, such as types and higher-rank functions, are deduced.
+The resulting code is duplicated for each possible (semantically different) value of these values, and usages are updated so that the code no longer depends on higher-rank functions or types as values.
+At this stage, implementations of abstractions can be resolved automatically.
+
+\subsection{Code generation (\code{codegen})}
+
+Feather programs must be compiled into machine code.
+This task is handled by the \code{codegen} module.
+At a high level, this module takes monomorphised Feather code and converts it into LLVM IR, which will be passed off to an LLVM compiler which will convert it to machine code.
+This process involves the conversion of function paradigms such as recursion into imperative constructs such as iteration, or functional transformations into mutation where applicable.
+It also must provide native implementations of standard library functions that cannot be expressed without some interaction with the OS or kernel.
+This also acts as a frontend for linking the final object files together into an executable.
+
+\subsection{Diagnostics and error handling (\code{diag})}
+
+Using this diagnostic infrastructure, errors and warnings may be emitted with reference to the actual code that caused the error, displaying an easy-to-read representation of the error on the command line.
+
+\subsection{Query-based compilation}
+
+To increase and enforce modularity, the functionality each of the above modules is typically represented using queries.
+This has seen use in Rust \cite{RustDevGuideOverview}, which has been seen to enhance incremental compilation among other modularity benefits.
+This will also empower the compiler to act in parallel.
+
+\section{Prerequisites}
+
+To aid in our descriptions, type theoretic syntax will be used.
+We begin here by presenting an informal description of many of the key principles of intuitionistic type theory, which can be found in the book `Homotopy Type Theory' \cite{hottbook}.
+Certain prerequisite knowledge, such as the use of \( A \to B \) to denote the type of pure functions from \( A \) to \( B \), or the typed lambda calculus, will be assumed.
+However, more complex type-theoretic practices, specifically those which differ between authors, are detailed below.
+
+In this specification, we assume the existence of a hierarchy of universes.
+\[ \mathcal U_0 \colon \mathcal U_1 \colon \mathcal U_2 \colon \cdots \]
+
+\begin{definition}
+    An object \( A \) is a \textit{type} if \( A \) inhabits some universe \( \mathcal U_i \).
+    We write \( A \colon \mathcal U_i \).
+    We can also write \( A \colon \mathcal U_j \) if \( j \geq i \).
+    Given a universe \( \mathcal U_i \), a type \( A \) is called \textit{small} if \( A \colon \mathcal U_i \).
+    Assuming indices \( i \) may be assigned in a consistent way in a given context, the indices may be omitted, and we can write \( A \colon \mathcal U \).
+\end{definition}
+\begin{definition}
+    A \textit{judgment} is a statement of the form \( a \colon A \).
+    If \( A \) is a type that represents a proposition, then \( a \) is a \textit{witness} to the provability of \( A \).
+\end{definition}
+
+Even though type theory is a powerful tool, some set theory will also be used where it is less verbose than equivalent type-theoretic constructions.
+
+\mainmatter
+
+\part{Feather Language Specification}
+
+\chapter{Syntax}
+
+\section{Representations}
+
+Feather is a strongly typed, functional, K-normal form intermediate language. It has two representations, an \textit{in-memory} representation, and a \textit{textual} representation.
+These two representations fundamentally encode the same data; they are in isomorphism.
+Hence, we will discuss here the textual representation, and leave the in-memory representation as an implementation detail.
+
+\section{S-expressions}
+
+\subsection{Atoms}
+
+We begin our discussion of Feather by defining its core building blocks.
+We assume the definition of the types \( \mathbb N \) of natural numbers \( 0, 1, \dots \), along with the usual arithmetic operations.
+\begin{definition}
+    An \textit{\( n \)-bit unsigned integer} is an element of \( \mathbb N \) strictly less than the value \( 2^n \).
+    That is, \( x \) is an \( n \)-bit unsigned integer if there exists a value \( y \colon \mathbb N \) such that \( x + y = 2^n \) and \( y \neq 0 \).
+    We construct the type of \( n \)-bit unsigned integers, written \( \mathbb N_n \colon \mathcal U_0 \).
+    To preserve uniqueness of types, we will write \( x_n \) to denote the instance of \( x \) of type \( \mathbb N_n \).
+    For clarity, the notation \( x_{\mathbb N_n} \) is also used.
+\end{definition}
+Let \( \mathbb Z \) be the type of all integers, created by generating a group from \( \mathbb N \) under addition.
+\begin{definition}
+    An \textit{\( n \)-bit signed integer} is an element of \( \mathbb Z \) not less than \( -2^{n-1} \), and strictly less than \( 2^{n-1} \).
+    Likewise we construct the type of \( n \)-bit signed integers, denoted \( \mathbb Z_n \colon \mathcal U_0 \).
+    Again, the notation \( x_n = x_{\mathbb Z_n} \) is used to refer to the instance of \( x \) that has type \( \mathbb Z_n \).
+\end{definition}
+\begin{definition}
+    For \( n = 16, 32, 64, 128, 256 \), we define the \textit{\( n \)-bit floating point} type \( \mathbb F_n \colon \mathcal U_0 \) to be the quotient of \( \mathbb N_n \) by the equivalence relation defined by the IEEE 754 standard for floating point representation.
+    Arithmetic is defined on this type as per the specification \cite{IEEE754}.
+\end{definition}
+\begin{definition}
+    We define the Boolean type \( \mathbb B \colon \mathcal U_0 \) with elements \( \qty{\top, \bot} \), conventionally named `true' and `false'.
+\end{definition}
+\begin{definition}
+    Let \( \mathbb U \colon \mathcal U_0 \) be the type of Unicode code points; its elements are 64-bit unsigned integers as defined above, tagged \( x_{\mathbb U} \) such that their type is not simply \( \mathbb N \).
+\end{definition}
+\begin{definition}
+    Let \( \Empty \) be the \textit{empty type} with no elements.
+    Let \( \Unit \colon \mathcal U_0 \) be the \textit{unit type} with one element \( \unit \colon \Unit \).
+\end{definition}
+These are exactly the primitive types used in Feather.
+\begin{definition}
+    An \textit{atom} is an element of type \( \mathbb N_n, \mathbb Z_n, \mathbb F_n, \mathbb B, \mathbb U, \Empty, \Unit \) for any valid \( n \).
+    Note that all atoms have small type; that is, their types are all in the space \( \mathcal U_0 \).
+\end{definition}
+
+\subsection{Binary representations}
+\begin{definition}
+    A \textit{(binary) representation} of a type \( A \colon \mathcal U \) is an injective function
+    \[ \rho \colon A \to \mathbb B^n \]
+    for some \( n \colon \mathbb N \).
+    We say that \( \rho \) represents \( A \) in \( n \) bits.
+    Since \( \rho \) is injective, this implicitly defines the surjective function \( \rho^{-1} \colon \mathbb B^n \to A \) such that \( \rho^{-1} \circ \rho \equiv \id_A \).
+    Note that if some \( x \colon \mathbb B^n \) is not contained in the image of \( \rho \), its value under \( \rho^{-1} \) is undefined \textit{a priori}.
+\end{definition}
+\begin{definition}
+    A representation \( \rho \colon A \to \mathbb B^n \) in \( n \) bits is \textit{minimal} if, for all representations \( \sigma \colon A \to \mathbb B^m \) in \( m \) bits, we have \( m \geq n \).
+    That is, the amount of bits required for the representation of \( \rho \) is minimal.
+\end{definition}
+\begin{definition}
+    The canonical binary expansion for \( \mathbb N_n \), written \( \rho_{\mathbb N_n} \), is the base-2 representation of a number using \( n \) bits, where \( \top \) corresponds to a one, and \( \bot \) corresponds to a zero.
+    The representation \( \rho_{\mathbb Z_n} \) works similarly, using two's complement.
+    Floating-point representations are constructed in a similar way.
+    Booleans are represented in a single bit using the identity map.
+    The representation of Unicode code points uses a full 32 bits for convenience of word size.
+    The unit type is represented in zero bits.
+\end{definition}
+It is then trivial to prove the following lemma.
+\begin{lemma}
+    The canonical representations of atomic types, with the exception of \( \mathbb U \), are minimal.
+\end{lemma}
+
+\subsection{Expressions and schemas}
+\begin{definition}
+    A \textit{symbol} is a string of Unicode code points, written as a string.
+    The type of symbols is \( \mathbb S \).
+    When written textually, symbols must be \textit{escaped} in such a way that they are unambiguously symbols.
+    If the symbol contains any non-letter characters, symbols should be surrounded with quote marks \code{"} to disambiguate them.
+    Standard C character escaping should be used to represent control characters and quote marks.
+\end{definition}
+\begin{definition}
+    An \textit{S-expression} is either an atom, a symbol, or a tuple of S-expressions, denoted \code{(x y ... z)} where \code{x}, \code{y}, \code{z} are S-expressions.
+    A \textit{schema} is a prescribed form of an S-expression; it ascribes types to S-expressions that fit a certain form.
+    The symbols \code{*} and \code{+} are used as in Backus-Naur form.
+\end{definition}
+
+\section{Expression syntax}
+
+\subsection{Identifiers}
+
+The following schemas specify identifiers and related types.
+
+\begin{tabular}{r l p{6cm}}
+    \code{Location} \( ::= \) & \code{(}\( \mathbb N_{32} \) \( \mathbb N_{32} \)\code{)} & line number, then column number, zero indexed \\
+    \code{Range} \( ::= \) & \code{(Location Location)} & start location (inclusive), then end location (exclusive) \\
+    \code{Name} \( ::= \) & \( \mathbb S \)\code{\ | (}\( \mathbb S \)\code{\ Range)} & the symbol itself then optionally the range at which it was written \\
+    \code{QualifiedName} \( ::= \) & \code{(}\( \mathbb S \) \code{+)} & list of one or more name segments
+\end{tabular}
+
+A \textit{location} represents a place in some input code.
+Since Feather is an IL, locations refer to a place inside a file of Quill code.
+This allows error messages and debug symbols to refer to the original code.
+A \textit{range} refers to a region of code, typically a single token or token tree.
+
+Feather distinguishes between \textit{names}, which are single symbols representing in-scope items, and \textit{qualified names}, which represent a module hierarchy and then optionally refer to an item inside that hierarchy, depending on context.
+Importantly, a qualified name with only one name segment is \textit{not} a name.
+
+\subsection{Primitives}
+
+\begin{tabular}{r l p{7cm}}
+    \code{Primitive} \( ::= \) & \( \mathbb Z_{n} \)\code{\ |\ }\( \mathbb N_{n} \)\code{\ |\ }\( \mathbb F_{n} \)\code{\ |\ }\( \mathbb U \)\code{\ |\ }\( \mathbb B \)\code{\ |\ }\( \Unit \)
+\end{tabular}
+
+The \( n \) above may be substituted for valid integers.
+
+\subsection{Expressions}
+
+The type of expressions is \code{Expr}.
+Expressions are organised into tree structures.
+There exists a partial function \( p \colon \) \code{Expr} \( \to \) \code{Expr} which yields the parent expression if it exists.
+
+\begin{definition}
+    An expression is called \( n \)-\textit{binding}, or an \( n \)-\textit{binder}, if it creates \( n \) new local variables, assigning them values.
+    An expression that binds no new local variables is called \textit{non-binding}.
+\end{definition}
+
+\begin{definition}
+    The \textit{scope} of an expression is the set of expressions from which it can use variables.
+    If there is a parent expression, the scope is the union of the scope of the parent expression together with the set containing the parent expression.
+    Otherwise, the scope is the empty set.
+    In the context of an expression \( e \), we say that an expression \( f \) is \textit{in scope} if \( f \in \mathrm{scope}(e) \).
+\end{definition}
+
+\begin{definition}
+    Let \( e \) be an expression, \( b \) be an \( n \)-binding expression in scope of \( e \), and \( m \in \qty{0, \dots, n-1} \).
+    The \textit{de Bruijn index} of \( c \) from \( e \), written \( i_e(b, m) \), is a constant referring to the \( m \)th bound variable in the binding expression \( x \).
+    In particular,
+    \[ i_e(b, m) = \begin{cases}
+        i_{p(e)}(b, m) & \text{if } p(e) \neq b \text{ and is non-binding} \\
+        i_{p(e)}(b, m) + k & \text{if } p(e) \neq b \text{ exists and is } k \text{-binding} \\
+        n - m - 1 & \text{if } p(e) = b \\
+    \end{cases} \]
+    This definition orders all variables defined in scope in reverse order, assigning them de Bruijn indices of sequential natural numbers.
+    Note that \( p(e) \) will always exist and this algorithm will always terminate since \( b \) was defined to be in scope of \( e \).
+\end{definition}
+
+Now that the requisite definitions have been made, we can define the schemas for expressions.
+
+\begin{tabular}{r l p{7cm}}
+    \code{Expr} \( ::= \) & \code{ExprContents | (ExprInfo* ExprContents)} \\
+    \code{ExprInfo} \( ::= \) & \code{(at Range) | (ty Expr) | (named Name)} \\
+    \code{DeBruijnIndex} \( ::= \) & \( \mathbb N_{32} \) \\
+    \code{ExprContents} \( ::= \) & \makecell[l]{
+        \code{(local DeBruijnIndex)} \\
+        \code{| (borrow DeBruijnIndex)} \\
+        \code{| (copy Expr)} \\
+        \code{| (inst QualifiedName)} \\
+        \code{| (ap Expr DeBruijnIndex)} \\ % note the A-normal form here
+        \code{| (lambda Expr)} \\
+        \code{| (new QualifiedName Expr*)} \\
+        \code{| (newv QualifiedName\ }\( \mathbb S \) \code{\ Expr*)} \\ % construct a variant of an enum, the S is the variant name
+        \code{| (destructure\ }\( \mathbb N_{32} \)\code{\ Expr)} \\ % the number is how many fields to destructure, mostly used for optimising all the de bruijn calculations
+        \code{| (const\ }\( \mathbb S \) \code{\ Primitive)} \\
+    }
+\end{tabular}
+
+% TODO: add lifetimes to borrow instructions?
+
+The expressions may have additional information attached to them, denoting the location in code where the expression was written, the variable's type (which itself is an expression), or its name if one was given in Quill code.
+The semantic meaning of each expression will be explored later; for now, it suffices to define which expressions are binders.
+In particular, \code{lambda} expressions are 1-binding, \code{destructure n} expressions are \( n \)-binding, and all other expressions defined here are non-binding.
+
+The absence of \code{let} expressions does not change the capabilities of the language.
+Indeed, in pseudocode, we can apply the following rewrite rule.
+\begin{lstlisting}
+    let x = e1 in e2 => (lambda x . e2) e1
+\end{lstlisting}
+
+\backmatter
+
+\printbibliography
 
 \end{document}
