@@ -1,0 +1,157 @@
+\documentclass[11pt, a4paper, parskip=half]{scrbook}
+\usepackage[utf8]{inputenc}
+\usepackage[UKenglish]{babel}
+\usepackage{tgpagella}
+\usepackage{microtype}
+\usepackage[pdfa]{hyperref}
+\hypersetup{colorlinks=true, linktoc=all}
+
+\usepackage{listings}
+\lstset{basicstyle=\ttfamily}
+
+\newcommand{\code}[1]{\lstinline{#1}}
+
+\title{Quill and Feather Language Specifications}
+\author{zeramorphic}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+
+\part{Background}
+
+\chapter{Introduction}
+
+\section{Purpose of this document}
+
+The Quill language is a large project, and it has proven difficult to manage such a large project without adequate planning and formal specification.
+Feature bloat has led the language to a place where its current state is difficult to improve upon incrementally; entire crates of code must be thrown out in order to make meaningful refactors.
+This specification aims to codify the functions of each part of code in such a way that when they are implemented, their design is already well thought-out, and further changes can be made without extensive refactoring or modification.
+
+The document begins with defining Quill's aims and requirements, and the consequences this has on the language.
+In theory, every feature of Quill should be explained in this document, with a clear rationale for the decisions made and the tradeoffs they imply.
+
+It then continues, describing the various language features of Feather and Quill, making formal definitions where useful for further analysis.
+A general background knowledge of type theory and lambda calculus, as well with general language design theory, will be assumed, although merits of various type systems will be discussed in depth in future sections.
+
+\section{Goals}
+
+Quill must be, first and foremost, a functional efficient programming language.
+It is worth elaborating on the definitions and implications of these words, as well as the reasons for having chosen such words.
+
+\subsection{Functional programming}
+
+By \textit{functional}, we refer to functional programming.
+On a macroscopic level, any program accepts some input, performs some calculations, and produces some output.
+Where functional and imperative programming languages differ is the ways in which programmers are empowered to perform such calculations.
+
+Functional programs are, in and of themselves, functions.
+Those functions are constructed by the composition of other functions, repeatedly applying transformations to input data to convert it into new data, until a final result is calculated, at which point it is returned to the user.
+Conversely, an imperative program typically manipulates input data directly, by mutating it, as opposed to transforming it with functions.
+
+There are several advantages to functional programming when compared to imperative programming.
+\begin{itemize}
+    \item A functional program is, by its very nature, comprised of distinct transformative functions.
+    These functions can naturally be easily separated from each other and from the data they operate on.
+    The modularity encourages the use of abstraction, and decouples the functions themselves from their implementation details, which allows for potentially easier refactoring.
+    \item Combinators abstract away boilerplate.
+    Off-by-one errors are difficult to introduce when your loop is encapsulated inside a \code{map} or \code{fold}.
+    \item In \textit{pure} functional programming, functions have no side effects.
+    In particular, they are \textit{deterministic}; a function's output depends only on the function's inputs, regardless of the execution context.
+    This allows for far superior static analysis of programs.
+    Any expression may be safely and easily evaluated at compile time due to this determinism, which removes the need for complicated \code{constexpr} mechanics or code colouring.
+    \item Immutability is preferred by default.
+    Whole transformations of input variables are more idiomatic than gradually updating a variable's contents.
+    This prevents bugs which may be introduced by concurrent modification, such as altering the contents of a list while iterating through it.
+    Code often operates on the assumption that certain variables will not change; this paradigm codifies and enforces that assumption.
+\end{itemize}
+
+\subsection{Programmer versus compiler}
+
+Much of the `benefits' of functional programming outlined above are predicated on a tacit assumption: that it is worth foregoing direct control over the instructions being executed in exchange for fewer bugs and a more robust programming experience.
+
+Fundamentally, every language must define a split of power between the programmer and the compiler.
+Languages in the C family often give the programmer direct control over the system's memory, leaving allocation and deallocation up to the programmer.
+By allowing the programmer such direct access to the sequence of instructions that will be executed, this forces the programmer to assume the responsibility of writing correct code.
+The compiler, to such a programmer, is a tool to take ideas and formalise them into a logical system.
+
+Higher-level languages take a different stance; any gain in performance achieved as a result of direct memory management (for example) is eclipsed by the cognitive load such a system places on the programmer, and the time cost that is incurred when inevitable memory-related bugs are found and must be fixed.
+
+More modern programming languages understand the compiler not as a tool to formalise some already-perfect idea into a logical language, but instead as a partner, which will validate your decisions and ensure that certain logical invariants are upheld.
+Of course, this comes at the cost of flexibility---for example, by denying mutability outright, certain algorithms like quicksort become nontrivial to express.
+
+One particularly prominent example is the Rust compiler, notorious for novice users `fighting the borrow checker'.
+Rust's borrow checker statically analyses memory use using an ownership-based memory model, and thus eliminates whole classes of bugs at compile-time, such as dangling and null pointers.
+This comes at the cost of forcing the programmer to prove to the compiler that memory management is safe at compile time.
+The borrow checker is quite conservative in what it accepts, and if in doubt will reject an otherwise valid program.
+Certain constructions, which would be idiomatic in related languages like C++, are invalid under the rules of the borrow checker in Rust, and many users struggle to understand why the borrow checker is rejecting clearly working code.
+However, once one is familiar with the borrow checker, it becomes clear that it is an ally, not an adversary: delegating some amount of power to the borrow checker is a compromise that allows you to be certain about the memory properties of a program at the expense of absolute freedom.
+
+\subsection{When to compromise with the compiler}
+
+At the heart of Quill is the supposition that it is worth trading absolute freedom for compile-time guarantees, provided that the expense incurred is not `too significant'.
+Unfortunately, what tradeoffs are too significant is a problem of opinion, not of logic, so this remains an unsatisfying conclusion to this analysis.
+We provide a number of heuristics to guide our future discussion.
+Note that these heuristics are very opinionated, and do not apply equally to programming as a whole.
+A number of these assertions originate from the `Zen of Zig', a description of the goals of Zig and its community, accessible on the command line by running \code{zig zen}.
+
+We assert that the language should be built to deal with large projects better than small ones.
+Many programmers have experienced the bloat that arises when tools are used for longer than originally intended, and more and more time is spent forcing yet more features into such programs.
+It is often the case that a small program unintentionally becomes large; it is rarely the case that a large program unintentionally becomes small.
+For this reason, programs should be built with the intent to scale, even if this is not an initial design goal.
+
+Catching bugs at compile time is superior to catching them at runtime.
+Clearly, this belief is not held by all programmers; for instance Python does not have a strict notion of compile time and runtime, and almost all errors (except, of course, syntax errors) can occur at any point during program execution.
+There is also the disadvantage that an incomplete program cannot be run at all.
+There is merit in being able to execute partially completed, logically unsound, programs---provided that this be for the purpose of debugging and aiding development, and not for use in production code.
+Languages that have more compile-time guarantees are often harder to get a running program, but often easier to get a correct program once it does run.
+Given that a common objective is to create correct and sound code, even if that means more initial time in development, means that we err on the side of compile-time guarantees when possible.
+
+Clarity in reading and understanding code is favoured over ease of writing code.
+Code is written only once, but read many times.
+By making relations clear between different parts of a program, for example by establishing strict visibility rules, large programs become easier to understand.
+
+Code should be designed in a modular manner.
+In any large project, refactoring and redesigning certain modules is inevitable.
+The programming language should actively work to make such tasks easier to perform.
+By promoting a culture of modular code design, these inevitable processes become significantly less of a burden.
+Independent, modular parts are much more simple to reason logically about, when compared to large interlinked processes.
+Given the emphasis on reading (and understanding) code over writing it, a modular design is instrumental.
+
+Data should be decoupled from the operations performed on them.
+This opposes the paradigm of object-oriented programming, which often ties together any data with its functions.
+With languages like Java, this paradigm falls into the problem that all functions \textit{must} be contained with a class, degrading the meaning of a class as an object that may be instantiated with an inheritance hierarchy.
+Inheritance-based languages also suffer from the \textit{diamond problem}.
+These issues are not sufficient to abandon the object-oriented paradigm completely---indeed, object-oriented programming has many benefits, especially in particular domains with concrete inheritance hierarchies---but are enough for our purposes to favour an alternate paradigm.
+
+Processes should be designed in a sufficiently abstract way as to know only what it must.
+If a function's argument may be of an arbitrary type, there is no use in specifying it; indeed, this can only introduce bugs, when implementation details are unintentionally relied on.
+Whenever possible, features like Rust's traits or Haskell's typeclasses should be used to intentionally `forget' unneeded information.
+
+\subsection{Efficient programming}
+
+Under the aforementioned constraints, Quill should be the most efficient language possible.
+It is important to emphasise here that speed will \textit{never} come at the expense of one of Quill's other goals.
+Quill will never become a `functional C'; the level of independence offered over memory management offered (and required) by C conflicts with, for example, the axiom that catching bugs at compile time is better than catching them at runtime.
+When such languages as Rust exist, which demonstrate the ability for a modern language to have neither a garbage collector nor unsafe memory access, it is difficult to justify the inclusion of such a feature into Quill.
+
+However, when possible, efficient constructs will be favoured over inefficient ones.
+Perhaps most importantly, Quill is a compiled language, not a just-in-time compiled or interpreted language.
+This provides a clear speed benefit, and the only cost for the programmer is perhaps an increase in compilation time.
+
+This analysis would imply that the best choice for Quill should be a Rust-like ownership system.
+Such a system has not seen prominence in functional programming languages to date, but we intend to show that this is not as a result of incompatibility of the two paradigms---rather, ownership-based memory management is simply a sufficiently new concept such that many languages have not caught up with the development yet.
+
+Denying the ability for the programmer to write efficient imperative constructs places a burden on the compiler to translate idiomatic functional programs into efficient imperative ones.
+As a basic example, tail-recursion can be easily translated into iteration.
+Constructs such as lambda abstractions and higher-order functions can in theory be translated into ordinary functions whose efficiency matches that of C.
+
+Not all efficiency constraints are in direct opposition to some of Quill's goals.
+For example, compile-time optimisation and static analysis is greatly aided by Quill's emphasis on static typing and modular design.
+
+Concurrency may also be implemented in a way that easily aligns with Quill's objectives, by utilising concepts such as the \code{Send} and \code{Sync} marker traits from Rust.
+Again, compile-time guarantees are used to reduce or eliminate the possibility of runtime bugs.
+
+\end{document}
