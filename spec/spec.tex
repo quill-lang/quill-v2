@@ -1,7 +1,6 @@
 \documentclass[UKenglish, 11pt, a4paper, parskip=half]{scrbook}
 \usepackage[utf8]{inputenc}
 \usepackage[UKenglish]{babel}
-\usepackage{tgpagella}
 \usepackage{makecell}
 \usepackage{microtype}
 \usepackage[pdfa]{hyperref}
@@ -9,8 +8,21 @@
 \usepackage[style=numeric]{biblatex}
 \addbibresource{refs.bib}
 \defcaptionname{UKenglish}{\bibname}{References}
+
+\usepackage{fontspec}
+\setmainfont[Ligatures=TeX]{TeX Gyre Pagella}
+\setmonofont{Fira Code}[
+    Scale=MatchLowercase,
+    Contextuals=Alternate  % Activate the calt feature
+]
 \usepackage{listings}
-\lstset{basicstyle=\ttfamily}
+\usepackage{lstfiracode} % https://ctan.org/pkg/lstfiracode
+\lstset{
+    %language=C++,
+    style=FiraCodeStyle,   % Use predefined FiraCodeStyle
+    basicstyle=\ttfamily   % Use \ttfamily for source code listings
+}
+
 \newcommand{\code}[1]{\lstinline{#1}}
 
 \usepackage{amsmath}
@@ -445,9 +457,10 @@ It is then trivial to prove the following lemma.
     Standard C character escaping should be used to represent control characters and quote marks.
 \end{definition}
 \begin{definition}
-    An \textit{S-expression} is either an atom, a symbol, or a tuple of S-expressions, denoted \code{(x y ... z)} where \code{x}, \code{y}, \code{z} are S-expressions.
+    An \textit{S-expression} is either an atom, a symbol, or a list of S-expressions, denoted \code{(x y ... z)} where \code{x}, \code{y}, \code{z} are S-expressions.
     A \textit{schema} is a prescribed form of an S-expression; it ascribes types to S-expressions that fit a certain form.
     The symbols \code{*} and \code{+} are used as in Backus-Naur form.
+    Note that \code{T*}, for example, is not an S-expression alone; it is a list of S-expressions which must be parenthesised in order to form an S-expression.
 \end{definition}
 
 \section{Expression syntax}
@@ -513,8 +526,6 @@ There exists a partial function \( p \colon \) \code{Expr} \( \to \) \code{Expr}
 Now that the requisite definitions have been made, we can define the schemas for expressions.
 
 \begin{tabular}{r l p{7cm}}
-    \code{Expr} \( ::= \) & \code{ExprContents | (ExprInfo* ExprContents)} \\
-    \code{ExprInfo} \( ::= \) & \code{(at Range) | (ty Expr) | (named Name)} \\
     \code{DeBruijnIndex} \( ::= \) & \( \mathbb N_{32} \) \\
     \code{ExprContents} \( ::= \) & \makecell[l]{
         \code{(local DeBruijnIndex)} \\
@@ -527,10 +538,15 @@ Now that the requisite definitions have been made, we can define the schemas for
         \code{| (newv QualifiedName\ }\( \mathbb S \) \code{\ Expr*)} \\ % construct a variant of an enum, the S is the variant name
         \code{| (destructure\ }\( \mathbb N_{32} \)\code{\ Expr)} \\ % the number is how many fields to destructure, mostly used for optimising all the de bruijn calculations
         \code{| (const\ }\( \mathbb S \) \code{\ Primitive)} \\
-    }
+    } \\
+    \code{ExprInfo} \( ::= \) & \code{(at Range) | (ty Expr) | (named Name)} \\
+    \code{Expr} \( ::= \) & \code{ExprContents | (ExprInfo* ExprContents)}
 \end{tabular}
 
 % TODO: add lifetimes to borrow instructions?
+% TODO: add a "create type" expression
+
+Any variant of the \code{ExprInfo} tag may only be supplied once per expression.
 
 The expressions may have additional information attached to them, denoting the location in code where the expression was written, the variable's type (which itself is an expression), or its name if one was given in Quill code.
 The semantic meaning of each expression will be explored later; for now, it suffices to define which expressions are binders.
@@ -540,6 +556,52 @@ The absence of \code{let} expressions does not change the capabilities of the la
 Indeed, in pseudocode, we can apply the following rewrite rule.
 \begin{lstlisting}
     let x = e1 in e2 => (lambda x . e2) e1
+\end{lstlisting}
+
+\section{Top-level hierarchy}
+
+\subsection{Modules}
+
+Expressions are stored for use in definitions.
+Definitions are contained within modules.
+Modules are each stored as their own S-expressions, and are not contained within any parent object.
+
+\begin{tabular}{r l p{7cm}}
+    \code{Visibility} \( ::= \) & \code{pub | priv} \\
+    \code{DefInfo} \( ::= \) & \code{(at Range) | (ty Expr) | (vis Visibility) | (doc\ }\( \mathbb S \)\code{)} \\
+    \code{Def} \( ::= \) & \code{(def DefInfo* Name Expr)} \\
+    \code{ModuleInfo} \( ::= \) & \code{(file QualifiedName) | (doc\ }\( \mathbb S \)\code{)} \\
+    \code{Module} \( ::= \) & \code{(module ModuleInfo* Def*)}
+\end{tabular}
+
+If present, a \code{doc} tag represents documentation for the definition or module in question.
+Any variant of the \code{DefInfo} or \code{ModuleInfo} tags may only be supplied once per definition or module.
+Definitions must have unique names within a module.
+
+\subsection{Projects}
+
+A project is comprised of a hierarchical structure of modules.
+Since modules are not stored inside a parent object, the descriptions of modules inside projects simply refer to the name of the module.
+The module itself can then be loaded from disk when necessary.
+% TODO: sort out dependencies
+
+\begin{tabular}{r l p{7cm}}
+    \code{ProjectInfo} \( ::= \) & \code{(doc\ }\( \mathbb S \)\code{)} \\
+    \code{ProjectModule} \( ::= \) & \code{(module QualifiedName)} \\
+    \code{Project} \( ::= \) & \code{(project\ }\( \mathbb S \)\code{\ ProjectInfo* ProjectModule*)} \\
+\end{tabular}
+
+Any variant of the \code{ProjectInfo} tag may only be supplied once.
+
+\section{Examples}
+Here is an example of a simple module which exports a function to compute the sum of two integers.
+For the purposes of this example, assume the existence of a function \code{add} of type \( \mathbb Z_{64} \to \mathbb Z_{64} \) stored within the module \code{core.i64}.
+\begin{lstlisting}
+(module (doc "Provides a function to compute the sum of two integers.")
+    (def (vis pub) (doc "Computes the sum of two integers.") sum
+        (lambda (lambda (ap (ap (new core i64 add) 0) 1)))
+    )
+)
 \end{lstlisting}
 
 \backmatter
