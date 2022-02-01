@@ -7,7 +7,6 @@
 \hypersetup{colorlinks=true, linktoc=all}
 \usepackage[style=numeric]{biblatex}
 \addbibresource{refs.bib}
-\defcaptionname{UKenglish}{\bibname}{References}
 
 \usepackage{fontspec}
 \setmainfont[Ligatures=TeX]{TeX Gyre Pagella}
@@ -18,31 +17,30 @@
 \usepackage{listings}
 \usepackage{lstfiracode} % https://ctan.org/pkg/lstfiracode
 \lstset{
-    %language=C++,
     style=FiraCodeStyle,   % Use predefined FiraCodeStyle
     basicstyle=\ttfamily   % Use \ttfamily for source code listings
 }
 
-\newcommand{\code}[1]{\lstinline{#1}}
+\newcommand{\inlinecode}[1]{\lstinline{#1}}
 
 \usepackage{amsmath}
 \usepackage{amsthm}
 \usepackage{amssymb}
 \usepackage{physics}
+\usepackage{tikz-cd}
+\usepackage[titletoc]{appendix}
 
-\theoremstyle{definition}
-\newtheorem*{definition}{Definition}
-\newtheorem*{claim}{Claim}
-\newtheorem*{theorem}{Theorem}
-\newtheorem*{proposition}{Proposition}
-\newtheorem*{lemma}{Lemma}
-\newtheorem*{corollary}{Corollary}
-\newtheorem*{example}{Example}
+\usepackage{mathpartir}
+\usepackage{braket}
+\usepackage[all,2cell,cmtip]{xy}
+\usepackage[capitalize]{cleveref}
+\usepackage{aliascnt}
+\usepackage{enumitem}
+\usepackage{xspace}
+\usepackage{mathtools}
+\include{hott_macros.tex}
 
-\newcommand{\Empty}{{\vb{0}}}
-\newcommand{\Unit}{{\vb{1}}}
-\newcommand{\unit}{{\vb{\star}}}
-\DeclareMathOperator{\id}{id}
+\AtBeginEnvironment{appendices}{\crefalias{chapter}{appendix}}
 
 \title{Quill and Feather Language Specifications}
 \author{zeramorphic}
@@ -111,11 +109,11 @@ There are several advantages to functional programming when compared to imperati
     These functions can naturally be easily separated from each other and from the data they operate on.
     The modularity encourages the use of abstraction, and decouples the functions themselves from their implementation details, which allows for potentially easier refactoring.
     \item Combinators abstract away boilerplate.
-    Off-by-one errors are difficult to introduce when your loop is encapsulated inside a \code{map} or \code{fold}.
+    Off-by-one errors are difficult to introduce when your loop is encapsulated inside a \inlinecode{map} or \inlinecode{fold}.
     \item In \textit{pure} functional programming, functions have no side effects.
     In particular, they are \textit{deterministic}; a function's output depends only on the function's inputs, regardless of the execution context.
     This allows for far superior static analysis of programs.
-    Any expression may be safely and easily evaluated at compile time due to this determinism, which removes the need for complicated \code{constexpr} mechanics or code colouring.
+    Any expression may be safely and easily evaluated at compile time due to this determinism, which removes the need for complicated \inlinecode{constexpr} mechanics or code colouring.
     \item Immutability is preferred by default.
     Whole transformations of input variables are more idiomatic than gradually updating a variable's contents.
     This prevents bugs which may be introduced by concurrent modification, such as altering the contents of a list while iterating through it.
@@ -149,7 +147,7 @@ At the heart of Quill is the supposition that it is worth trading absolute freed
 Unfortunately, what tradeoffs are too significant is a problem of opinion, not of logic, so this remains an unsatisfying conclusion to this analysis.
 We provide a number of heuristics to guide our future discussion.
 Note that these heuristics are very opinionated, and do not apply equally to programming as a whole.
-A number of these assertions originate from the `Zen of Zig', a description of the goals of Zig and its community, accessible on the command line by running \code{zig zen}.
+A number of these assertions originate from the `Zen of Zig', a description of the goals of Zig and its community, accessible on the command line by running \inlinecode{zig zen}.
 
 We assert that the language should be built to deal with large projects better than small ones.
 Many programmers have experienced the bloat that arises when tools are used for longer than originally intended, and more and more time is spent forcing yet more features into such programs.
@@ -210,7 +208,7 @@ Constructs such as lambda abstractions and higher-order functions can in theory 
 Not all efficiency constraints are in direct opposition to some of Quill's goals.
 For example, compile-time optimisation and static analysis is greatly aided by Quill's emphasis on static typing and modular design.
 
-Concurrency may also be implemented in a way that easily aligns with Quill's objectives, by utilising concepts such as the \code{Send} and \code{Sync} marker traits from Rust.
+Concurrency may also be implemented in a way that easily aligns with Quill's objectives, by utilising concepts such as the \inlinecode{Send} and \inlinecode{Sync} marker traits from Rust.
 Again, compile-time guarantees are used to reduce or eliminate the possibility of runtime bugs.
 
 \section{Requirements}
@@ -256,9 +254,9 @@ Thus, we arrive at another axiom for Quill (and hence Feather) to follow: everyt
 
 In letting types and abstractions be values, the compiler is obligated to perform certain optimisations.
 Types cannot be represented in compiled machine code in the same way they can be represented in Feather, so it falls on the compiler to deduce all types at compile time.
-Higher-rank functions are used often in abstractions, such as in functors, which have a \code{map} function generic over any input type.
+Higher-rank functions are used often in abstractions, such as in functors, which have a \inlinecode{map} function generic over any input type.
 Clearly, the types used inside the functor must be determined statically and converted to ordinary functions so that types do not need to be represented at runtime.
-This also adds the compile-time benefit of optimisation for specific input types; for example, a \code{memcpy} would be unnecessary if the type being copied is zero-sized.
+This also adds the compile-time benefit of optimisation for specific input types; for example, a \inlinecode{memcpy} would be unnecessary if the type being copied is zero-sized.
 
 Multiple dispatch from Julia and related languages can be emulated at compile-time by simply allowing the implementation of an abstraction used to be chosen at the time of the function call, rather than forced by the type system \cite{MultipleDispatch}.
 In particular, by providing various implementations of an abstraction to the compiler itself, the compiler can choose the most appropriate abstraction for the task at compile-time using specialisation rules---although since abstractions are values, the programmer is of course free to specify which abstraction to use manually.
@@ -271,7 +269,80 @@ The compiler should be able to evaluate such functions at compile time.
 This foregoes the typical need for a macro system like in C, by simply allowing Quill to be its own macro system.
 Rust's procedural macros fill a similar role, in that they use Rust code to generate more Rust code, and can even parse code blocks and apply transformations \cite{ProcMacros}.
 In accordance with the principle of modularity, Quill's language design should be minimal yet expressive, and syntax extensions should then provide the necessary conveniences for developing idiomatic functional code.
-For example, monadic \code{do} blocks may not be part of the base language.
+For example, monadic \inlinecode{do} blocks may not be part of the base language.
+
+% we can't hope to cover all of logic in a spec, just defer to HoTT book
+\iffalse{}
+\section{Logical systems}
+
+\subsection{Type theory}
+
+To aid in our descriptions and analysis, type theory will be used extensively.
+Before blindly applying type theory to Quill, however, we must choose which theory to follow.
+The theory that aligns closest to Quill's goals appears to be homotopy type theory.
+It represents types and proofs as values, which can be manipulated on the same level as more conventional values.
+It also aims to solve a number of issues present in other intuitionistic type theories.
+
+Even though (homotopy) type theory is a powerful tool, some set theory will also be used where it is less verbose than equivalent type-theoretic constructions.
+Our use of type theory is practical; it will often make sense to forego formality in pursuit of clarity, provided that the key logical arguments are not lost.
+
+We begin here by presenting an informal description of many of the key principles of homotopy type theory, which can be found in the book `Homotopy Type Theory' \cite{hottbook}.
+
+\begin{defn}
+    A \textit{universe} is a collection whose elements are called \textit{types}.
+    If \( A \) is an element of universe \( \mathcal U \), we write \( A : \mathcal U \).
+\end{defn}
+We assert the existence of a hierarchy of universes.
+\[ \mathcal U_0 : \mathcal U_1 : \mathcal U_2 : \cdots \]
+We can also write \( A : \mathcal U_j \) if \( j \geq i \).
+\begin{defn}
+    Given a universe \( \mathcal U_i \), a type \( A \) is called \textit{small} if \( A : \mathcal U_i \).
+    Assuming indices \( i \) may be assigned in a consistent way in a given context, the indices may be omitted, and we can write \( A : \mathcal U \).
+\end{defn}
+\begin{defn}
+    A \textit{judgment} is a statement of the form \( a : A \).
+    If such a judgment is determined to be true, then we say \( a \) has type \( A \).
+    A type \( A \) is \textit{inhabited} if there exists an object \( a \) such that \( a : A \).
+    A type is uninhabited if there does not exist such an object.
+    If \( A \) is a type that represents a proposition under the Curry-Howard correspondence, then if \( a : A \), \( a \) is a \textit{witness} to the provability of \( A \).
+\end{defn}
+
+A fundamental notion of type systems is that of equality: given two values \( a \) and \( b \), when can we say that \( a = b \)?
+Many theories tackle this notion in different ways.
+There are two key notions of equality in type theory, that of judgmental equality and propositional equality \cite[p.~18--19]{hottbook}.
+\begin{defn}
+    Let \( A \) be a type, and \( a, b : A \).
+    Then, the type \( a =_A b \) exists, and is called the \textit{propositional equality type of \( a \) and \( b \)}.
+    If this type is inhabited, we say that \( a \) and \( b \) are \textit{propositionally equal}.
+\end{defn}
+\begin{defn}
+    Let \( A \) be a type, and \( a, b : A \).
+    If \( a \) and \( b \) are equal by definition, then \( a \) and \( b \) are \textit{equal by definition}, \textit{definitionally equal}, or \textit{judgmentally equal}.
+    This is written \( a \equiv b : A \).
+    Checking definitional equality is algorithmically computable; it amounts to expanding out the definitions
+\end{defn}
+By convention \cite[p.~19]{hottbook}, the symbols \( : \) and \( \equiv \) have lowest operator precedence.
+However, when using the sequent calculus, we define that the \( , \) and \( \vdash \) symbols, along with wide spacing, have even lower precenence, in that order (highest to lowest).
+For instance, the expression \( \Gamma, x : \tau \vdash e : \tau' \) should be interpreted as \( (\Gamma, (x : \tau)) \vdash (e : \tau') \).
+\begin{eg}
+    The objects \( 2 + 2 \) and \( 4 \) are propositionally equal, since we can construct a proof that \( 2 + 2 = 4 \).
+    Conversely, if we define \( a :\equiv 2 : \mathbb N \), then \( a \) and \( 2 \) are equal by definition.
+\end{eg}
+\begin{defn}
+    If \( A \) and \( B \) are types, then \( A \to B \) is the type of functions with domain \( A \) and codomain \( B \).
+\end{defn}
+
+\subsection{Sequent calculus}
+
+To formally define typing rules, we use the \textit{sequent calculus}, a form of logical reasoning.
+Consider the statement \( \Gamma \vdash \Sigma \), where \( \Gamma \) and \( \Sigma \) are sequences of logical propositions.
+This formula states that given the truth of all statements in \( \Gamma \), there exists a proposition in \( \Sigma \) which is true.
+\begin{defn}
+    An \textit{inference rule} is a formula of the form
+    \[ \frac{\Gamma_1 \vdash \Sigma_1\quad \cdots \quad\Gamma_n \vdash \Sigma_n}{\Gamma \vdash \Sigma} \]
+    The numerator contains a set of \textit{premises}, all of which must be fulfilled in order for the rule to be applied, after which the \textit{conclusion} on the denominator will be reached.
+\end{defn}
+\fi{}
 
 \section{High-level design}
 
@@ -280,20 +351,20 @@ Each part should be represented as one or more distinct and non-hierarchical mod
 In particular, any shared data between two parts should be realised as a distinct shared module, not by including one part as a dependency of another.
 These parts will be presented roughly chronologically in the order they are used to compile a Quill program.
 
-\subsection{Lexer (\code{lex})}
+\subsection{Lexer (\inlinecode{lex})}
 
 Quill programs are read from an input file, or standard input.
 The resulting stream of Unicode code points is converted into a stream of \textit{tokens}, logically indivisible chunks that have a type.
-For example, a symbol such as \code{/} is a token, and a string such as \code{"Hello, world!"} is also a token.
+For example, a symbol such as \inlinecode{/} is a token, and a string such as \inlinecode{"Hello, world!"} is also a token.
 
-Then, token streams are converted into \textit{token trees}, which are pairs of brackets of matching type and their contents, such as \code{(1 + 2)}.
+Then, token streams are converted into \textit{token trees}, which are pairs of brackets of matching type and their contents, such as \inlinecode{(1 + 2)}.
 Naturally, token trees may be nested.
 
 The lexer supports syntax extensions, which alter the rules it uses to classify tokens.
-For instance, a syntax extension could be used to convert \code{10m} into \code{metres 10}.
-The resulting code \code{metres 10} will be automatically enclosed in a token tree, so that operator precedence is automatically handled, unlike in the C preprocessor.
+For instance, a syntax extension could be used to convert \inlinecode{10m} into \inlinecode{metres 10}.
+The resulting code \inlinecode{metres 10} will be automatically enclosed in a token tree, so that operator precedence is automatically handled, unlike in the C preprocessor.
 
-\subsection{Parser (\code{parse})}
+\subsection{Parser (\inlinecode{parse})}
 
 Token trees from the lexer are analysed to check that they match certain patterns defined either by the Quill compiler or by syntax extensions.
 Each pattern may contain sub-patterns that also need to be parsed recursively.
@@ -303,41 +374,41 @@ The nodes of this abstract syntax tree represent expressions or top-level defini
 Syntax extensions cannot create new node types.
 Many nodes in the syntax tree will be given a type, and most nodes in the tree will provide some typing information for the type checker, such as equivalence relations between types of certain nodes.
 
-\subsection{Type checker (\code{typeck})}
+\subsection{Type checker (\inlinecode{typeck})}
 
 The type checker infers types of all variables in a given expression, given the constraints from the parser.
 This may need to execute arbitrary Quill code, especially when types are manipulated as values.
 Thus, this and almost all future parts of the compiler may be executed in parallel.
 This results in a typed syntax tree.
 
-\subsection{Feather transpiler (\code{feathergen})}
+\subsection{Feather transpiler (\inlinecode{feathergen})}
 
 Typed syntax trees are converted into Feather, an intermediate language that can be executed and compiled to machine code.
 Expressions in Feather are based on a modified version of \textit{administrative normal form} (ANF), taking influence from \textit{K-normal form} (KNF).
 This representation allows many code transformations and optimisations to be performed \cite{ANFContinued}, while retaining the semantic content of regions to be used for lifetime analysis \cite{KNF}.
 
-\subsection{Interpreter (\code{interpret})}
+\subsection{Interpreter (\inlinecode{interpret})}
 
 Feather code can be evaluated directly without compilation.
 The resulting code will likely run slower than compiled code, but no expensive code generation or linking step is required.
 This is used to execute expressions at compile time, such as type manipulation.
 
-\subsection{Monomorphisation (\code{mono})}
+\subsection{Monomorphisation (\inlinecode{mono})}
 
 Static analysis on Feather expressions is performed, and all values of runtime-incompatible types, such as types and higher-rank functions, are deduced.
 The resulting code is duplicated for each possible (semantically different) value of these values, and usages are updated so that the code no longer depends on higher-rank functions or types as values.
 At this stage, implementations of abstractions can be resolved automatically.
 
-\subsection{Code generation (\code{codegen})}
+\subsection{Code generation (\inlinecode{codegen})}
 
 Feather programs must be compiled into machine code.
-This task is handled by the \code{codegen} module.
+This task is handled by the \inlinecode{codegen} module.
 At a high level, this module takes monomorphised Feather code and converts it into LLVM IR, which will be passed off to an LLVM compiler which will convert it to machine code.
 This process involves the conversion of function paradigms such as recursion into imperative constructs such as iteration, or functional transformations into mutation where applicable.
 It also must provide native implementations of standard library functions that cannot be expressed without some interaction with the OS or kernel.
 This also acts as a frontend for linking the final object files together into an executable.
 
-\subsection{Diagnostics and error handling (\code{diag})}
+\subsection{Diagnostics and error handling (\inlinecode{diag})}
 
 Using this diagnostic infrastructure, errors and warnings may be emitted with reference to the actual code that caused the error, displaying an easy-to-read representation of the error on the command line.
 
@@ -346,30 +417,6 @@ Using this diagnostic infrastructure, errors and warnings may be emitted with re
 To increase and enforce modularity, the functionality each of the above modules is typically represented using queries.
 This has seen use in Rust \cite{RustDevGuideOverview}, which has been seen to enhance incremental compilation among other modularity benefits.
 This will also empower the compiler to act in parallel.
-
-\section{Prerequisites}
-
-To aid in our descriptions, type theoretic syntax will be used.
-We begin here by presenting an informal description of many of the key principles of intuitionistic type theory, which can be found in the book `Homotopy Type Theory' \cite{hottbook}.
-Certain prerequisite knowledge, such as the use of \( A \to B \) to denote the type of pure functions from \( A \) to \( B \), or the typed lambda calculus, will be assumed.
-However, more complex type-theoretic practices, specifically those which differ between authors, are detailed below.
-
-In this specification, we assume the existence of a hierarchy of universes.
-\[ \mathcal U_0 \colon \mathcal U_1 \colon \mathcal U_2 \colon \cdots \]
-
-\begin{definition}
-    An object \( A \) is a \textit{type} if \( A \) inhabits some universe \( \mathcal U_i \).
-    We write \( A \colon \mathcal U_i \).
-    We can also write \( A \colon \mathcal U_j \) if \( j \geq i \).
-    Given a universe \( \mathcal U_i \), a type \( A \) is called \textit{small} if \( A \colon \mathcal U_i \).
-    Assuming indices \( i \) may be assigned in a consistent way in a given context, the indices may be omitted, and we can write \( A \colon \mathcal U \).
-\end{definition}
-\begin{definition}
-    A \textit{judgment} is a statement of the form \( a \colon A \).
-    If \( A \) is a type that represents a proposition, then \( a \) is a \textit{witness} to the provability of \( A \).
-\end{definition}
-
-Even though type theory is a powerful tool, some set theory will also be used where it is less verbose than equivalent type-theoretic constructions.
 
 \mainmatter
 
@@ -389,79 +436,79 @@ Hence, we will discuss here the textual representation, and leave the in-memory 
 
 We begin our discussion of Feather by defining its core building blocks.
 We assume the definition of the types \( \mathbb N \) of natural numbers \( 0, 1, \dots \), along with the usual arithmetic operations.
-\begin{definition}
+\begin{defn}
     An \textit{\( n \)-bit unsigned integer} is an element of \( \mathbb N \) strictly less than the value \( 2^n \).
-    That is, \( x \) is an \( n \)-bit unsigned integer if there exists a value \( y \colon \mathbb N \) such that \( x + y = 2^n \) and \( y \neq 0 \).
-    We construct the type of \( n \)-bit unsigned integers, written \( \mathbb N_n \colon \mathcal U_0 \).
+    That is, \( x \) is an \( n \)-bit unsigned integer if there exists a value \( y : \mathbb N \) such that \( x + y = 2^n \) and \( y \neq 0 \).
+    We construct the type of \( n \)-bit unsigned integers, written \( \mathbb N_n : \mathcal U_0 \).
     To preserve uniqueness of types, we will write \( x_n \) to denote the instance of \( x \) of type \( \mathbb N_n \).
     For clarity, the notation \( x_{\mathbb N_n} \) is also used.
-\end{definition}
+\end{defn}
 Let \( \mathbb Z \) be the type of all integers, created by generating a group from \( \mathbb N \) under addition.
-\begin{definition}
+\begin{defn}
     An \textit{\( n \)-bit signed integer} is an element of \( \mathbb Z \) not less than \( -2^{n-1} \), and strictly less than \( 2^{n-1} \).
-    Likewise we construct the type of \( n \)-bit signed integers, denoted \( \mathbb Z_n \colon \mathcal U_0 \).
+    Likewise we construct the type of \( n \)-bit signed integers, denoted \( \mathbb Z_n : \mathcal U_0 \).
     Again, the notation \( x_n = x_{\mathbb Z_n} \) is used to refer to the instance of \( x \) that has type \( \mathbb Z_n \).
-\end{definition}
-\begin{definition}
-    For \( n = 16, 32, 64, 128, 256 \), we define the \textit{\( n \)-bit floating point} type \( \mathbb F_n \colon \mathcal U_0 \) to be the quotient of \( \mathbb N_n \) by the equivalence relation defined by the IEEE 754 standard for floating point representation.
+\end{defn}
+\begin{defn}
+    For \( n = 16, 32, 64, 128, 256 \), we define the \textit{\( n \)-bit floating point} type \( \mathbb F_n : \mathcal U_0 \) to be the quotient of \( \mathbb N_n \) by the equivalence relation defined by the IEEE 754 standard for floating point representation.
     Arithmetic is defined on this type as per the specification \cite{IEEE754}.
-\end{definition}
-\begin{definition}
-    We define the Boolean type \( \mathbb B \colon \mathcal U_0 \) with elements \( \qty{\top, \bot} \), conventionally named `true' and `false'.
-\end{definition}
-\begin{definition}
-    Let \( \mathbb U \colon \mathcal U_0 \) be the type of Unicode code points; its elements are 64-bit unsigned integers as defined above, tagged \( x_{\mathbb U} \) such that their type is not simply \( \mathbb N \).
-\end{definition}
-\begin{definition}
-    Let \( \Empty \) be the \textit{empty type} with no elements.
-    Let \( \Unit \colon \mathcal U_0 \) be the \textit{unit type} with one element \( \unit \colon \Unit \).
-\end{definition}
+\end{defn}
+\begin{defn}
+    We define the Boolean type \( \mathbb B : \mathcal U_0 \) with elements \( \qty{\top, \bot} \), conventionally named `true' and `false'.
+\end{defn}
+\begin{defn}
+    Let \( \mathbb U : \mathcal U_0 \) be the type of Unicode code points; its elements are 64-bit unsigned integers as defined above, tagged \( x_{\mathbb U} \) such that their type is not simply \( \mathbb N \).
+\end{defn}
+\begin{defn}
+    Let \( \emptyt \) be the \textit{empty type} with no elements.
+    Let \( \ttt : \mathcal U_0 \) be the \textit{unit type} with one element \( \ttt : \ttt \).
+\end{defn}
 These are exactly the primitive types used in Feather.
-\begin{definition}
-    An \textit{atom} is an element of type \( \mathbb N_n, \mathbb Z_n, \mathbb F_n, \mathbb B, \mathbb U, \Empty, \Unit \) for any valid \( n \).
+\begin{defn}
+    An \textit{atom} is an element of type \( \mathbb N_n, \mathbb Z_n, \mathbb F_n, \mathbb B, \mathbb U, \emptyt, \ttt \) for any valid \( n \).
     Note that all atoms have small type; that is, their types are all in the space \( \mathcal U_0 \).
-\end{definition}
+\end{defn}
 
 \subsection{Binary representations}
-\begin{definition}
-    A \textit{(binary) representation} of a type \( A \colon \mathcal U \) is an injective function
-    \[ \rho \colon A \to \mathbb B^n \]
-    for some \( n \colon \mathbb N \).
+\begin{defn}
+    A \textit{(binary) representation} of a type \( A : \mathcal U \) is an injective function
+    \[ \rho : A \to \mathbb B^n \]
+    for some \( n : \mathbb N \).
     We say that \( \rho \) represents \( A \) in \( n \) bits.
-    Since \( \rho \) is injective, this implicitly defines the surjective function \( \rho^{-1} \colon \mathbb B^n \to A \) such that \( \rho^{-1} \circ \rho \equiv \id_A \).
-    Note that if some \( x \colon \mathbb B^n \) is not contained in the image of \( \rho \), its value under \( \rho^{-1} \) is undefined \textit{a priori}.
-\end{definition}
-\begin{definition}
-    A representation \( \rho \colon A \to \mathbb B^n \) in \( n \) bits is \textit{minimal} if, for all representations \( \sigma \colon A \to \mathbb B^m \) in \( m \) bits, we have \( m \geq n \).
+    Since \( \rho \) is injective, this implicitly defines the surjective function \( \rho^{-1} : \mathbb B^n \to A \) such that \( \rho^{-1} \circ \rho \equiv \mathrm{id}_A \).
+    Note that if some \( x : \mathbb B^n \) is not contained in the image of \( \rho \), its value under \( \rho^{-1} \) is undefined \textit{a priori}.
+\end{defn}
+\begin{defn}
+    A representation \( \rho : A \to \mathbb B^n \) in \( n \) bits is \textit{minimal} if, for all representations \( \sigma : A \to \mathbb B^m \) in \( m \) bits, we have \( m \geq n \).
     That is, the amount of bits required for the representation of \( \rho \) is minimal.
-\end{definition}
-\begin{definition}
+\end{defn}
+\begin{defn}
     The canonical binary expansion for \( \mathbb N_n \), written \( \rho_{\mathbb N_n} \), is the base-2 representation of a number using \( n \) bits, where \( \top \) corresponds to a one, and \( \bot \) corresponds to a zero.
     The representation \( \rho_{\mathbb Z_n} \) works similarly, using two's complement.
     Floating-point representations are constructed in a similar way.
     Booleans are represented in a single bit using the identity map.
     The representation of Unicode code points uses a full 32 bits for convenience of word size.
     The unit type is represented in zero bits.
-\end{definition}
+\end{defn}
 It is then trivial to prove the following lemma.
-\begin{lemma}
+\begin{lem}
     The canonical representations of atomic types, with the exception of \( \mathbb U \), are minimal.
-\end{lemma}
+\end{lem}
 
 \subsection{Expressions and schemas}
-\begin{definition}
+\begin{defn}
     A \textit{symbol} is a string of Unicode code points, written as a string.
     The type of symbols is \( \mathbb S \).
     When written textually, symbols must be \textit{escaped} in such a way that they are unambiguously symbols.
-    If the symbol contains any non-letter characters, symbols should be surrounded with quote marks \code{"} to disambiguate them.
+    If the symbol contains any non-letter characters, symbols should be surrounded with quote marks \inlinecode{"} to disambiguate them.
     Standard C character escaping should be used to represent control characters and quote marks.
-\end{definition}
-\begin{definition}
-    An \textit{S-expression} is either an atom, a symbol, or a list of S-expressions, denoted \code{(x y ... z)} where \code{x}, \code{y}, \code{z} are S-expressions.
+\end{defn}
+\begin{defn}
+    An \textit{S-expression} is either an atom, a symbol, or a list of S-expressions, denoted \inlinecode{(x y ... z)} where \inlinecode{x}, \inlinecode{y}, \inlinecode{z} are S-expressions.
     A \textit{schema} is a prescribed form of an S-expression; it ascribes types to S-expressions that fit a certain form.
-    The symbols \code{*} and \code{+} are used as in Backus-Naur form.
-    Note that \code{T*}, for example, is not an S-expression alone; it is a list of S-expressions which must be parenthesised in order to form an S-expression.
-\end{definition}
+    The symbols \inlinecode{*} and \inlinecode{+} are used as in Backus-Naur form.
+    Note that \inlinecode{T*}, for example, is not an S-expression alone; it is a list of S-expressions which must be parenthesised in order to form an S-expression.
+\end{defn}
 
 \section{Expression syntax}
 
@@ -470,10 +517,10 @@ It is then trivial to prove the following lemma.
 The following schemas specify identifiers and related types.
 
 \begin{tabular}{r l p{6cm}}
-    \code{Location} \( ::= \) & \code{(}\( \mathbb N_{32} \) \( \mathbb N_{32} \)\code{)} & line number, then column number, zero indexed \\
-    \code{Range} \( ::= \) & \code{(Location Location)} & start location (inclusive), then end location (exclusive) \\
-    \code{Name} \( ::= \) & \( \mathbb S \)\code{\ | (}\( \mathbb S \)\code{\ Range)} & the symbol itself then optionally the range at which it was written \\
-    \code{QualifiedName} \( ::= \) & \code{(}\( \mathbb S \) \code{+)} & list of one or more name segments
+    \inlinecode{Location} \( ::= \) & \inlinecode{(}\( \mathbb N_{32} \) \( \mathbb N_{32} \)\inlinecode{)} & line number, then column number, zero indexed \\
+    \inlinecode{Range} \( ::= \) & \inlinecode{(Location Location)} & start location (inclusive), then end location (exclusive) \\
+    \inlinecode{Name} \( ::= \) & \( \mathbb S \)\inlinecode{\ | (}\( \mathbb S \)\inlinecode{\ Range)} & the symbol itself then optionally the range at which it was written \\
+    \inlinecode{QualifiedName} \( ::= \) & \inlinecode{(}\( \mathbb S \) \inlinecode{+)} & list of one or more name segments
 \end{tabular}
 
 A \textit{location} represents a place in some input code.
@@ -487,30 +534,31 @@ Importantly, a qualified name with only one name segment is \textit{not} a name.
 \subsection{Primitives}
 
 \begin{tabular}{r l p{7cm}}
-    \code{Primitive} \( ::= \) & \( \mathbb Z_{n} \)\code{\ |\ }\( \mathbb N_{n} \)\code{\ |\ }\( \mathbb F_{n} \)\code{\ |\ }\( \mathbb U \)\code{\ |\ }\( \mathbb B \)\code{\ |\ }\( \Unit \)
+    \inlinecode{Primitive} \( ::= \) & \( \mathbb Z_{n} \)\inlinecode{\ |\ }\( \mathbb N_{n} \)\inlinecode{\ |\ }\( \mathbb F_{n} \)\inlinecode{\ |\ }\( \mathbb U \)\inlinecode{\ |\ }\( \mathbb B \)\inlinecode{\ |\ }\( \ttt \) \\
+    \inlinecode{PrimitiveType} \( ::= \) & \inlinecode{Int}\( n \)\inlinecode{\ | Uint}\( n \)\inlinecode{\ | Float}\( n \)\inlinecode{\ | Char | Bool | Unit | Empty}
 \end{tabular}
 
 The \( n \) above may be substituted for valid integers.
 
 \subsection{Expressions}
 
-The type of expressions is \code{Expr}.
+The type of expressions is \inlinecode{Expr}.
 Expressions are organised into tree structures.
-There exists a partial function \( p \colon \) \code{Expr} \( \to \) \code{Expr} which yields the parent expression if it exists.
+There exists a partial function \( p : \) \inlinecode{Expr} \( \to \) \inlinecode{Expr} which yields the parent expression if it exists.
 
-\begin{definition}
+\begin{defn}
     An expression is called \( n \)-\textit{binding}, or an \( n \)-\textit{binder}, if it creates \( n \) new local variables, assigning them values.
     An expression that binds no new local variables is called \textit{non-binding}.
-\end{definition}
+\end{defn}
 
-\begin{definition}
+\begin{defn}
     The \textit{scope} of an expression is the set of expressions from which it can use variables.
     If there is a parent expression, the scope is the union of the scope of the parent expression together with the set containing the parent expression.
     Otherwise, the scope is the empty set.
     In the context of an expression \( e \), we say that an expression \( f \) is \textit{in scope} if \( f \in \mathrm{scope}(e) \).
-\end{definition}
+\end{defn}
 
-\begin{definition}
+\begin{defn}
     Let \( e \) be an expression, \( b \) be an \( n \)-binding expression in scope of \( e \), and \( m \in \qty{0, \dots, n-1} \).
     The \textit{de Bruijn index} of \( c \) from \( e \), written \( i_e(b, m) \), is a constant referring to the \( m \)th bound variable in the binding expression \( x \).
     In particular,
@@ -521,38 +569,40 @@ There exists a partial function \( p \colon \) \code{Expr} \( \to \) \code{Expr}
     \end{cases} \]
     This definition orders all variables defined in scope in reverse order, assigning them de Bruijn indices of sequential natural numbers.
     Note that \( p(e) \) will always exist and this algorithm will always terminate since \( b \) was defined to be in scope of \( e \).
-\end{definition}
+\end{defn}
 
 Now that the requisite definitions have been made, we can define the schemas for expressions.
 
 \begin{tabular}{r l p{7cm}}
-    \code{DeBruijnIndex} \( ::= \) & \( \mathbb N_{32} \) \\
-    \code{ExprContents} \( ::= \) & \makecell[l]{
-        \code{(local DeBruijnIndex)} \\
-        \code{| (borrow DeBruijnIndex)} \\
-        \code{| (copy Expr)} \\
-        \code{| (inst QualifiedName)} \\
-        \code{| (ap Expr DeBruijnIndex)} \\ % note the A-normal form here
-        \code{| (lambda Expr)} \\
-        \code{| (new QualifiedName Expr*)} \\
-        \code{| (newv QualifiedName\ }\( \mathbb S \) \code{\ Expr*)} \\ % construct a variant of an enum, the S is the variant name
-        \code{| (destructure\ }\( \mathbb N_{32} \)\code{\ Expr)} \\ % the number is how many fields to destructure, mostly used for optimising all the de bruijn calculations
-        \code{| (const\ }\( \mathbb S \) \code{\ Primitive)} \\
+    \inlinecode{DeBruijnIndex} \( ::= \) & \( \mathbb N_{32} \) \\
+    \inlinecode{ExprContents} \( ::= \) & \makecell[l]{
+        \inlinecode{(local DeBruijnIndex)} \\
+        \inlinecode{| (borrow DeBruijnIndex)} \\
+        \inlinecode{| (copy Expr)} \\
+        \inlinecode{| (inst QualifiedName)} \\
+        \inlinecode{| (ap Expr DeBruijnIndex)} \\ % note the A-normal form here
+        \inlinecode{| (lambda Expr)} \\
+        \inlinecode{| (new QualifiedName Expr*)} \\
+        \inlinecode{| (newv QualifiedName\ }\( \mathbb S \)\inlinecode{\ Expr*)} \\ % construct a variant of an enum, the S is the variant name
+        \inlinecode{| (destructure\ }\( \mathbb N_{32} \)\inlinecode{\ Expr)} \\ % the number is how many fields to destructure, mostly used for optimising all the de bruijn calculations
+        \inlinecode{| (prim Primitive)} \\
+        \inlinecode{| (primty PrimitiveType)} \\
+        \inlinecode{| (universe Expr)} % The syntax \inlinecode{(universe\ }\( n \)\inlinecode{)} refers to the space \( \mathcal U_n \).
     } \\
-    \code{ExprInfo} \( ::= \) & \code{(at Range) | (ty Expr) | (named Name)} \\
-    \code{Expr} \( ::= \) & \code{ExprContents | (ExprInfo* ExprContents)}
+    \inlinecode{ExprInfo} \( ::= \) & \inlinecode{(at Range) | (ty Expr) | (named Name)} \\
+    \inlinecode{Expr} \( ::= \) & \inlinecode{ExprContents | (ExprInfo* ExprContents)}
 \end{tabular}
 
 % TODO: add lifetimes to borrow instructions?
 % TODO: add a "create type" expression
 
-Any variant of the \code{ExprInfo} tag may only be supplied once per expression.
+Any variant of the \inlinecode{ExprInfo} tag may only be supplied once per expression.
 
 The expressions may have additional information attached to them, denoting the location in code where the expression was written, the variable's type (which itself is an expression), or its name if one was given in Quill code.
 The semantic meaning of each expression will be explored later; for now, it suffices to define which expressions are binders.
-In particular, \code{lambda} expressions are 1-binding, \code{destructure n} expressions are \( n \)-binding, and all other expressions defined here are non-binding.
+In particular, \inlinecode{lambda} expressions are 1-binding, \inlinecode{destructure n} expressions are \( n \)-binding, and all other expressions defined here are non-binding.
 
-The absence of \code{let} expressions does not change the capabilities of the language.
+The absence of \inlinecode{let} expressions does not change the capabilities of the language.
 Indeed, in pseudocode, we can apply the following rewrite rule.
 \begin{lstlisting}
     let x = e1 in e2 => (lambda x . e2) e1
@@ -567,15 +617,15 @@ Definitions are contained within modules.
 Modules are each stored as their own S-expressions, and are not contained within any parent object.
 
 \begin{tabular}{r l p{7cm}}
-    \code{Visibility} \( ::= \) & \code{pub | priv} \\
-    \code{DefInfo} \( ::= \) & \code{(at Range) | (ty Expr) | (vis Visibility) | (doc\ }\( \mathbb S \)\code{)} \\
-    \code{Def} \( ::= \) & \code{(def DefInfo* Name Expr)} \\
-    \code{ModuleInfo} \( ::= \) & \code{(file QualifiedName) | (doc\ }\( \mathbb S \)\code{)} \\
-    \code{Module} \( ::= \) & \code{(module ModuleInfo* Def*)}
+    \inlinecode{Visibility} \( ::= \) & \inlinecode{pub | priv} \\
+    \inlinecode{DefInfo} \( ::= \) & \inlinecode{(at Range) | (ty Expr) | (vis Visibility) | (doc\ }\( \mathbb S \)\inlinecode{)} \\
+    \inlinecode{defn} \( ::= \) & \inlinecode{(def DefInfo* Name Expr)} \\
+    \inlinecode{ModuleInfo} \( ::= \) & \inlinecode{(file QualifiedName) | (doc\ }\( \mathbb S \)\inlinecode{)} \\
+    \inlinecode{Module} \( ::= \) & \inlinecode{(module ModuleInfo* Def*)}
 \end{tabular}
 
-If present, a \code{doc} tag represents documentation for the definition or module in question.
-Any variant of the \code{DefInfo} or \code{ModuleInfo} tags may only be supplied once per definition or module.
+If present, a \inlinecode{doc} tag represents documentation for the definition or module in question.
+Any variant of the \inlinecode{DefInfo} or \inlinecode{ModuleInfo} tags may only be supplied once per definition or module.
 Definitions must have unique names within a module.
 
 \subsection{Projects}
@@ -586,16 +636,16 @@ The module itself can then be loaded from disk when necessary.
 % TODO: sort out dependencies
 
 \begin{tabular}{r l p{7cm}}
-    \code{ProjectInfo} \( ::= \) & \code{(doc\ }\( \mathbb S \)\code{)} \\
-    \code{ProjectModule} \( ::= \) & \code{(module QualifiedName)} \\
-    \code{Project} \( ::= \) & \code{(project\ }\( \mathbb S \)\code{\ ProjectInfo* ProjectModule*)} \\
+    \inlinecode{ProjectInfo} \( ::= \) & \inlinecode{(doc\ }\( \mathbb S \)\inlinecode{)} \\
+    \inlinecode{ProjectModule} \( ::= \) & \inlinecode{(module QualifiedName)} \\
+    \inlinecode{Project} \( ::= \) & \inlinecode{(project\ }\( \mathbb S \)\inlinecode{\ ProjectInfo* ProjectModule*)} \\
 \end{tabular}
 
-Any variant of the \code{ProjectInfo} tag may only be supplied once.
+Any variant of the \inlinecode{ProjectInfo} tag may only be supplied once.
 
 \section{Examples}
 Here is an example of a simple module which exports a function to compute the sum of two integers.
-For the purposes of this example, assume the existence of a function \code{add} of type \( \mathbb Z_{64} \to \mathbb Z_{64} \) stored within the module \code{core.i64}.
+For the purposes of this example, assume the existence of a function \inlinecode{add} of type \( \mathbb Z_{64} \to \mathbb Z_{64} \) stored within the module \inlinecode{core.i64}.
 \begin{lstlisting}
 (module (doc "Provides a function to compute the sum of two integers.")
     (def (vis pub) (doc "Computes the sum of two integers.") sum
@@ -603,6 +653,138 @@ For the purposes of this example, assume the existence of a function \code{add} 
     )
 )
 \end{lstlisting}
+If this module were saved in the directory \inlinecode{foo} with file name \inlinecode{bar}, a project containing this module might be written
+\begin{lstlisting}
+(project demo_project
+    (doc "An example project.")
+    (module (foo bar))
+)
+\end{lstlisting}
+
+\chapter{Type semantics}
+
+\section{Conventions regarding S-expressions and Feather expressions}
+
+\subsection{Typing}
+
+Previously, we have created types of S-expressions for Feather's syntax.
+For example, \inlinecode{(const false)} has type \inlinecode{Expr}.
+However, there is a need to distinguish between the type of an S-expression and the type of the Feather expression it represents.
+
+Unless otherwise stated, all types in all following sections refer to the Feather type system, so \( x : \tau \) should be interpreted as the judgment `\( x \) is a Feather expression with type \( \tau \)'.
+Further, the word `expression' should be taken to mean `Feather expression'.
+If we must reference the type of an S-expression, we will write the judgment as \( x \overset{S}{:} \tau \), where the \( S \) signifies the use of S-expressions.
+
+\subsection{De Bruijn indices}
+
+While de Bruijn indices are useful when processing Feather algorithmically, they are inconvenient to use when discussing the language at a higher level.
+To this end, from now on unless otherwise stated, constructs using a de Bruijn index will instead be written as if they use a named variable.
+Likewise, binding expressions will be written as if they bind their variables to names.
+
+\section{Type inference}
+
+% TODO: talk about `undefined`
+
+\subsection{The typing environment}
+
+\begin{defn}
+    An \textit{assumed judgment} is a pair of the form \( \langle x, \tau \rangle \), where \( x \) is an expression and \( \tau \) is a type.
+    A set of assumed judgments, denoted \( \Gamma \), is a \textit{typing environment} or \textit{typing context}.
+\end{defn}
+Consider the following subset of the Hindley-Milner declarative rule system.
+\begin{mathpar}
+    \inferrule*[right=Var]{\langle x, \sigma \rangle \in \Gamma}{\Gamma \vdash x : \sigma}
+    \and
+    \inferrule*[right=App]{\Gamma \vdash e_0 : \tau \to \tau' \quad \Gamma \vdash e_1 : \tau}{\Gamma \vdash e_0\ e_1 : \tau'}
+    \and
+    \inferrule*[right=Abs]{\Gamma, x : \tau \vdash e : \tau'}{\Gamma \vdash \lambda\ x\ .\ e : \tau \to \tau'}
+\end{mathpar}
+Note that the conclusions of these rules are judgments; their evaluation is governed by the type system itself.
+The use of these three rules, or an equivalent formulation thereof, in an arbitrary functional programming language is largely uncontroversial.
+The \textsc{Var} rule is essentially an axiom for building basic typing judgments, given assumed judgments in the typing context.
+It is the most basic way of constructing a judgment that an object has a specific type.
+The \textsc{App} rule describes the functionality of applying an argument to a function.
+If the type of the function's argument matches the function's domain, the function can be applied, and the resulting variable has type equal to the function's codomain.
+Finally, the \textsc{Abs} rule performs the reverse operation: it creates an abstraction using a lambda.
+The newly created function has a type compatible with the \textsc{App} rule, so that the function can later be evaluated with a particular input.
+
+Note that the types in the above definitions are not restricted to simply small types in \( \mathcal U_0 \).
+For instance, application of pre-existent type constructors are already supported through the use of the \textsc{App} and \textsc{Abs} rules, including dependent types.
+
+The remaining Hindley-Milner rules are as follows.
+\begin{mathpar}
+    \inferrule*[right=Inst]{\Gamma \vdash e : \sigma'\quad \sigma' \sqsubseteq \sigma}{\Gamma \vdash e : \sigma}
+    \and
+    \inferrule*[right=Gen]{\Gamma \vdash e : \sigma\quad \alpha \notin \mathrm{free}(\Gamma)}{\Gamma \vdash e : \forall \alpha\ .\ \sigma}
+\end{mathpar}
+These rules concern subtyping and creating generic versions of monotypes.
+However, in accordance with the principle to treat types as values, the symbol \( \forall \) should be replaced by a type-theoretic construction that allows for the type quantified to be provided as a function argument.
+Thus, these two rules will not be used in Feather.
+
+What now remains is to create rules to allow interactions with the other, more interesting types found in homotopy type theory.
+Clearly, it is not a practical idea to try to implement all of homotopy type theory inside a single programming language: most of the concepts will never be useful in any real projects.
+In any case, code that makes heavy use of complex type theoretic constructs is likely to become unmaintainable quickly.
+A balance must be struck to create a minimal, yet versatile, subset of this type theory.
+
+We have included a subset of the logical inference rules provided by `Homotopy Type Theory' \cite{hottbook} in \cref{ch:formalisation_reference}.
+The names and properties of such rules will be used throughout the rest of this specification.
+All of the above Hindley-Milner typing rules will be replaced by formal type-theoretic rules.
+For instance, the Hindley-Milner \textsc{Var} rule is superseded by the \(\Vble\) structural rule, which contains fundamentally the same information yet is written from a type-theoretic perspective instead of a set-theoretic viewpoint.
+
+\subsection{Non-primitive types}
+
+As stated in `Homotopy Type Theory' \cite{hottbook}, each type is governed by formation rules, introduction rules, elimination rules, computation rules, and optionally uniqueness principles.
+
+The laws of \textit{dependent function types} are governed by the rules \( \Pi \)-\rform, \( \Pi \)-\rintro, \( \Pi \)-\relim, \( \Pi \)-\rcomp, and \( \Pi \)-\runiq.
+The \( \Pi \)-\rintro{} rule is a dependently typed version of the \textsc{Abs} rule defined above, and \( \Pi \)-\relim{} is likewise a dependently typed version of \textsc{App}.
+One of the requirements for \( \Pi \)-\rintro{} is \textit{very} restrictive; for all \( x:A \) we must have \( b:B(x) \), which is a type that depends on the value of \( x \).
+Some special machinery will need to be designed in Feather's compiler in order to deal with such an expression.
+
+\textit{Dependent pairs} are similarly governed by \( \Sigma \)-\rform, \( \Sigma \)-\rintro, \( \Sigma \)-\relim, and \( \Sigma \)-\rcomp.
+Suppose \( \alpha : C \to A \), \( \beta : C \to B \), and \( \varphi : (C \to A) \to (C \to B) \to (C \to A \times B) \).
+Then the following commutative diagram defines the function \( \varphi \).
+This also implies that the projection functions for products are the dual to the injective functions for coproducts.
+
+\begin{center}
+    % https://tikzcd.yichuanshen.de/#N4Igdg9gJgpgziAXAbVABwnAlgFyxMJZABgBoBGAXVJADcBDAGwFcYkQBBEAX1PU1z5CKAEwVqdJq3YAhHnxAZseAkXKliEhizaJOAHX14AtvAAEc3v2VC1pEVqm6QAYR4SYUAObwioAGYAThDGSGIgOBBIZJI67IbG9DgAFoHGwGiB3AD65CA0jPQARjCMAAoCKsIggVheyTjyAcGhiOGRSOqx0noJSanpmTki+SCFJeWVtnqMMP6NViBBIUgAzDQdiDHaPSCGTGjJ9KPjpRU2qjNzCwrLresRUYhdO86GJTjHBcVnU5c1dQaTSWLTWGye4Ve8X0DEChywhjM+0Yh3oiPeME+Jx+kwu1SwYGwsHc3CAA
+    \begin{tikzcd}
+        & A\times B \arrow[ld, "\proj 1"'] \arrow[rd, "\proj 2"]                           &   \\
+    A &                                                                                              & B \\
+        & C \arrow[lu, "\alpha"] \arrow[ru, "\beta"'] \arrow[uu, "\varphi\ \alpha\ \beta" description] &
+    \end{tikzcd}
+\end{center}
+
+\textit{Coproducts}, or \textit{disjoint unions}, are governed by \( + \)-\rform, \( + \)-\rintro\({}_1\), \( + \)-\rintro\({}_2\), \( + \)-\relim, \( + \)-\rcomp\({}_1\), and \( + \)-\rcomp\({}_2\).
+The functions \( \inl \) and \( \inr \) are the left and right \textit{injections}, that allow creation of the coproduct type.
+The function \( \rec{A + B} \) is the \textit{recursor}, which allows us to operate on the components of the coproduct.
+The recursor is dual to \( \varphi \) defined above.
+Let \( \alpha \colon A \to C \) and \( \beta \colon B \to C \), then the following diagram commutes.
+
+\begin{center}
+    % https://tikzcd.yichuanshen.de/#N4Igdg9gJgpgziAXAbVABwnAlgFyxMJZABgBoBGAXVJADcBDAGwFcYkQBBEAX1PU1z5CKAEwVqdJq3YAhHnxAZseAkXKliEhizaJOAajm9+yoWtIitU3SADCPCTCgBzeEVAAzAE4QAtkjIQHAgkMUkddgAdSN96HAALL19gLDBGbnlPH39EdSCQxDDtaT1o2ISklLAvDJpGegAjGEYABQEVYRAvLGd4nEyQbz8AmmCkAGYaYptopjR4+hA6xua201U9bt7+40HspDyxxEnwkpBoppxF3aGcsKOT6aiYuMTkrxgAY25ogAJZxjzeh-C4wK5LED1JqtdpmPSpbCwBzcIA
+\begin{tikzcd}
+    & A+B \arrow[dd, "\rec{A+B}\ \alpha\ \beta" description] &                                                   \\
+A \arrow[ru, "\inl"] \arrow[rd, "\alpha"'] &                                                           & B \arrow[lu, "\inr"'] \arrow[ld, "\beta"] \\
+    & C                                                         &
+\end{tikzcd}
+\end{center}
+
+The empty type is governed by \( \emptyt \)-\rform{} and \( \emptyt \)-\relim.
+
+The unit type is governed by \( \unit \)-\rform, \( \unit \)-\rintro, \( \unit \)-\relim, and \( \unit \)-\rcomp.
+
+\begin{appendices}
+    \appendixpage
+    \noappendicestocpagenum
+    \addappheadtotoc
+
+    \chapter{Type theory formalisation reference}
+    \label{ch:formalisation_reference}
+
+    For the purposes of discussion, we present many of the rules listed in `Homotopy Type Theory' \cite{hottbook}.
+
+    \input{hott_rules.tex}
+\end{appendices}
 
 \backmatter
 

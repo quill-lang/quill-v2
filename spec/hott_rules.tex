@@ -1,0 +1,217 @@
+\section{Contexts}
+\begin{mathpar}
+  \inferrule*[right=\ctx-\textsc{emp}]
+  {\ }
+  {\wfctx\emptyctx}
+\and
+  \inferrule*[right=\ctx-\textsc{ext}]
+  {\oftp{\tmtp{x_1}{A_1}, \ldots, \tmtp{x_{n-1}}{A_{n-1}}}{A_n}{\UU_i}}
+  {\wfctx{(\tmtp{x_1}{A_1}, \ldots, \tmtp{x_n}{A_n})}}
+\end{mathpar}
+
+
+\section{Structural rules}
+\begin{mathpar}
+  \inferrule*[right=$\Vble$]
+  {\wfctx {(\tmtp{x_1}{A_1}, \ldots, \tmtp{x_n}{A_n})} }
+  {\oftp{\tmtp{x_1}{A_1}, \ldots, \tmtp{x_n}{A_n}}{x_i}{A_i}}
+\end{mathpar}
+\begin{mathpar}
+  \inferrule*[right=$\Subst_1$]
+  {\oftp\Gamma{a}{A} \\ \oftp{\Gamma,\tmtp xA,\Delta}{b}{B}}
+  {\oftp{\Gamma,\Delta[a/x]}{b[a/x]}{B[a/x]}}
+\and
+  \inferrule*[right=$\Weak_1$]
+  {\oftp\Gamma{A}{\UU_i} \\ \oftp{\Gamma,\Delta}{b}{B}}
+  {\oftp{\Gamma,\tmtp xA,\Delta}{b}{B}}
+\end{mathpar}
+\begin{mathpar}
+  \inferrule*[right=$\Subst_2$]
+  {\oftp\Gamma{a}{A} \\ \jdeqtp{\Gamma,\tmtp xA,\Delta}{b}{c}{B}}
+  {\jdeqtp{\Gamma,\Delta[a/x]}{b[a/x]}{c[a/x]}{B[a/x]}}
+\and
+  \inferrule*[right=$\Subst_3$]
+  {\jdeqtp\Gamma{a}{b}{A} \\ \oftp{\Gamma,\tmtp xA,\Delta}{c}{C}}
+  {\jdeqtp{\Gamma,\Delta[a/x]}{c[a/x]}{c[b/x]}{C[a/x]}}
+\and
+  \inferrule*[right=$\Weak_2$]
+  {\oftp\Gamma{A}{\UU_i} \\ \jdeqtp{\Gamma,\Delta}{b}{c}{B}}
+  {\jdeqtp{\Gamma,\tmtp xA,\Delta}{b}{c}{B}}
+\end{mathpar}
+\begin{mathparpagebreakable}
+  \inferrule*{\oftp\Gamma{a}{A}}{\jdeqtp\Gamma{a}{a}{A}}
+\and
+  \inferrule*{\jdeqtp\Gamma{a}{b}{A}}{\jdeqtp\Gamma{b}{a}{A}}
+\and
+  \inferrule*{\jdeqtp\Gamma{a}{b}{A} \\ \jdeqtp\Gamma{b}{c}{A}}{\jdeqtp\Gamma{a}{c}{A}}
+\and
+  \inferrule*{\oftp\Gamma{a}{A} \\ \jdeqtp\Gamma{A}{B}{\UU_i}}{\oftp\Gamma{a}{B}}
+\and
+  \inferrule*{\jdeqtp\Gamma{a}{b}{A} \\ \jdeqtp\Gamma{A}{B}{\UU_i}}{\jdeqtp\Gamma{a}{b}{B}}
+\end{mathparpagebreakable}
+
+\section{Type universes}
+\begin{mathpar}
+\inferrule*[right=\UU-\textsc{intro}]
+  {\wfctx \Gamma }
+  {\oftp\Gamma{\UU_i}{\UU_{i+1}}}
+\and
+\inferrule*[right=\UU-\textsc{cumul}]
+  {\oftp\Gamma{A}{\UU_i}}
+  {\oftp\Gamma{A}{\UU_{i+1}}}
+\end{mathpar}
+
+\section{Dependent function types (\texorpdfstring{$\Pi$}{Π}-types)}
+\begin{equation*}
+  \oftp{\tmtp xA}{B}{\UU_i}.
+\end{equation*}
+%
+\begin{mathparpagebreakable}
+  \def\premise{\oftp{\Gamma}{A}{\UU_i} \and \oftp{\Gamma,\tmtp xA}{B}{\UU_i}}
+  \inferrule*[right=$\Pi$-\rform]
+    \premise
+    {\oftp\Gamma{\tprd{x:A}B}{\UU_i}}
+\and
+  \inferrule*[right=$\Pi$-\rintro]
+  {\oftp{\Gamma,\tmtp xA}{b}{B}}
+  {\oftp\Gamma{\lam{x:A} b}{\tprd{x:A} B}}
+\and
+  \inferrule*[right=$\Pi$-\relim]
+  {\oftp\Gamma{f}{\tprd{x:A} B} \\ \oftp\Gamma{a}{A}}
+  {\oftp\Gamma{f(a)}{B[a/x]}}
+\and
+  \inferrule*[right=$\Pi$-\rcomp]
+  {\oftp{\Gamma,\tmtp xA}{b}{B} \\ \oftp\Gamma{a}{A}}
+  {\jdeqtp\Gamma{(\lam{x:A} b)(a)}{b[a/x]}{B[a/x]}}
+\and
+  \inferrule*[right=$\Pi$-\runiq]
+  {\oftp\Gamma{f}{\tprd{x:A} B}}
+  {\jdeqtp\Gamma{f}{(\lamu{x:A}f(x))}{\tprd{x:A} B}}
+\end{mathparpagebreakable}
+
+\section{Dependent pair types (\texorpdfstring{$\Sigma$}{Σ}-types)}
+%
+\begin{mathparpagebreakable}
+  \def\premise{\oftp{\Gamma}{A}{\UU_i} \and \oftp{\Gamma,\tmtp xA}{B}{\UU_i}}
+  \inferrule*[right=$\Sigma$-\rform]
+    \premise
+    {\oftp\Gamma{\tsm{x:A} B}{\UU_i}}
+  \and
+  \inferrule*[right=$\Sigma$-\rintro]
+    {\oftp{\Gamma, \tmtp x A}{B}{\UU_i} \\
+     \oftp\Gamma{a}{A} \\ \oftp\Gamma{b}{B[a/x]}}
+    {\oftp\Gamma{\tup ab}{\tsm{x:A} B}}
+  \and
+  \inferrule*[right=$\Sigma$-\relim]
+    {\oftp{\Gamma, \tmtp z {\tsm{x:A} B}}{C}{\UU_i} \\
+     \oftp{\Gamma,\tmtp x A,\tmtp y B}{g}{C[\tup x y/z]} \\
+     \oftp\Gamma{p}{\tsm{x:A} B}}
+    {\oftp\Gamma{\ind{\tsm{x:A} B}(z.C,x.y.g,p)}{C[p/z]}}
+  \and
+  \inferrule*[right=$\Sigma$-\rcomp]
+    {\oftp{\Gamma, \tmtp z {\tsm{x:A} B}}{C}{\UU_i} \\
+     \oftp{\Gamma, \tmtp x A, \tmtp y B}{g}{C[\tup x y/z]} \\\\
+     \oftp\Gamma{a}{A} \\ \oftp\Gamma{b}{B[a/x]}}
+    {\jdeqtp\Gamma{\ind{\tsm{x:A} B}(z.C,x.y.g,\tup{a}{b})}{g[a,b/x,y]}{C[\tup {a} {b}/z]}}
+\end{mathparpagebreakable}
+%
+
+\section{Coproduct types}
+
+\begin{mathparpagebreakable}
+  \inferrule*[right=$+$-\rform]
+  {\oftp\Gamma{A}{\UU_i} \\ \oftp\Gamma{B}{\UU_i}}
+  {\oftp\Gamma{A+B}{\UU_i}}
+\\
+  \inferrule*[right=$+$-\rintro${}_1$]
+  {\oftp\Gamma{A}{\UU_i} \\ \oftp\Gamma{B}{\UU_i} \\\\ \oftp\Gamma{a}{A}}
+  {\oftp\Gamma{\inl(a)}{A+B}}
+\and
+  \inferrule*[right=$+$-\rintro${}_2$]
+  {\oftp\Gamma{A}{\UU_i} \\ \oftp\Gamma{B}{\UU_i} \\\\ \oftp\Gamma{b}{B}}
+  {\oftp\Gamma{\inr(b)}{A+B}}
+\\
+  \inferrule*[right=$+$-\relim]
+  {\oftp{\Gamma,\tmtp z{(A+B)}}{C}{\UU_i} \\\\
+   \oftp{\Gamma,\tmtp xA}{c}{C[\inl(x)/z]} \\
+   \oftp{\Gamma,\tmtp yB}{d}{C[\inr(y)/z]} \\\\
+   \oftp\Gamma{e}{A+B}}
+  {\oftp\Gamma{\ind{A+B}(z.C,x.c,y.d,e)}{C[e/z]}}
+\and
+  \inferrule*[right=$+$-\rcomp${}_1$]
+  {\oftp{\Gamma,\tmtp z{(A+B)}}{C}{\UU_i} \\
+   \oftp{\Gamma,\tmtp xA}{c}{C[\inl(x)/z]} \\
+   \oftp{\Gamma,\tmtp yB}{d}{C[\inr(y)/z]} \\\\
+   \oftp\Gamma{a}{A}}
+  {\jdeqtp\Gamma{\ind{A+B}(z.C,x.c,y.d,\inl(a))}{c[a/x]}{C[\inl(a)/z]}}
+\and
+  \inferrule*[right=$+$-\rcomp${}_2$]
+  {\oftp{\Gamma,\tmtp z{(A+B)}}{C}{\UU_i} \\
+   \oftp{\Gamma,\tmtp xA}{c}{C[\inl(x)/z]} \\
+   \oftp{\Gamma,\tmtp yB}{d}{C[\inr(y)/z]} \\\\
+   \oftp\Gamma{b}{B}}
+  {\jdeqtp\Gamma{\ind{A+B}(z.C,x.c,y.d,\inr(b))}{d[b/y]}{C[\inr(b)/z]}}
+\end{mathparpagebreakable}
+
+\section{The empty type \texorpdfstring{$\emptyt$}{0}}
+\begin{mathparpagebreakable}
+  \inferrule*[right=$\emptyt$-\rform]
+  {\wfctx\Gamma}
+  {\oftp\Gamma\emptyt{\UU_i}}
+\and
+  \inferrule*[right=$\emptyt$-\relim]
+  {\oftp{\Gamma,\tmtp x\emptyt}{C}{\UU_i} \\ \oftp\Gamma{a}{\emptyt}}
+  {\oftp\Gamma{\ind{\emptyt}(x.C,a)}{C[a/x]}}
+\end{mathparpagebreakable}
+
+\section{The unit type \texorpdfstring{$\unit$}{1}}
+\begin{mathparpagebreakable}
+  \inferrule*[right=$\unit$-\rform]
+  {\wfctx\Gamma}
+  {\oftp\Gamma\unit{\UU_i}}
+\and
+  \inferrule*[right=$\unit$-\rintro]
+  {\wfctx\Gamma}
+  {\oftp\Gamma{\ttt}{\unit}}
+\and
+  \inferrule*[right=$\unit$-\relim]
+  {\oftp{\Gamma,\tmtp x\unit}{C}{\UU_i} \\
+   \oftp{\Gamma}{c}{C[\ttt/x]} \\
+   \oftp\Gamma{a}{\unit}}
+  {\oftp\Gamma{\ind{\unit}(x.C,c,a)}{C[a/x]}}
+\and
+  \inferrule*[right=$\unit$-\rcomp]
+  {\oftp{\Gamma,\tmtp x\unit}{C}{\UU_i} \\
+   \oftp{\Gamma}{c}{C[\ttt/x]}}
+  {\jdeqtp\Gamma{\ind{\unit}(x.C,c,\ttt)}{c}{C[\ttt/x]}}
+\end{mathparpagebreakable}
+
+\section{Identity types}
+\begin{mathparpagebreakable}
+  \inferrule*[right=$\idsym$-\rform]
+  {\oftp\Gamma{A}{\UU_i} \\ \oftp\Gamma{a}{A} \\ \oftp\Gamma{b}{A}}
+  {\oftp\Gamma{\id[A]{a}{b}}{\UU_i}}
+\and
+  \inferrule*[right=$\idsym$-\rintro]
+  {\oftp\Gamma{A}{\UU_i} \\ \oftp\Gamma{a}{A}}
+  {\oftp\Gamma{\refl a}{\id[A]aa}}
+\and
+  \inferrule*[right=$\idsym$-\relim]
+  {\oftp{\Gamma,\tmtp xA,\tmtp yA,\tmtp p{\id[A]xy}}{C}{\UU_i} \\
+   \oftp{\Gamma,\tmtp zA}{c}{C[z,z,\refl z/x,y,p]} \\
+   \oftp\Gamma{a}{A} \\ \oftp\Gamma{b}{A} \\ \oftp\Gamma{p'}{\id[A]ab}}
+  {\oftp\Gamma{\indid{A}(x.y.p.C,z.c,a,b,p')}{C[a,b,p'/x,y,p]}}
+\and
+  \inferrule*[right=$\idsym$-\rcomp]
+  {\oftp{\Gamma,\tmtp xA,\tmtp yA,\tmtp p{\id[A]xy}}{C}{\UU_i} \\
+   \oftp{\Gamma,\tmtp zA}{c}{C[z,z,\refl z/x,y,p]} \\
+   \oftp\Gamma{a}{A}}
+  {\jdeqtp\Gamma{\indid{A}(x.y.p.C,z.c,a,a,\refl a)}{c[a/z]}{C[a,a,\refl a/x,y,p]}}
+\end{mathparpagebreakable}
+
+\section{Definitions}
+\begin{narrowmultline*}
+  {\circ} \defeq \lam{A:\UU_i}{B:\UU_i}{C:\UU_i}
+  \narrowbreak
+  \lam{g:B\to C}{f:A\to B}{x:A} g(f(x)).
+\end{narrowmultline*}
