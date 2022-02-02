@@ -28,6 +28,9 @@
 \usepackage{amssymb}
 \usepackage{physics}
 \usepackage{tikz-cd}
+\usepackage{scalerel}
+\DeclareMathOperator*{\bigplus}{\scalerel*{+}{\textstyle\sum}}
+
 \usepackage[titletoc]{appendix}
 
 \usepackage{mathpartir}
@@ -271,79 +274,6 @@ Rust's procedural macros fill a similar role, in that they use Rust code to gene
 In accordance with the principle of modularity, Quill's language design should be minimal yet expressive, and syntax extensions should then provide the necessary conveniences for developing idiomatic functional code.
 For example, monadic \inlinecode{do} blocks may not be part of the base language.
 
-% we can't hope to cover all of logic in a spec, just defer to HoTT book
-\iffalse{}
-\section{Logical systems}
-
-\subsection{Type theory}
-
-To aid in our descriptions and analysis, type theory will be used extensively.
-Before blindly applying type theory to Quill, however, we must choose which theory to follow.
-The theory that aligns closest to Quill's goals appears to be homotopy type theory.
-It represents types and proofs as values, which can be manipulated on the same level as more conventional values.
-It also aims to solve a number of issues present in other intuitionistic type theories.
-
-Even though (homotopy) type theory is a powerful tool, some set theory will also be used where it is less verbose than equivalent type-theoretic constructions.
-Our use of type theory is practical; it will often make sense to forego formality in pursuit of clarity, provided that the key logical arguments are not lost.
-
-We begin here by presenting an informal description of many of the key principles of homotopy type theory, which can be found in the book `Homotopy Type Theory' \cite{hottbook}.
-
-\begin{defn}
-    A \textit{universe} is a collection whose elements are called \textit{types}.
-    If \( A \) is an element of universe \( \mathcal U \), we write \( A : \mathcal U \).
-\end{defn}
-We assert the existence of a hierarchy of universes.
-\[ \mathcal U_0 : \mathcal U_1 : \mathcal U_2 : \cdots \]
-We can also write \( A : \mathcal U_j \) if \( j \geq i \).
-\begin{defn}
-    Given a universe \( \mathcal U_i \), a type \( A \) is called \textit{small} if \( A : \mathcal U_i \).
-    Assuming indices \( i \) may be assigned in a consistent way in a given context, the indices may be omitted, and we can write \( A : \mathcal U \).
-\end{defn}
-\begin{defn}
-    A \textit{judgment} is a statement of the form \( a : A \).
-    If such a judgment is determined to be true, then we say \( a \) has type \( A \).
-    A type \( A \) is \textit{inhabited} if there exists an object \( a \) such that \( a : A \).
-    A type is uninhabited if there does not exist such an object.
-    If \( A \) is a type that represents a proposition under the Curry-Howard correspondence, then if \( a : A \), \( a \) is a \textit{witness} to the provability of \( A \).
-\end{defn}
-
-A fundamental notion of type systems is that of equality: given two values \( a \) and \( b \), when can we say that \( a = b \)?
-Many theories tackle this notion in different ways.
-There are two key notions of equality in type theory, that of judgmental equality and propositional equality \cite[p.~18--19]{hottbook}.
-\begin{defn}
-    Let \( A \) be a type, and \( a, b : A \).
-    Then, the type \( a =_A b \) exists, and is called the \textit{propositional equality type of \( a \) and \( b \)}.
-    If this type is inhabited, we say that \( a \) and \( b \) are \textit{propositionally equal}.
-\end{defn}
-\begin{defn}
-    Let \( A \) be a type, and \( a, b : A \).
-    If \( a \) and \( b \) are equal by definition, then \( a \) and \( b \) are \textit{equal by definition}, \textit{definitionally equal}, or \textit{judgmentally equal}.
-    This is written \( a \equiv b : A \).
-    Checking definitional equality is algorithmically computable; it amounts to expanding out the definitions
-\end{defn}
-By convention \cite[p.~19]{hottbook}, the symbols \( : \) and \( \equiv \) have lowest operator precedence.
-However, when using the sequent calculus, we define that the \( , \) and \( \vdash \) symbols, along with wide spacing, have even lower precenence, in that order (highest to lowest).
-For instance, the expression \( \Gamma, x : \tau \vdash e : \tau' \) should be interpreted as \( (\Gamma, (x : \tau)) \vdash (e : \tau') \).
-\begin{eg}
-    The objects \( 2 + 2 \) and \( 4 \) are propositionally equal, since we can construct a proof that \( 2 + 2 = 4 \).
-    Conversely, if we define \( a :\equiv 2 : \mathbb N \), then \( a \) and \( 2 \) are equal by definition.
-\end{eg}
-\begin{defn}
-    If \( A \) and \( B \) are types, then \( A \to B \) is the type of functions with domain \( A \) and codomain \( B \).
-\end{defn}
-
-\subsection{Sequent calculus}
-
-To formally define typing rules, we use the \textit{sequent calculus}, a form of logical reasoning.
-Consider the statement \( \Gamma \vdash \Sigma \), where \( \Gamma \) and \( \Sigma \) are sequences of logical propositions.
-This formula states that given the truth of all statements in \( \Gamma \), there exists a proposition in \( \Sigma \) which is true.
-\begin{defn}
-    An \textit{inference rule} is a formula of the form
-    \[ \frac{\Gamma_1 \vdash \Sigma_1\quad \cdots \quad\Gamma_n \vdash \Sigma_n}{\Gamma \vdash \Sigma} \]
-    The numerator contains a set of \textit{premises}, all of which must be fulfilled in order for the rule to be applied, after which the \textit{conclusion} on the denominator will be reached.
-\end{defn}
-\fi{}
-
 \section{High-level design}
 
 In this section, we outline the different parts of the Quill project, their responsibilities, and how they interact.
@@ -440,34 +370,34 @@ We assume the definition of the types \( \mathbb N \) of natural numbers \( 0, 1
 \begin{defn}
     An \textit{\( n \)-bit unsigned integer} is an element of \( \mathbb N \) strictly less than the value \( 2^n \).
     That is, \( x \) is an \( n \)-bit unsigned integer if there exists a value \( y : \mathbb N \) such that \( x + y = 2^n \) and \( y \neq 0 \).
-    We construct the type of \( n \)-bit unsigned integers, written \( \mathbb N_n : \mathcal U_0 \).
+    We construct the type of \( n \)-bit unsigned integers, written \( \mathbb N_n : \UU \).
     To preserve uniqueness of types, we will write \( x_n \) to denote the instance of \( x \) of type \( \mathbb N_n \).
     For clarity, the notation \( x_{\mathbb N_n} \) is also used.
 \end{defn}
 Let \( \mathbb Z \) be the type of all integers, created by generating a group from \( \mathbb N \) under addition.
 \begin{defn}
     An \textit{\( n \)-bit signed integer} is an element of \( \mathbb Z \) not less than \( -2^{n-1} \), and strictly less than \( 2^{n-1} \).
-    Likewise we construct the type of \( n \)-bit signed integers, denoted \( \mathbb Z_n : \mathcal U_0 \).
+    Likewise we construct the type of \( n \)-bit signed integers, denoted \( \mathbb Z_n : \UU \).
     Again, the notation \( x_n = x_{\mathbb Z_n} \) is used to refer to the instance of \( x \) that has type \( \mathbb Z_n \).
 \end{defn}
 \begin{defn}
-    For \( n = 16, 32, 64, 128, 256 \), we define the \textit{\( n \)-bit floating point} type \( \mathbb F_n : \mathcal U_0 \) to be the quotient of \( \mathbb N_n \) by the equivalence relation defined by the IEEE 754 standard for floating point representation.
+    For \( n = 16, 32, 64, 128, 256 \), we define the \textit{\( n \)-bit floating point} type \( \mathbb F_n : \UU \) to be the quotient of \( \mathbb N_n \) by the equivalence relation defined by the IEEE 754 standard for floating point representation.
     Arithmetic is defined on this type as per the specification \cite{IEEE754}.
 \end{defn}
 \begin{defn}
-    We define the Boolean type \( \mathbb B : \mathcal U_0 \) with elements \( \qty{\top, \bot} \), conventionally named `true' and `false'.
+    We define the Boolean type \( \mathbb B : \UU \) with elements \( \qty{\top, \bot} \), conventionally named `true' and `false'.
 \end{defn}
 \begin{defn}
-    Let \( \mathbb U : \mathcal U_0 \) be the type of Unicode code points; its elements are 64-bit unsigned integers as defined above, tagged \( x_{\mathbb U} \) such that their type is not simply \( \mathbb N \).
+    Let \( \mathbb U : \UU \) be the type of Unicode code points; its elements are 64-bit unsigned integers as defined above, tagged \( x_{\mathbb U} \) such that their type is not simply \( \mathbb N \).
 \end{defn}
 \begin{defn}
     Let \( \emptyt \) be the \textit{empty type} with no elements.
-    Let \( \ttt : \mathcal U_0 \) be the \textit{unit type} with one element \( \ttt : \ttt \).
+    Let \( \ttt : \UU \) be the \textit{unit type} with one element \( \ttt : \ttt \).
 \end{defn}
 These are exactly the primitive types used in Feather.
 \begin{defn}
     An \textit{atom} is an element of type \( \mathbb N_n, \mathbb Z_n, \mathbb F_n, \mathbb B, \mathbb U, \emptyt, \ttt \) for any valid \( n \).
-    Note that all atoms have small type; that is, their types are all in the space \( \mathcal U_0 \).
+    Note that all atoms have small type; that is, their types are all in the space \( \UU \).
 \end{defn}
 
 \subsection{Binary representations}
@@ -583,12 +513,11 @@ Now that the requisite definitions have been made, we can define the schemas for
         \inlinecode{| (inst QualifiedName)} \\
         \inlinecode{| (ap Expr DeBruijnIndex)} \\ % note the A-normal form here
         \inlinecode{| (lambda Expr)} \\
-        \inlinecode{| (new QualifiedName Expr*)} \\
-        \inlinecode{| (newv QualifiedName\ }\( \mathbb S \)\inlinecode{\ Expr*)} \\ % construct a variant of an enum, the S is the variant name
-        \inlinecode{| (destructure\ }\( \mathbb N_{32} \)\inlinecode{\ Expr)} \\ % the number is how many fields to destructure, mostly used for optimising all the de bruijn calculations
-        \inlinecode{| (prim Primitive)} \\
+        %\inlinecode{| (destructure\ }\( \mathbb N_{32} \)\inlinecode{\ Expr)} \\ % the number is how many fields to destructure, mostly used for optimising all the de bruijn calculations
         \inlinecode{| (primty PrimitiveType)} \\
-        \inlinecode{| (universe Expr)} % The syntax \inlinecode{(universe\ }\( n \)\inlinecode{)} refers to the space \( \mathcal U_n \).
+        \inlinecode{| (prim Primitive)} \\
+        % TODO: add support for all the section 2 type rules
+        \inlinecode{| universe}
     } \\
     \inlinecode{ExprInfo} \( ::= \) & \inlinecode{(at Range) | (ty Expr) | (named Name)} \\
     \inlinecode{Expr} \( ::= \) & \inlinecode{ExprContents | (ExprInfo* ExprContents)}
@@ -711,7 +640,7 @@ If the type of the function's argument matches the function's domain, the functi
 Finally, the \textsc{Abs} rule performs the reverse operation: it creates an abstraction using a lambda.
 The newly created function has a type compatible with the \textsc{App} rule, so that the function can later be evaluated with a particular input.
 
-Note that the types in the above definitions are not restricted to simply small types in \( \mathcal U_0 \).
+Note that the types in the above definitions are not restricted to simply small types in \( \UU \).
 For instance, application of pre-existent type constructors are already supported through the use of the \textsc{App} and \textsc{Abs} rules, including dependent types.
 
 The remaining Hindley-Milner rules are as follows.
@@ -800,8 +729,8 @@ Judgmental equality is an equivalence relation, respected by typing.
 
 Where bound variables must be used, the syntax \( x.b \) specifically states that the name \( x \) is bound in expression \( b \).
 No variables are bound unless stated explicitly.
-The type family \( B:A \to \UU \) is used frequently to circumvent the use of bound variables.
-This is somewhat circular; \( B:A \to \UU \) is itself a function type, but this should not matter in practice.
+Type families such as \( B:A \to \UU \) are used frequently to circumvent the use of bound variables.
+This is somewhat circular, as \( B:A \to \UU \) is itself a function type, but this should not matter in practice.
 
 \begin{mathparpagebreakable}
   \def\premise{\oftp{\Gamma}{A}{\UU} \and \oftp{\Gamma}{B}{A \to \UU}}
@@ -835,37 +764,11 @@ Here, the antecedent \( \wfctx \Gamma \) is used to denote simply that \( \Gamma
   \inferrule*[right=$\emptyt$-\rform]
   {\wfctx\Gamma}
   {\oftp\Gamma\emptyt{\UU}}
-\and
-  \inferrule*[right=$\emptyt$-\relim]
-  {\oftp{\Gamma}{C}{\emptyt \to \UU} \\ \oftp\Gamma{a}{\emptyt}}
-  {\oftp\Gamma{\ind{\emptyt}(C,a)}{C(a)}}
-\end{mathparpagebreakable}
-
-\subsection{The unit type \texorpdfstring{$\unit$}{1}}
-\begin{mathparpagebreakable}
-  \inferrule*[right=$\unit$-\rform]
-  {\wfctx\Gamma}
-  {\oftp\Gamma\unit{\UU}}
-\and
-  \inferrule*[right=$\unit$-\rintro]
-  {\wfctx\Gamma}
-  {\oftp\Gamma{\ttt}{\unit}}
-\and
-  \inferrule*[right=$\unit$-\relim]
-  {\oftp{\Gamma}{C}{\unit \to \UU} \\
-   \oftp{\Gamma}{c}{C(\ttt)} \\
-   \oftp\Gamma{a}{\unit}}
-  {\oftp\Gamma{\ind{\unit}(C,c,a)}{C(a)}}
-\and
-  \inferrule*[right=$\unit$-\rcomp]
-  {\oftp{\Gamma}{C}{\unit \to \UU} \\
-   \oftp{\Gamma}{c}{C(\ttt)}}
-  {\jdeqtp\Gamma{\ind{\unit}(C,c,\ttt)}{c}{C(\ttt)}}
 \end{mathparpagebreakable}
 
 \subsection{Primitive types}
-Feather has several primitive types that have not yet been discussed.
-In the following section, let \( \mathbb P \) denote a primitive type as defined in \cref{sec:prim_types}.
+Feather has several primitive types that have not yet been discussed, such as the unit type \( \unit \) and the 64-bit signed integer type \( \mathbb Z_{64} \).
+In the following section, let \( \mathbb P \) denote a primitive type and let \( p \) be an arbitrary element of type \( \mathbb P \), as defined in \cref{sec:prim_types}.
 \begin{mathparpagebreakable}
   \inferrule*[right=$\mathbb P$-\rform]
   {\wfctx\Gamma}
@@ -874,17 +777,6 @@ In the following section, let \( \mathbb P \) denote a primitive type as defined
   \inferrule*[right=$\mathbb P$-\rintro]
   {\wfctx\Gamma}
   {\oftp\Gamma{p}{\mathbb P}}
-\and
-  \inferrule*[right=$\mathbb P$-\relim]
-  {\oftp{\Gamma}{C}{\mathbb P \to \UU} \\
-   \oftp{\Gamma}{c}{\tprd{p:\mathbb P} C(p)} \\
-   \oftp\Gamma{a}{\mathbb P}}
-  {\oftp\Gamma{\ind{\mathbb P}(C,c,a)}{C(a)}}
-\and
-  \inferrule*[right=$\mathbb P$-\rcomp]
-  {\oftp{\Gamma}{C}{\mathbb P \to \UU} \\
-   \oftp{\Gamma}{c}{\tprd{p:\mathbb P} C(p)}}
-  {\jdeqtp\Gamma{\ind{\mathbb P}(C,c,p)}{c}{C(p)}}
 \end{mathparpagebreakable}
 
 \subsection{Dependent pair types (\texorpdfstring{$\Sigma$}{Σ}-types)}
@@ -916,43 +808,34 @@ In the following section, let \( \mathbb P \) denote a primitive type as defined
 
 \subsection{Coproduct types}
 
+Unlike the dependent pair type, where the second entry is dependent on the first, there is no inherent ordering associated with types in a coproduct.
+For this reason, we will define the coproduct of an arbitrary finite sequence of types \( \bigplus_{j=1}^n A_j \), instead of the conventional definition \( A + B \).
+In the following rules, let \( i \in \qty{1, \dots, n} \).
+
 \begin{mathparpagebreakable}
-  \inferrule*[right=$+$-\rform${}_1$]
-  {\oftp\Gamma{A}{\UU}}
-  {\oftp\Gamma{A+B}{\UU}}
-\and
-  \inferrule*[right=$+$-\rform${}_2$]
-  {\oftp\Gamma{B}{\UU}}
-  {\oftp\Gamma{A+B}{\UU}}
+  \inferrule*[right=$+$-\rform]
+  {\oftp\Gamma{A_i}{\UU}}
+  {\oftp\Gamma{\bigplus_{j=1}^n A_j}{\UU}}
 \\
-  \inferrule*[right=$+$-\rintro${}_1$]
-  {\oftp\Gamma{A}{\UU} \\ \oftp\Gamma{a}{A}}
-  {\oftp\Gamma{\inl(a)}{A+B}}
-\and
-  \inferrule*[right=$+$-\rintro${}_2$]
-  {\oftp\Gamma{B}{\UU} \\ \oftp\Gamma{b}{B}}
-  {\oftp\Gamma{\inr(b)}{A+B}}
+  \inferrule*[right=$+$-\rintro]
+  {\oftp\Gamma{A_i}{\UU} \\ \oftp\Gamma{a}{A_i}}
+  {\oftp\Gamma{\inj_i(a)}{\bigplus_{j=1}^n A_j}}
 \\
   \inferrule*[right=$+$-\relim]
-  {\oftp{\Gamma}{C}{A+B \to \UU} \\\\
-   \oftp{\Gamma}{c}{\tprd{x:A} C(\inl(x))} \\
-   \oftp{\Gamma}{d}{\tprd{y:B} C(\inr(y))} \\\\
-   \oftp\Gamma{e}{A+B}}
-  {\oftp\Gamma{\ind{A+B}(C,c,d,e)}{C(e)}}
+  {\oftp{\Gamma}{C}{\bigplus_{j=1}^n A_j \to \UU} \\\\
+   \oftp{\Gamma}{c_1}{\tprd{x_1:A_1} C(\inj_1(x))} \\
+   \cdots \\
+   \oftp{\Gamma}{c_n}{\tprd{x_n:A_n} C(\inj_n(y))} \\\\
+   \oftp\Gamma{e}{\bigplus_{j=1}^n A_j}}
+  {\oftp\Gamma{\ind{\bigplus_{j=1}^n A_j}(C,c_1,\dots,c_n,e)}{C(e)}}
 \and
-  \inferrule*[right=$+$-\rcomp${}_1$]
-  {\oftp{\Gamma}{C}{A+B \to \UU} \\
-   \oftp{\Gamma}{c}{\tprd{x:A} C(\inl(x))} \\
-   \oftp{\Gamma}{d}{\tprd{y:B} C(\inr(y))} \\\\
-   \oftp\Gamma{a}{A}}
-  {\jdeqtp\Gamma{\ind{A+B}(C,c,d,\inl(a))}{c(a)}{C(\inl(a))}}
-\and
-  \inferrule*[right=$+$-\rcomp${}_2$]
-  {\oftp{\Gamma}{C}{A+B \to \UU} \\
-   \oftp{\Gamma}{c}{\tprd{x:A} C(\inl(x))} \\
-   \oftp{\Gamma}{d}{\tprd{y:B} C(\inr(y))} \\\\
-   \oftp\Gamma{b}{B}}
-  {\jdeqtp\Gamma{\ind{A+B}(C,c,d,\inr(b))}{d(b)}{C(\inr(b))}}
+  \inferrule*[right=$+$-\rcomp]
+  {\oftp{\Gamma}{C}{\bigplus_{j=1}^n A_j \to \UU} \\
+   \oftp{\Gamma}{c_1}{\tprd{x_1:A_1} C(\inj_1(x))} \\
+   \cdots \\
+   \oftp{\Gamma}{c_n}{\tprd{x_n:A_n} C(\inj_n(y))} \\\\
+   \oftp\Gamma{a}{A_j}}
+  {\jdeqtp\Gamma{\ind{\bigplus_{j=1}^n A_j}(C,c_1,\dots,c_n,\inj_j(a))}{c_j(a)}{C(\inj_j(a))}}
 \end{mathparpagebreakable}
 
 \subsection{Newtypes}
@@ -988,7 +871,54 @@ Let \( \mathbb S^+ \) be a type of names.
     {\jdeqtp\Gamma{\ind{\mathcal N_N(A)}(C,g,\nu_N(a))}{g(a)}{C(\nu_N(a))}}
 \end{mathparpagebreakable}
 
-% TODO: prove uniqueness rules
+\subsection{Borrowed types}
+
+To use an ownership-based memory model, we will create borrowed types.
+Lifetimes are not considered to be part of an object's type; they are considered in a later compilation step.
+The $\mathcal B$-\relim{} rule amounts to the ability to copy the value of a variable from behind a borrow.
+
+\begin{mathparpagebreakable}
+  \inferrule*[right=$\mathcal B$-\rform]
+    {\oftp{\Gamma}{A}{\UU} \and \oftp{\Gamma}{N}{\mathbb S^+}}
+    {\oftp\Gamma{\mathcal B(A)}{\UU}}
+  \and
+  \inferrule*[right=$\mathcal B$-\rintro]
+    {\oftp{\Gamma}{A}{\UU} \\
+    \oftp{\Gamma}{N}{\mathbb S^+} \\ \oftp\Gamma{a}{A}}
+    {\oftp\Gamma{\beta(a)}{\mathcal B(A)}}
+  \and
+  \inferrule*[right=$\mathcal B$-\relim]
+    {\oftp{\Gamma}{A}{\UU} \\
+     \oftp{\Gamma}{C}{\mathcal B(A) \to \UU} \\\\
+     \oftp{\Gamma}{g}{\tprd{x:A} C(\beta(x))} \\
+     \oftp\Gamma{p}{\mathcal B(A)}}
+    {\oftp\Gamma{\ind{\mathcal B(A)}(C,g,p)}{C(p)}}
+  \and
+  \inferrule*[right=$\mathcal B$-\rcomp]
+    {\oftp{\Gamma}{A}{\UU} \\
+     \oftp{\Gamma}{C}{\mathcal B(A) \to \UU} \\\\
+     \oftp{\Gamma}{g}{\tprd{x:A} C(\beta(x))} \\
+     \oftp\Gamma{a}{A}}
+    {\jdeqtp\Gamma{\ind{\mathcal B(A)}(C,g,\beta(a))}{g(a)}{C(\beta(a))}}
+\end{mathparpagebreakable}
+
+% TODO: prove uniqueness rules and the existence of recursors
+
+\section{Feather expressions and type constraints}
+
+Each expression in Feather is able to be directly translated into the more mathematical forms given above.
+For the purposes of eliding de Bruijn indices, we will assume that the Feather expression for creating an abstraction, \inlinecode{(lambda e)}, is instead written \( \lam xe \), where \( x \) is bound in the expression \( x \).
+
+Dependent function types are written using normal function syntax, but dependent terms are named: the type \( \tprd{x:A}B(x) \) would be written \( (x:A) \to B(x) \).
+Likewise, for dependent pair types, the type \( \tsm{x:A} B(x) \) is typically written \( (x:A) \times B(x) \).
+
+\subsection{Example 1}
+
+Consider the following Feather expression, which we will type check manually.
+
+\begin{lstlisting}
+()
+\end{lstlisting}
 
 \iffalse{}
 
