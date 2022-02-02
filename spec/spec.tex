@@ -433,6 +433,7 @@ Hence, we will discuss here the textual representation, and leave the in-memory 
 \section{S-expressions}
 
 \subsection{Atoms}
+\label{sec:prim_types}
 
 We begin our discussion of Feather by defining its core building blocks.
 We assume the definition of the types \( \mathbb N \) of natural numbers \( 0, 1, \dots \), along with the usual arithmetic operations.
@@ -669,11 +670,13 @@ If this module were saved in the directory \inlinecode{foo} with file name \inli
 
 Previously, we have created types of S-expressions for Feather's syntax.
 For example, \inlinecode{(const false)} has type \inlinecode{Expr}.
-However, there is a need to distinguish between the type of an S-expression and the type of the Feather expression it represents.
+There is a need to distinguish between the type of an S-expression and the type of the Feather expression it represents.
+These two type systems are logically distinct; the existence of an S-expression type does not imply the existence of a corresponding Feather type, or vice versa.
+
+We define \( \mathcal T(e) \) to be the Feather type of an S-expression \( e : \) \inlinecode{Expr}.
 
 Unless otherwise stated, all types in all following sections refer to the Feather type system, so \( x : \tau \) should be interpreted as the judgment `\( x \) is a Feather expression with type \( \tau \)'.
 Further, the word `expression' should be taken to mean `Feather expression'.
-If we must reference the type of an S-expression, we will write the judgment as \( x \overset{S}{:} \tau \), where the \( S \) signifies the use of S-expressions.
 
 \subsection{De Bruijn indices}
 
@@ -681,7 +684,7 @@ While de Bruijn indices are useful when processing Feather algorithmically, they
 To this end, from now on unless otherwise stated, constructs using a de Bruijn index will instead be written as if they use a named variable.
 Likewise, binding expressions will be written as if they bind their variables to names.
 
-\section{Type inference}
+\section{Type deduction rules}
 
 % TODO: talk about `undefined`
 
@@ -721,10 +724,273 @@ These rules concern subtyping and creating generic versions of monotypes.
 However, in accordance with the principle to treat types as values, the symbol \( \forall \) should be replaced by a type-theoretic construction that allows for the type quantified to be provided as a function argument.
 Thus, these two rules will not be used in Feather.
 
-What now remains is to create rules to allow interactions with the other, more interesting types found in homotopy type theory.
+What now remains is to create rules to allow interactions with the other, more interesting types found in various type theories.
 Clearly, it is not a practical idea to try to implement all of homotopy type theory inside a single programming language: most of the concepts will never be useful in any real projects.
 In any case, code that makes heavy use of complex type theoretic constructs is likely to become unmaintainable quickly.
 A balance must be struck to create a minimal, yet versatile, subset of this type theory.
+
+Further, we require the ability for types to self-reference without the computational complexity of implementing \( \mathsf{W} \)-types.
+For example, the coproduct construction \( B = A + B \), where \( A \) is a known type, should be perfectly valid in Feather.
+Such styles of construction are used regularly in the creation of \inlinecode{cons} lists, for example.
+Thus, we will not use the rules of homotopy type theory directly, and we must design and prove features about our own type system.
+
+\subsection{Discussion of coproducts and universes}
+Recursion in a type definition is only feasible due to the existence of coproducts, since they permit the creation of a type \( A + B \) where no object of type \( B \) need be constructed.
+It is therefore the coproduct that must be defined with great care to ensure soundness.
+We might reason that a type such as \( A = A + \emptyt \) should not be a valid type, since there is no way to construct an object of type \( A \) without already having such an object.
+Consider the following two rules from the homotopy type theoretic definition of the coproduct.
+\begin{mathpar}
+    \inferrule*[right=$+$-\rform]
+  {\oftp\Gamma{A}{\UU} \\ \oftp\Gamma{B}{\UU}}
+  {\oftp\Gamma{A+B}{\UU}}
+  \and
+  \inferrule*[right=$+$-\rintro${}_1$]
+  {\oftp\Gamma{A}{\UU} \\ \oftp\Gamma{B}{\UU} \\\\ \oftp\Gamma{a}{A}}
+  {\oftp\Gamma{\inl(a)}{A+B}}
+\end{mathpar}
+The formation rule \( + \)-\rform{} specifies that we can only deduce that \( A+B \) is a type once we have already deduced \( A \) and \( B \) are types themselves.
+Consider the following variants of those rules.
+\begin{mathpar}
+    \inferrule*
+  {\oftp\Gamma{A}{\UU}}
+  {\oftp\Gamma{A+B}{\UU}}
+  \and
+  \inferrule*
+  {\oftp\Gamma{A}{\UU} \\ \oftp\Gamma{a}{A}}
+  {\oftp\Gamma{\inl(a)}{A+B}}
+\end{mathpar}
+Using these inference rules, we may deduce the existence of the type \( A+B \) given only that \( A \) is a type.
+This circumvents the original problem with recursive definitions, provided that at least one of \( A \) and \( B \) are known.
+This immediately raises questions: does it make sense to consider \( A + e \) a type for an arbitrary object \( e \)?
+
+The pragmatic answer is to say \textit{yes}: it is a type, but such types may not appear in the final form of a program.
+A type \( A + B \), where the nature of \( A \) is not known, must only exist during type inference, after which they must have been resolved.
+
+There is another problem, however, in that the universe of \( A + B \) should depend both on the universe of \( A \) and that of \( B \).
+In our new formulation, it does not.
+We now must consider to what extent an infinite hierarchy of universes is required in Feather.
+In all of the typing rules in Appendix A of `Homotopy Type Theory', the universe indices in the antecedents are all arbitrary and exactly match the universe indices in the consequents, with the exceptions of the \UU-\textsc{intro} and \UU-\textsc{cumul} rules \cite{hottbook}.
+This leads us to consider an alternative type theory which contains exactly one universe \UU{}, such that \( \UU : \UU \).
+Due to the lack of \( \mathsf{W} \)-types, this is unlikely on its own to lead to unsoundness.
+
+\subsection{Structural rules}
+
+Although we skip over many of the minutiae of rigorously defining a type system, we must state the following well-known structural rules \cite{hottbook}.
+Note that instead of formulating these laws using the logic of bound and unbound variables, we will use a function-based approach.
+The semantic difference is irrelevant for our practical purposes.
+We begin with the first Hindley-Milner rule, \textsc{Var}.
+
+\begin{mathpar}
+\inferrule*[right=Var]{\langle x, \sigma \rangle \in \Gamma}{\Gamma \vdash x : \sigma}
+\end{mathpar}
+Judgmental equality is an equivalence relation, respected by typing.
+\begin{mathparpagebreakable}
+\inferrule*{\oftp\Gamma{a}{A}}{\jdeqtp\Gamma{a}{a}{A}}
+\and
+\inferrule*{\jdeqtp\Gamma{a}{b}{A}}{\jdeqtp\Gamma{b}{a}{A}}
+\and
+\inferrule*{\jdeqtp\Gamma{a}{b}{A} \\ \jdeqtp\Gamma{b}{c}{A}}{\jdeqtp\Gamma{a}{c}{A}}
+\and
+\inferrule*{\oftp\Gamma{a}{A} \\ \jdeqtp\Gamma{A}{B}{\UU}}{\oftp\Gamma{a}{B}}
+\and
+\inferrule*{\jdeqtp\Gamma{a}{b}{A} \\ \jdeqtp\Gamma{A}{B}{\UU}}{\jdeqtp\Gamma{a}{b}{B}}
+\end{mathparpagebreakable}
+
+\subsection{Dependent function types (\texorpdfstring{$\Pi$}{Π}-types)}
+
+Where bound variables must be used, the syntax \( x.b \) specifically states that the name \( x \) is bound in expression \( b \).
+No variables are bound unless stated explicitly.
+The type family \( B:A \to \UU \) is used frequently to circumvent the use of bound variables.
+This is somewhat circular; \( B:A \to \UU \) is itself a function type, but this should not matter in practice.
+
+\begin{mathparpagebreakable}
+  \def\premise{\oftp{\Gamma}{A}{\UU} \and \oftp{\Gamma}{B}{A \to \UU}}
+  \inferrule*[right=$\Pi$-\rform]
+    \premise
+    {\oftp\Gamma{\tprd{x:A}B(x)}{\UU}}
+\and
+  \inferrule*[right=$\Pi$-\rintro]
+  {\oftp{\Gamma}{A}{\UU} \and \oftp{\Gamma}{B}{A \to \UU} \and \oftp{\Gamma,\tmtp xA}{x.b}{B(x)}}
+  {\oftp\Gamma{\lam{x:A} (x.b)}{\tprd{x:A} B(x)}}
+\and
+  \inferrule*[right=$\Pi$-\relim]
+  {\oftp{\Gamma}{B}{A \to \UU} \\ \oftp\Gamma{f}{\tprd{x:A} B(x)} \\ \oftp\Gamma{a}{A}}
+  {\oftp\Gamma{f(a)}{B(a)}}
+\and
+  \inferrule*[right=$\Pi$-\rcomp]
+  {\oftp{\Gamma}{B}{A \to \UU} \\ \oftp{\Gamma,\tmtp xA}{x.b}{B(x)} \\ \oftp\Gamma{a}{A}}
+  {\jdeqtp\Gamma{(\lam{x:A} (x.b))(a)}{a.b}{B(a)}}
+\and
+  \inferrule*[right=$\Pi$-\runiq]
+  {\oftp\Gamma{f}{\tprd{x:A} B(x)}}
+  {\jdeqtp\Gamma{f}{(\lam{y:A}f(y))}{\tprd{x:A} B(x)}}
+\end{mathparpagebreakable}
+
+Now that dependent function types have been created, the need for bound variables is no longer present.
+Due to the use of functions instead of bound variables, the elimination and computation rules for this type, as well as the unit type and other primitive types, will not be needed.
+
+\subsection{The empty type \texorpdfstring{$\emptyt$}{0}}
+Here, the antecedent \( \wfctx \Gamma \) is used to denote simply that \( \Gamma \) is a valid typing context, since no other antecedents are present.
+\begin{mathparpagebreakable}
+  \inferrule*[right=$\emptyt$-\rform]
+  {\wfctx\Gamma}
+  {\oftp\Gamma\emptyt{\UU}}
+\and
+  \inferrule*[right=$\emptyt$-\relim]
+  {\oftp{\Gamma}{C}{\emptyt \to \UU} \\ \oftp\Gamma{a}{\emptyt}}
+  {\oftp\Gamma{\ind{\emptyt}(C,a)}{C(a)}}
+\end{mathparpagebreakable}
+
+\subsection{The unit type \texorpdfstring{$\unit$}{1}}
+\begin{mathparpagebreakable}
+  \inferrule*[right=$\unit$-\rform]
+  {\wfctx\Gamma}
+  {\oftp\Gamma\unit{\UU}}
+\and
+  \inferrule*[right=$\unit$-\rintro]
+  {\wfctx\Gamma}
+  {\oftp\Gamma{\ttt}{\unit}}
+\and
+  \inferrule*[right=$\unit$-\relim]
+  {\oftp{\Gamma}{C}{\unit \to \UU} \\
+   \oftp{\Gamma}{c}{C(\ttt)} \\
+   \oftp\Gamma{a}{\unit}}
+  {\oftp\Gamma{\ind{\unit}(C,c,a)}{C(a)}}
+\and
+  \inferrule*[right=$\unit$-\rcomp]
+  {\oftp{\Gamma}{C}{\unit \to \UU} \\
+   \oftp{\Gamma}{c}{C(\ttt)}}
+  {\jdeqtp\Gamma{\ind{\unit}(C,c,\ttt)}{c}{C(\ttt)}}
+\end{mathparpagebreakable}
+
+\subsection{Primitive types}
+Feather has several primitive types that have not yet been discussed.
+In the following section, let \( \mathbb P \) denote a primitive type as defined in \cref{sec:prim_types}.
+\begin{mathparpagebreakable}
+  \inferrule*[right=$\mathbb P$-\rform]
+  {\wfctx\Gamma}
+  {\oftp\Gamma{\mathbb P}{\UU}}
+\and
+  \inferrule*[right=$\mathbb P$-\rintro]
+  {\wfctx\Gamma}
+  {\oftp\Gamma{p}{\mathbb P}}
+\and
+  \inferrule*[right=$\mathbb P$-\relim]
+  {\oftp{\Gamma}{C}{\mathbb P \to \UU} \\
+   \oftp{\Gamma}{c}{\tprd{p:\mathbb P} C(p)} \\
+   \oftp\Gamma{a}{\mathbb P}}
+  {\oftp\Gamma{\ind{\mathbb P}(C,c,a)}{C(a)}}
+\and
+  \inferrule*[right=$\mathbb P$-\rcomp]
+  {\oftp{\Gamma}{C}{\mathbb P \to \UU} \\
+   \oftp{\Gamma}{c}{\tprd{p:\mathbb P} C(p)}}
+  {\jdeqtp\Gamma{\ind{\mathbb P}(C,c,p)}{c}{C(p)}}
+\end{mathparpagebreakable}
+
+\subsection{Dependent pair types (\texorpdfstring{$\Sigma$}{Σ}-types)}
+\begin{mathparpagebreakable}
+  \def\premise{\oftp{\Gamma}{A}{\UU} \and \oftp{\Gamma}{B}{A \to \UU}}
+  \inferrule*[right=$\Sigma$-\rform]
+    \premise
+    {\oftp\Gamma{\tsm{x:A} B(x)}{\UU}}
+  \and
+  \inferrule*[right=$\Sigma$-\rintro]
+    {\oftp{\Gamma}{B}{A \to \UU} \\
+     \oftp\Gamma{a}{A} \\ \oftp\Gamma{b}{B(a)}}
+    {\oftp\Gamma{\tup ab}{\tsm{x:A} B(x)}}
+  \and
+  \inferrule*[right=$\Sigma$-\relim]
+    {\oftp{\Gamma}{B}{A \to \UU} \\
+     \oftp{\Gamma}{C}{\tsm{x:A} B(x) \to \UU} \\
+     \oftp{\Gamma}{g}{\tprd{x:A} \tprd{y:B} C(\tup x y)} \\
+     \oftp\Gamma{p}{\tsm{x:A} B(x)}}
+    {\oftp\Gamma{\ind{\tsm{x:A} B(x)}(C,g,p)}{C(p)}}
+  \and
+  \inferrule*[right=$\Sigma$-\rcomp]
+    {\oftp{\Gamma}{B}{A \to \UU} \\
+     \oftp{\Gamma}{C}{\tsm{x:A} B(x) \to \UU} \\\\
+     \oftp{\Gamma}{g}{\tprd{x:A} \tprd{y:B} C(\tup x y)} \\
+     \oftp\Gamma{a}{A} \\ \oftp\Gamma{b}{B(a)}}
+    {\jdeqtp\Gamma{\ind{\tsm{x:A} B(x)}(C,g,\tup{a}{b})}{g(a)(b)}{C(\tup a b)}}
+\end{mathparpagebreakable}
+
+\subsection{Coproduct types}
+
+\begin{mathparpagebreakable}
+  \inferrule*[right=$+$-\rform${}_1$]
+  {\oftp\Gamma{A}{\UU}}
+  {\oftp\Gamma{A+B}{\UU}}
+\and
+  \inferrule*[right=$+$-\rform${}_2$]
+  {\oftp\Gamma{B}{\UU}}
+  {\oftp\Gamma{A+B}{\UU}}
+\\
+  \inferrule*[right=$+$-\rintro${}_1$]
+  {\oftp\Gamma{A}{\UU} \\ \oftp\Gamma{a}{A}}
+  {\oftp\Gamma{\inl(a)}{A+B}}
+\and
+  \inferrule*[right=$+$-\rintro${}_2$]
+  {\oftp\Gamma{B}{\UU} \\ \oftp\Gamma{b}{B}}
+  {\oftp\Gamma{\inr(b)}{A+B}}
+\\
+  \inferrule*[right=$+$-\relim]
+  {\oftp{\Gamma}{C}{A+B \to \UU} \\\\
+   \oftp{\Gamma}{c}{\tprd{x:A} C(\inl(x))} \\
+   \oftp{\Gamma}{d}{\tprd{y:B} C(\inr(y))} \\\\
+   \oftp\Gamma{e}{A+B}}
+  {\oftp\Gamma{\ind{A+B}(C,c,d,e)}{C(e)}}
+\and
+  \inferrule*[right=$+$-\rcomp${}_1$]
+  {\oftp{\Gamma}{C}{A+B \to \UU} \\
+   \oftp{\Gamma}{c}{\tprd{x:A} C(\inl(x))} \\
+   \oftp{\Gamma}{d}{\tprd{y:B} C(\inr(y))} \\\\
+   \oftp\Gamma{a}{A}}
+  {\jdeqtp\Gamma{\ind{A+B}(C,c,d,\inl(a))}{c(a)}{C(\inl(a))}}
+\and
+  \inferrule*[right=$+$-\rcomp${}_2$]
+  {\oftp{\Gamma}{C}{A+B \to \UU} \\
+   \oftp{\Gamma}{c}{\tprd{x:A} C(\inl(x))} \\
+   \oftp{\Gamma}{d}{\tprd{y:B} C(\inr(y))} \\\\
+   \oftp\Gamma{b}{B}}
+  {\jdeqtp\Gamma{\ind{A+B}(C,c,d,\inr(b))}{d(b)}{C(\inr(b))}}
+\end{mathparpagebreakable}
+
+\subsection{Newtypes}
+
+There are certain instances where we wish to consider two types `the same' or `different' depending on semantic context.
+Two types that are isomorphic are not necessarily to be considered identical due to semantic context.
+This is known as the \inlinecode{newtype} idiom.
+We will allow types to be uniquely named by defining the following rules.
+Let \( \mathbb S^+ \) be a type of names.
+
+\begin{mathparpagebreakable}
+  \inferrule*[right=$\mathcal N$-\rform]
+    {\oftp{\Gamma}{A}{\UU} \and \oftp{\Gamma}{N}{\mathbb S^+}}
+    {\oftp\Gamma{\mathcal N_N(A)}{\UU}}
+  \and
+  \inferrule*[right=$\mathcal N$-\rintro]
+    {\oftp{\Gamma}{A}{\UU} \\
+    \oftp{\Gamma}{N}{\mathbb S^+} \\ \oftp\Gamma{a}{A}}
+    {\oftp\Gamma{\nu_N(a)}{\mathcal N_N(A)}}
+  \and
+  \inferrule*[right=$\mathcal N$-\relim]
+    {\oftp{\Gamma}{A}{\UU} \\
+     \oftp{\Gamma}{C}{\mathcal N_N(A) \to \UU} \\\\
+     \oftp{\Gamma}{g}{\tprd{x:A} C(\nu_n(x))} \\
+     \oftp\Gamma{p}{\mathcal N_N(A)}}
+    {\oftp\Gamma{\ind{\mathcal N_N(A)}(C,g,p)}{C(p)}}
+  \and
+  \inferrule*[right=$\mathcal N$-\rcomp]
+    {\oftp{\Gamma}{A}{\UU} \\
+     \oftp{\Gamma}{C}{\mathcal N_N(A) \to \UU} \\\\
+     \oftp{\Gamma}{g}{\tprd{x:A} C(\nu_n(x))} \\
+     \oftp\Gamma{a}{A}}
+    {\jdeqtp\Gamma{\ind{\mathcal N_N(A)}(C,g,\nu_N(a))}{g(a)}{C(\nu_N(a))}}
+\end{mathparpagebreakable}
+
+% TODO: prove uniqueness rules
+
+\iffalse{}
 
 We have included a subset of the logical inference rules provided by `Homotopy Type Theory' \cite{hottbook} in \cref{ch:formalisation_reference}.
 The names and properties of such rules will be used throughout the rest of this specification.
@@ -734,6 +1000,8 @@ For instance, the Hindley-Milner \textsc{Var} rule is superseded by the \(\Vble\
 \subsection{Non-primitive types}
 
 As stated in `Homotopy Type Theory' \cite{hottbook}, each type is governed by formation rules, introduction rules, elimination rules, computation rules, and optionally uniqueness principles.
+
+% TODO: explain things
 
 The laws of \textit{dependent function types} are governed by the rules \( \Pi \)-\rform, \( \Pi \)-\rintro, \( \Pi \)-\relim, \( \Pi \)-\rcomp, and \( \Pi \)-\runiq.
 The \( \Pi \)-\rintro{} rule is a dependently typed version of the \textsc{Abs} rule defined above, and \( \Pi \)-\relim{} is likewise a dependently typed version of \textsc{App}.
@@ -757,6 +1025,7 @@ This also implies that the projection functions for products are the dual to the
 \textit{Coproducts}, or \textit{disjoint unions}, are governed by \( + \)-\rform, \( + \)-\rintro\({}_1\), \( + \)-\rintro\({}_2\), \( + \)-\relim, \( + \)-\rcomp\({}_1\), and \( + \)-\rcomp\({}_2\).
 The functions \( \inl \) and \( \inr \) are the left and right \textit{injections}, that allow creation of the coproduct type.
 The function \( \rec{A + B} \) is the \textit{recursor}, which allows us to operate on the components of the coproduct.
+% TODO: how did we get the recursor - only the inductive function was defined!
 The recursor is dual to \( \varphi \) defined above.
 Let \( \alpha \colon A \to C \) and \( \beta \colon B \to C \), then the following diagram commutes.
 
@@ -772,6 +1041,7 @@ A \arrow[ru, "\inl"] \arrow[rd, "\alpha"'] &                                    
 The empty type is governed by \( \emptyt \)-\rform{} and \( \emptyt \)-\relim.
 
 The unit type is governed by \( \unit \)-\rform, \( \unit \)-\rintro, \( \unit \)-\relim, and \( \unit \)-\rcomp.
+\fi{}
 
 \begin{appendices}
     \appendixpage
