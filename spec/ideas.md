@@ -175,3 +175,10 @@ They are to be deduced from context.
 They can be made explicit by using square brackets: `cons[_, 0] 1 empty`, for example.
 Certain types are marked by Quill as implicit-by-default, such as `Type`.
 Implicitness is not a concept in Feather.
+
+# Documentation
+
+With sufficient modularity and expression-orientatedness, we can have a program itself be automatically documented.
+This documentation can be mathematical; generating LaTeX documentation code for a Quill project, where functions are written in math environments not code environments, is not an unreasonable target.
+
+Feather could also potentially have plugins for things like tactics, asslowing "implicit" keywords and such. This is a step towards a full automated theorem proof assistant.

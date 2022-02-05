@@ -85,7 +85,7 @@
 % the same type, as in \lam{x,y:A}.
 \def\lam#1{{\lambda}\@lamarg#1:\@endlamarg\@ifnextchar\bgroup{.\,\lam}{.\,}}
 \def\@lamarg#1:#2\@endlamarg{\if\relax\detokenize{#2}\relax #1\else\@lamvar{\@lameatcolon#2},#1\@endlamvar\fi}
-\def\@lamvar#1,#2\@endlamvar{(#2\,{:}\,#1)}
+\def\@lamvar#1,#2\@endlamvar{\qty(#2\,{:}\,#1)}
 % \def\@lamvar#1,#2{{#2}^{#1}\@ifnextchar,{.\,{\lambda}\@lamvar{#1}}{\let\@endlamvar\relax}}
 \def\@lameatcolon#1:{#1}
 \let\lamt\lam
@@ -159,6 +159,7 @@
 \let\setof\Set    % from package 'braket', write \setof{ x:A | P(x) }.
 \newcommand{\pair}{\ensuremath{\mathsf{pair}}\xspace}
 \newcommand{\tup}[2]{(#1,#2)}
+\newcommand{\dtup}[2]{\sigma(#1,#2)} % dependent tuple
 \newcommand{\proj}[1]{\ensuremath{\mathsf{pr}_{#1}}\xspace}
 \newcommand{\fst}{\ensuremath{\proj1}\xspace}
 \newcommand{\snd}{\ensuremath{\proj2}\xspace}
