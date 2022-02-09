@@ -357,9 +357,10 @@ This will also empower the compiler to act in parallel.
 
 \chapter{Type semantics}
 
-\section{Objectives}
+\iffalse{}\section{Objectives}
 
 \subsection{Type system complexity}
+\fi{}
 
 % TODO: talk about `undefined`
 % TODO: talk about the fact that feather essentially *is* its type system, and how buying in to feather is essentially buying in to its type system
@@ -401,7 +402,7 @@ The remaining Hindley-Milner rules are as follows.
 \end{mathpar}
 These rules concern subtyping and creating generic versions of monotypes.
 However, in accordance with the principle to treat types as values, the symbol \( \forall \) should be replaced by a type-theoretic construction that allows for the type quantified to be provided as a function argument.
-Thus, these two rules will not be used in Feather.
+Thus, no variant of these two rules will be used in Feather.
 
 What now remains is to create rules to allow interactions with the other, more interesting types found in various type theories.
 Clearly, it is not a practical idea to try to implement all of homotopy type theory inside a single programming language: most of the concepts will never be useful in any real projects.
@@ -420,6 +421,7 @@ Thus, we will not use the rules of homotopy type theory directly, and we must de
 Recursion in a type definition is only feasible due to the existence of coproducts, since they permit the creation of a type \( A + B \) where no object of type \( B \) need be constructed.
 It is therefore the coproduct that must be defined with great care to ensure soundness.
 We might reason that a type such as \( A = A + \emptyt \) should not be a valid type, since there is no way to construct an object of type \( A \) without already having such an object.
+However, this does not qualify as a logical contradiction; after all, \( \emptyt \) itself is also a type that cannot be constructed, and such an empty type is an accepted part of many theories.
 Consider the following two rules from the homotopy type theoretic definition of the coproduct.
 \begin{mathpar}
     \inferrule*[right=$+$-\rform]
@@ -446,12 +448,12 @@ This circumvents the original problem with recursive definitions, provided that 
 This immediately raises questions: does it make sense to consider \( A + e \) a type for an arbitrary object \( e \)?
 
 The pragmatic answer is to say \textit{yes}: it is a type, but such types may not appear in the final form of a program.
-A type \( A + B \), where the nature of \( A \) is not known, must only exist during type inference, after which they must have been resolved.
+A type \( A + B \), where the nature of \( B \) is not known, must only exist during type inference, after which they must have been resolved.
 
 There is another problem, however, in that the universe of \( A + B \) should depend both on the universe of \( A \) and that of \( B \).
 In our new formulation, it does not.
 We now must consider to what extent an infinite hierarchy of universes is required in Feather.
-In all of the typing rules in Appendix A of `Homotopy Type Theory', the universe indices in the antecedents are all arbitrary and exactly match the universe indices in the consequents, with the exceptions of the \UU-\textsc{intro} and \UU-\textsc{cumul} rules \cite{hottbook}.
+In all of the typing rules in Appendix A of `Homotopy Type Theory', the universe indices in the premises are all arbitrary and exactly match the universe indices in the conclusions, with the exceptions of the \UU-\textsc{intro} and \UU-\textsc{cumul} rules \cite{hottbook}.
 This leads us to consider an alternative type theory which contains exactly one universe \UU{}, such that \( \UU : \UU \).
 Due to the lack of \( \mathsf{W} \)-types, this is unlikely on its own to lead to unsoundness.
 
@@ -461,8 +463,6 @@ Many type theories make use of dependent types.
 The most common are dependent function types \( \tprd{x:A} B \) and dependent pair types \( \tsm{x:A} B \).
 Note that a dependent coproduct cannot exist, since the value of a coproduct type is determined by a value from any one of its component types.
 Typically, independent types are defined as special cases of the dependent types, where \( x \) is not bound in \( B \).
-We will instead force \( B \) to be a type family, an independent function of type \( A \to \UU \).
-This allows the compiler to leverage its knowledge of lambda abstractions, rather than having to introduce a new analysis workflow for bound and unbound variables.
 
 If independent and dependent types are the same internally, we must determine during compilation if the variable \( x \) is bound in \( B \), in order to make certain transformations and deductions.
 Automatic dependence deduction could lead to unexpected behaviour, since it is determined by semantics; changing one line of code could break a hypothetical `dependence checker' and cause cascading type inference errors.
@@ -470,10 +470,15 @@ For many programs and use cases, dependent types by default are not desirable.
 Thus, for any dependent type, we will create an independent variant of that type.
 Feather code must therefore explicitly opt in to dependence for a particular type.
 
+For types such as \( \tprd{x:A} B \), we will force \( B \) to be a type family, an independent function of type \( A \to \UU \).
+This allows the compiler to leverage its knowledge of lambda abstractions, rather than having to introduce a new analysis workflow for bound and unbound variables.
+
 Consider nested independent products \( A \times (B \times C) \) or coproducts \( A + (B + C) \).
 Since there is no dependence between \( A \) and the other types, we should be able to consider \( A, B, C \) to lie in the same space in the hierarchy; that is, there should exist types \( A \times B \times C \) and \( A + B + C \) that emphasise the fact that there is no dependence between the three types in question.
 
-\subsection{Ownership}
+\subsection{Objects and variables}
+
+% TODO: THIS IS WHERE THE RIGOUR STARTS; this should be made clear by use of section delimiters
 
 Feather expressions are evaluated on a computer with physical hardware, not in a hypothetical mathematical landscape with infinite processing power.
 As such, syntax that we define should respect ownership of memory.
@@ -481,14 +486,32 @@ However, there is an important distinction to be made between compile-time owner
 Where the values of variables exist at compile time and at runtime, the inferred types of such variables exist only at compile time, and hence their ownership need not be tracked so precisely.
 Types, when used as values, follow the same ownership rules as values.
 \begin{defn}
-  Let \((\ast)\) be an inference rule with a premise of the form \( \oftp\Gamma xA \).
-  We say that \((\ast)\) \textit{consumes} \( x \).
+  An \textit{object} is an \textit{a priori} indivisible mathematical object, in that it does not exist directly on physical hardware.
+  A \textit{variable} is a name used to unambiguously address an object.
+  A \textit{realisation} of an object is a binary representation of that object, stored in a fixed (at runtime) location in hardware.
+
+  Any given object may have multiple variables referring to it, and multiple realisations encoding it.
+  In particular, when ownership of an object is transferred, the variable referring to it may change, and the object may be realised in a different physical location.
 \end{defn}
 \begin{defn}
-  Let \((\ast)\) be an inference rule with conclusion of the form \( \oftp\Gamma xA \).
-  We say that \((\ast)\) \textit{constructs} \( x \), or that \((\ast)\) is a \textit{constructor} for \( x \).
+  A variable \( x \) is called \textit{bound} if \( x \) is the name of a variable bound in a \( \lambda \) or \( \Lambda \) abstraction (which will be defined later).
+  A variable that is not bound is called \textit{free}.
 \end{defn}
-\begin{eg}
+\begin{egs}
+  In the expression \( \lam x y \), the scope of \( x \) is \( y \).
+  In the expression \( e \defeq (\lam x y)(z) \), the scope of \( z \) includes \( e \) as a sub-expression, assuming that \( z \) is a bound variable from an abstraction whose lambda term contains \( e \).
+\end{egs}
+\begin{defn}
+  Let \((\ast)\) be a premise of the form \( \oftp\Gamma xA \).
+  We say that \((\ast)\) \textit{consumes} the object referred to by the variable \( x \).
+
+  Let \((\ast\ast)\) be a conclusion of the form \( \oftp\Gamma xA \).
+  We say that \((\ast\ast)\) \textit{constructs} an object of type \( A \) and binds it to the variable \( x \), or that \((\ast\ast)\) is a \textit{constructor} for (the object referred to by) \( x \).
+
+  If an inference rule contains a premise that consumes \( x \), we might say that the inference rule itself consumes \( x \).
+  Similarly, if the conclusion of an inference rule constructs \( x \), we might say that the rule constructs \( x \).
+\end{defn}
+\begin{egs}
   Consider these hypothetical inference rules.
   \begin{mathpar}
     \inferrule*[right=\((\dagger)\)]
@@ -499,33 +522,53 @@ Types, when used as values, follow the same ownership rules as values.
     {\oftp{\Gamma}{B}{\UU} \\ \oftp\Gamma{f}{A \to B} \\ \oftp\Gamma{a}{A}}
     {\oftp\Gamma{f(a)}{B}}
   \end{mathpar}
-  In \((\dagger)\), \( A \oplus B \) is free in the premise, even though \( A \) and \( B \) appear individually.
-  Hence \((\dagger)\) is a constructor for the type \( A \oplus B \), and is a consumer of \( A \) and \( B \).
+  \((\dagger)\) is a constructor for the type \( A \oplus B \), and is a consumer of \( A \) and \( B \).
   \((\ddagger)\) is a constructor for \( f(a) \), and is a consumer of \( B \), \( f \) and \( a \).
-\end{eg}
+\end{egs}
 \begin{defn}
-  A constructor \textit{respects ownership} if, for all variables \( x \) it consumes:
-  \begin{enumerate}
-    \item \( x \) is consumed in exactly one premise; and
-    \item \( x \) appears no more than once in its conclusion.
-  \end{enumerate}
-  If a given variable \( x \) appears exactly once in its conclusion, we say that the inference rule \textit{transfers ownership} of \( x \).
-  If \( x \) does not appear in the conclusion, we say that the inference rule \textit{drops} \( x \).
-\end{defn}
-\begin{defn}
-  Let \((\ast)\) be an inference rule with conclusion of the form \( \jdeqtp\Gamma xyA \).
+  Let \((\ast)\) be a statement of the form \( \jdeqtp\Gamma xyA \).
   We say that \((\ast)\) is a \textit{computation} of \( x \) into \( y \), or vice versa.
   Alternatively, we say that \((\ast)\) \textit{computes} \( x \) and yields the result \( y \), or vice versa.
+
+  We may also write statements of the form \( \Gamma \vdash x \mapsto y : A \).
+  These are \textit{one-directional} computations of \( x \) into \( y \).
+  This symbolises a lossy conversion of \( x \) into \( y \) that cannot necessarily be trivially reversed.
 \end{defn}
+
+\subsection{Ownership}
 \begin{defn}
-  A computation of \( a \) into \( b \) \textit{respects ownership} if, for all variables \( x \) it consumes:
-  \begin{enumerate}
-    \item \( x \) is consumed in exactly one premise; and
-    \item \( x \) appears no more than once in \( a \), and no more than once in \( b \).
-  \end{enumerate}
+  A one-directional computation of \( a \) into \( b \) \textit{respects ownership} if all free variables that appear in \( x \) appear no more than once in \( y \).
+  A computation of \( a \) into \( b \) \textit{respects ownership} if both one-directional computations respect ownership.
+  Equivalently, it respects ownership if all free variables that appear in \( x \) appear exactly once in \( y \), and vice versa.
 \end{defn}
-This classifies all inference rules as either constructors or computations, with few unique exceptions that will be discussed later.
-Note that premises of the form \( \jdeqtp\Gamma xyA \) are ignored when analysing ownership.
+\begin{eg}
+  Consider \( \jdeqtp\Gamma{(\lam{x:A} (x.b))(a)}{a.b}{B} \).
+  The left hand side has free variables \( a \) and \( b \).
+  Since \( x \) is bound in the lambda abstraction, it is not free.
+  The right hand side has free variables \( a \) and \( b \); even though \( a \) is `bound in \( b \)' in the traditional sense, it is a name defined externally to this expression, so we consider it free.
+  These two sets match, hence this computation respects ownership.
+\end{eg}
+\begin{defn}
+  A constructor \textit{respects ownership} if:
+  \begin{enumerate}
+    \item every computation used as a premise respects ownership;
+    \item every consumed variable is consumed in exactly one premise; and
+    \item any given consumed variable appears no more than once as a value in its conclusion.
+  \end{enumerate}
+  If a given variable \( x \) appears exactly once in its conclusion, we say that the inference rule \textit{transfers ownership} of \( x \).
+  % If \( x \) does not appear in the conclusion, we say that the inference rule \textit{drops} \( x \).
+\end{defn}
+\begin{eg}
+  In \((\dagger)\) above, the variables \( A \) and \( B \) appear exactly once each in the premises and exactly once each in the conclusion.
+  Hence \((\dagger)\) respects ownership.
+  In \((\ddagger)\), \( B \), \( f \) and \( a \) are consumed exactly once each, and the variables \( f \) and \( a \) appear exactly once in the conclusion as a value.
+  Hence \((\ddagger)\) respects ownership, even though \( B \) was not used as a value in the conclusion.
+\end{eg}
+\begin{defn}
+  An inference rule with a computation for its conclusion is called a \textit{computation rule}.
+\end{defn}
+This classifies all inference rules as either constructors or computation rules, with few unique exceptions that will be discussed later.
+Computation rules are not used for determining ownership or type checking.
 
 \subsection{Regions and lifetimes}
 
@@ -546,7 +589,7 @@ Note that premises of the form \( \jdeqtp\Gamma xyA \) are ignored when analysin
 \begin{defn}
   A \textit{region} is either an expression region or an external region.
   The set of all regions for a given expression \( e \) is called the \textit{region set} \( \mathcal R(e) \), which is the union of all external regions together with \( \rho(e) \).
-  This set is equipped by the following partial order:
+  This set is equipped with the following partial order:
   \begin{enumerate}
     \item for two expression regions \( \rho(e_1), \rho(e_2) \in \mathcal R(e) \), we have \( \rho(e_1) \leq \rho(e_2) \) if \( \rho(e_1) \subseteq \rho(e_2) \);
     \item for an external region \( \rho_i^{\mathrm{ext}} \) and an expression region \( \rho(e) \), we have \( \rho(e) \leq \rho_i^{\mathrm{ext}} \) unconditionally;
@@ -561,7 +604,6 @@ Note that premises of the form \( \jdeqtp\Gamma xyA \) are ignored when analysin
     \item for two non-static external regions \( \rho_i^{\mathrm{ext}}, \rho_j^{\mathrm{ext}} \), the term \( \rho_i^{\mathrm{ext}} \cap \rho_j^{\mathrm{ext}} \) is considered irreducible up to commutativity and associativity, and is also defined to be a region.
   \end{enumerate}
   If this is not empty, this is the greatest lower bound of \( \rho \) and \( \rho' \); that is, \( \rho \cap \rho' \) is the unique region such that for all \( \widetilde \rho \leq \rho, \rho' \), we have \( \widetilde \rho \leq \rho \cap \rho' \).
-  We say that an expression \( e \) is \textit{alive} with respect to a given region \( \rho' \) if \( \rho(e) \leq \rho' \).
   This partial order defines \( \rho \leq \rho' \) if \( \rho \) is a subregion of \( \rho' \).
   Rust uses subtyping to refer to the same concept, writing \( \rho \leq \rho' \) as \( \rho' : \rho \).
 \end{defn}
@@ -573,16 +615,73 @@ Note that premises of the form \( \jdeqtp\Gamma xyA \) are ignored when analysin
   Any judgment or judgmental equality has an associated region \( \rho \), called its \textit{lifetime}.
   This can be written
   \[ \Gamma \vdash x : A, \rho;\quad \Gamma \vdash x \equiv y : A, \rho \]
-  We say that a judgment is \textit{alive} in a region \( \rho' \) if \( \rho \leq \rho' \).
+  We say that a judgment or judgmental equality is \textit{alive} in a region \( \rho' \) if \( \rho \leq \rho' \).
   A judgment or judgmental equality \textit{respects lifetimes} if, for all lifetimes \( \rho' \) contained within the statement of the judgment or judgmental equality, the lifetime \( \rho \) of the judgment itself satisfies \( \rho \leq \rho' \).
-  In other words, a judgment respects lifetimes if it is alive only when all of the expressions contained within it are alive.
+
+  Note that the use of the expressions themselves in the judgment or judgmental equality need not be valid for the lifetime of the judgment or judgmental equality.
+  For instance, a variable \( x \) created in a local scope might still attain the judgment \( \Gamma \vdash A,\lstatic \) even though the local scope containing \( x \) is a subregion of \( \lstatic \); this is because object referred to by the name \( x \) may be continually transferred to new owners until the end of \( \lstatic \).
+  The use of the name \( x \) outside this local scope would be syntactically incorrect, but the object may still be accessible by other names.
+  Further, the object may be destroyed at any point before the expiration of \( \lstatic \).
+  The lifetime of the judgment simply states the maximal span of time the judgment is valid for.
 \end{defn}
+\begin{eg}
+  \( \oftp\Gamma x{T,\lstatic} \) respects lifetimes, as no lifetimes are specified in the expression \( x \).
+  The use of the name \( x \) need not be semantically correct for \( \lstatic \), but the ownership of the object it refers to may be transferred indefinitely inside the lifetime \( \lstatic \).
+\end{eg}
 \begin{defn}
   An inference rule \textit{respects lifetimes} if its premises and conclusion respect lifetimes, and for all lifetimes \( \rho' \) of the premises, the lifetime \( \rho \) of the conclusion satisfies \( \rho \leq \rho' \).
 \end{defn}
+\begin{eg}
+  Let \( \& x \) be a borrow of \( x \), which was constructed from the judgment \( \oftp\Gamma{\& x}{T,\rho} \).
+  This will be defined more formally later.
+  Then, the use of the variable \( \& x \) in region \( \rho' \) respects lifetimes if \( \rho' \leq \rho \).
+  The variable \( \& x \) need not be addressable using that name for \( \rho' \), but the underlying object may be transferred between different owners provided that the ownership remains within \( \rho' \), and hence within \( \rho \).
+\end{eg}
 If lifetimes are not stated explicitly in inference rules, lifetimes will implicitly be added to each of the premises independently such that the conclusion is valid for the intersection of the premises.
 \[ \inferrule{\mathcal J_1, \rho_1 \and \dots \and \mathcal J_n, \rho_n}{\mathcal J, \bigcap_{i=1}^n \rho_i} \]
 Inference rules where the lifetimes are given implicitly always respect lifetimes by construction.
+
+\subsection{Borrowing}
+
+\begin{defn}
+  The \textit{scope} of a bound variable \( x \) is the lambda term, which is the outermost expression for which the use of the name \( x \) is valid.
+  We say that a region \( \rho \) is \textit{in the scope of \( x \)} if \( \rho \) is a subregion of the region given by the scope of \( x \).
+
+  A bound variable has a set of \textit{borrowing regions} \( \rho_{\&} \) for which it is \textit{borrowed}.
+  Each such region contained within \( \rho_{\&} \) must lie in the scope of \( x \).
+  For a region \( \rho \) in the scope of \( x \), we say that \( x \) is \textit{borrowed} if \( \rho \leq \rho' \) for some \( \rho' \in \rho_{\&} \).
+  That is, \( x \) is considered to be borrowed in a region \( \rho \) if \( \rho \) is entirely contained inside a borrowing region.
+  For a region \( \rho \) in the scope of \( x \), we say that \( x \) is \textit{owned} if it is not borrowed.
+
+  Due to the hierarchical structure of expressions, it is not possible to have a region partially contained inside a borrowing region.
+  Hence, if \( x \) is owned in the region \( \rho \), \( \rho \) does not intersect with any borrowing regions.
+\end{defn}
+\begin{defn}
+  An expression \( e \) \textit{consumes} a variable \( x \) if its construction entails the use of an inference rule that consumes \( x \).
+  We say that \( e \) \textit{respects borrowing} if no bound variable is consumed while borrowed.
+\end{defn}
+Note that only the construction of variables is considered when determining borrowing.
+The values of such variables are not relevant.
+\begin{eg}
+  Consider the expression \( (f\ \&x)\ x \).
+  If the borrowing region used by \( \&x \) is \( f\ \&x \), then \( x \) is borrowed to execute \( f\ \&x \) and the borrow is subsequently released.
+  Then, while evaluating the argument \( x \), \( x \) is owned.
+  We can therefore evaluate \( (f\ \&x)\ x \) respecting borrowing.
+
+  Instead, suppose that the borrowing region used by \( \&x \) is the whole expression \( (f\ \&x)\ x \).
+  This can happen, for example, if the return type of \( f \) contains a lifetime constrained by that of its argument.
+  Here, \( \&x \) is borrowed while we try to evaluate the second argument \( x \).
+  This does not respect borrowing.
+\end{eg}
+
+Now, when discussing new inference rules, we must be careful to verify that these rules respect ownership and lifetimes.
+This analysis can be mostly performed before writing the compiler itself, leaving little analysis to be done at compile-time.
+Exceptions include, for instance, the handling of expressions like \( (f\ x)\ x \).
+This clearly does not respect ownership; \( x \) is consumed twice.
+However, this cannot be determined before compile-time.
+
+Then, when inference rules are applied in practice, we must check whether the expressions used in a given program respect borrowing.
+This is a compile-time check, known as the borrow checker.
 
 \subsection{Structural rules}
 
@@ -591,22 +690,33 @@ Note that instead of formulating these laws using the logic of bound and unbound
 The semantic difference is irrelevant for our practical purposes.
 We begin with the first Hindley-Milner rule, \textsc{Var}.
 \begin{mathpar}
-\inferrule*[right=Var]{\langle x, \sigma, \rho \rangle \in \Gamma}{\Gamma \vdash x : \sigma, \rho}
+\inferrule*[right=Var]{\langle x, A, \rho \rangle \in \Gamma}{\Gamma \vdash x : A, \rho}
 \end{mathpar}
-We can see that this rule respects lifetimes vacuously, since there is no judgment or judgmental equality in the premise.
+Informally, \textsc{Var} states that the variable \( x \) may be constructed inside region \( \rho \) and kept alive throughout the region, and during that time it will have type \( A \).
+The distinction between monotypes and polytypes is not made here.
+
+We can see that this constructor respects ownership, since there are no consumed variables and no computations used as a premise.
+This rule respects lifetimes vacuously, since there is no judgment or judgmental equality in the premise.
+
+\subsection{Computation rules}
+
 Judgmental equality is an equivalence relation, respected by typing.
 \begin{mathparpagebreakable}
-\inferrule*{\oftp\Gamma{a}{A}}{\jdeqtp\Gamma{a}{a}{A}}
+\inferrule*[right=\(\mapsto\)-\textsc{refl}]{\oftp\Gamma{a}{A}}{\Gamma\vdash a \mapsto a : A}
 \and
-\inferrule*{\jdeqtp\Gamma{a}{b}{A}}{\jdeqtp\Gamma{b}{a}{A}}
+\inferrule*[right=\(\equiv\)-\rintro]{\Gamma\vdash a \mapsto b : A\and \Gamma\vdash b \mapsto a : A}{\jdeqtp\Gamma{a}{b}{A}}
 \and
-\inferrule*{\jdeqtp\Gamma{a}{b}{A} \\ \jdeqtp\Gamma{b}{c}{A}}{\jdeqtp\Gamma{a}{c}{A}}
+\inferrule*[right=\(\equiv\)-\relim]{\jdeqtp\Gamma{a}{b}{A}}{\Gamma\vdash a \mapsto b : A}
 \and
-\inferrule*{\oftp\Gamma{a}{A} \\ \jdeqtp\Gamma{A}{B}{\UU}}{\oftp\Gamma{a}{B}}
+\inferrule*[right=\(\equiv\)-\textsc{symm}]{\jdeqtp\Gamma{a}{b}{A}}{\jdeqtp\Gamma{b}{a}{A}}
 \and
-\inferrule*{\jdeqtp\Gamma{a}{b}{A} \\ \jdeqtp\Gamma{A}{B}{\UU}}{\jdeqtp\Gamma{a}{b}{B}}
+\inferrule*[right=\(\mapsto\)-\textsc{trans}]{\Gamma\vdash a \mapsto b : A \\ \Gamma\vdash b \mapsto c : A}{\Gamma\vdash a \mapsto c : A}
+\and
+\inferrule*[right=\(\mapsto\)-\textsc{conv}${}_1$]{\oftp\Gamma{a}{A} \\ \Gamma\vdash A \mapsto B : \UU}{\oftp\Gamma{a}{B}}
+\and
+\inferrule*[right=\(\mapsto\)-\textsc{conv}${}_2$]{\Gamma\vdash a \mapsto b : A \\ \Gamma\vdash A \mapsto B : \UU}{\Gamma\vdash a \mapsto b : B}
 \end{mathparpagebreakable}
-One can check that the above rules all respect ownership.
+% TODO: verify ownership
 
 \subsection{Independent function types}
 
@@ -808,8 +918,8 @@ Let \( \mathbb S^+ \) be a type of names.
 \subsection{Borrowed types}
 
 To use an ownership-based memory model, we will create borrowed types.
-Lifetimes are not considered to be part of an object's type.
-The $\mathcal B$-\relim{} rule amounts to the ability to copy the value of a variable from behind a borrow.
+Note that lifetimes are not considered to be part of an object's type, they are a tag attached to a judgment or judgmental equality.
+These rules interact with ownership and lifetimes in deep ways, and each such rule will be discussed.
 
 \begin{mathparpagebreakable}
   \inferrule*[right=$\mathcal B$-\rform]
@@ -817,15 +927,19 @@ The $\mathcal B$-\relim{} rule amounts to the ability to copy the value of a var
     {\oftp\Gamma{\mathcal B(A)}{\UU}}
   \and
   \inferrule*[right=$\mathcal B$-\rintro]
-    {\oftp{\Gamma}{A}{\UU} \\
-     \oftp\Gamma{a}{A}}
-    {\oftp\Gamma{\& a}{\mathcal B(A)}}
-  \and
+    {\oftp{\Gamma}{A}{\UU,\rho_A} \\
+     \oftp\Gamma{a}{A,\rho_a} \\
+     \rho \leq \rho_A \cap \rho_a}
+    {\oftp\Gamma{\& a}{\mathcal B(A), \rho}}
+\end{mathparpagebreakable}
+We say that the $\mathcal B$-\rintro{} rule does \textit{not} consume the variable \( a \).
+Further, we state that \( a \) is borrowed for \( \rho \).
+\begin{mathparpagebreakable}
   \inferrule*[right=$\mathcal B$-\relim]
-    {\oftp{\Gamma}{A}{\UU} \\
-     \oftp{\Gamma}{C}{\mathcal B(A) \to \UU} \\\\
-     \oftp{\Gamma}{g}{\tprd{x:A} C(\& x)} \\
-     \oftp\Gamma{p}{\mathcal B(A)}}
+    {\oftp{\Gamma}{A}{\UU,\rho_A} \\
+     \oftp{\Gamma}{C}{\mathcal B(A) \to \UU,\rho_C} \\\\
+     \oftp{\Gamma}{g}{\tprd{x:A} C(\& x),\rho_g} \\
+     \oftp\Gamma{p}{\mathcal B(A),\rho_p}}
     {\oftp\Gamma{\ind{\mathcal B(A)}(C,g,p)}{C(p)}}
   \and
   \inferrule*[right=$\mathcal B$-\rcomp]
@@ -835,6 +949,7 @@ The $\mathcal B$-\relim{} rule amounts to the ability to copy the value of a var
      \oftp\Gamma{a}{A}}
     {\jdeqtp\Gamma{\ind{\mathcal B(A)}(C,g,\& a)}{g(a)}{C(\& a)}}
 \end{mathparpagebreakable}
+The $\mathcal B$-\relim{} rule amounts to the ability to copy the value of a variable from behind a borrow.
 
 % TODO: prove uniqueness rules
 
