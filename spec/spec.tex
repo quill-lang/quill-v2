@@ -351,6 +351,18 @@ To increase and enforce modularity, the functionality each of the above modules 
 This has seen use in Rust \cite{RustDevGuideOverview}, which has been seen to enhance incremental compilation among other modularity benefits.
 This will also empower the compiler to act in parallel.
 
+An approach of \textit{interactive compilation} is used for both Feather and Quill.
+The programmer should be able to omit certain data, such as expressions or types, and the compiler should try to fill in the gaps and inform the programmer of exactly what remains to be defined.
+If the programmer purposefully omits something in order to query information from the compiler, the compiler should not produce an error, but an informative message (unless the information could not be acquired).
+This makes the compiler behave like an advanced REPL.
+
+Suppose a programmer is implementing a function to compute the sum of three numbers.
+One may write something like the pseudocode \lstinline{a + b + ?}, where \lstinline{a} and \lstinline{b} are numbers of a certain fixed type.
+The compiler should recognise that the programmer is asking a question, and respond by telling the programmer what type is expected in place of the question mark.
+
+An interactive approach for the Feather compiler allows the Quill compiler to do without a type checker of its own, since it can rely on the infrastructure of Feather's type checker and gradually feed it more Quill-specific information if it fails to fully deduce all types in an expression.
+In particular, the Feather compiler must be able to execute arbitrary expressions that may not be compilable to machine code, such as expressions involving types.
+
 \mainmatter
 
 \part{Feather Language Specification}
@@ -873,6 +885,10 @@ Note that using the computation rule, this induction principle will only ever co
 Therefore, a variable \( x \) may be consumed both by \( c_\bot \) and by \( c_\top \), and the induction principle will still respect ownership.
 
 \subsection{Product types}
+To aid in clarifying semantic meaning, we permit fields in a product type to be named.
+In particular, the notation \( \bigtimes_{j=1}^n A_j \) represents the product of the types \( A_j \), together with optionally some information about the fields' names or documentation associated with each field.
+The precise information allowed will be clarified when syntax is discussed later.
+
 \begin{mathparpagebreakable}
   \inferrule*[right=$\times$-\rform]
     {\oftp{\Gamma}{A_1}{\UU} \and \cdots \and \oftp{\Gamma}{A_n}{\UU}}
@@ -910,14 +926,14 @@ Therefore, a variable \( x \) may be consumed both by \( c_\bot \) and by \( c_\
   \inferrule*[right=$\Sigma$-\relim]
     {\oftp{\Gamma}{B}{A \to \UU} \\
      \oftp{\Gamma}{C}{\tsm{x:A} B(x) \to \UU} \\
-     \oftp{\Gamma}{g}{\tprd{x:A} \tprd{y:B} C(\dtup x y)} \\
+     \oftp{\Gamma}{g}{\tprd{x:A} \tprd{y:B(x)} C(\dtup x y)} \\
      \oftp\Gamma{p}{\tsm{x:A} B(x)}}
     {\oftp\Gamma{\ind{\tsm{x:A} B(x)}(C,g,p)}{C(p)}}
   \and
   \inferrule*[right=$\Sigma$-\rcomp]
     {\oftp{\Gamma}{B}{A \to \UU} \\
      \oftp{\Gamma}{C}{\tsm{x:A} B(x) \to \UU} \\\\
-     \oftp{\Gamma}{g}{\tprd{x:A} \tprd{y:B} C(\dtup x y)} \\
+     \oftp{\Gamma}{g}{\tprd{x:A} \tprd{y:B(x)} C(\dtup x y)} \\
      \oftp\Gamma{a}{A} \\ \oftp\Gamma{b}{B(a)}}
     {\jdeqtp\Gamma{\ind{\tsm{x:A} B(x)}(C,g,\dtup{a}{b})}{g(a)(b)}{C(\dtup a b)}}
 \end{mathparpagebreakable}
@@ -959,35 +975,63 @@ In the following rules, let \( i \in \qty{1, \dots, n} \).
 There are certain instances where we wish to consider two types `the same' or `different' depending on semantic context.
 Two types that are isomorphic are not necessarily to be considered identical due to semantic context.
 This is known as the \lstinline{newtype} idiom.
-We will allow types to be uniquely named by defining the following rules.
-Let \( \mathbb S^+ \) be a type of names.
+Let \( \mathcal I \) be the type of \textit{unique identifiers}, defined by the following rules.
 
 \begin{mathparpagebreakable}
-  \inferrule*[right=$\mathcal N$-\rform]
-    {\oftp{\Gamma}{A}{\UU} \and \oftp{\Gamma}{N}{\mathbb S^+}}
-    {\oftp\Gamma{\mathcal N_N(A)}{\UU}}
+  \inferrule*[right=$\mathcal I$-\textsc{qn}]
+    {\oftp{\Gamma}{s}{\mathtt{QualifiedName}}}
+    {\oftp\Gamma{I_{\textsc{qn}}(s)}{\mathcal I}}
   \and
-  \inferrule*[right=$\mathcal N$-\rintro]
+  \inferrule*[right=$\mathcal I$-\textsc{app}]
+    {\oftp{\Gamma}{i}{\mathcal I} \and \oftp{\Gamma}{A}{\UU} \and \oftp{\Gamma}{a}{A}}
+    {\oftp\Gamma{I_{\textsc{app}}(i,a)}{\mathcal I}}
+\end{mathparpagebreakable}
+
+Informally, we can construct an identifier out of a name, or the application of a named type to an arbitrary value.
+We will allow types to be given an identifier by defining the following rules.
+
+\begin{mathparpagebreakable}
+  \inferrule*[right=$\mathcal N$-\textsc{qn}-\rform]
+    {\oftp{\Gamma}{A}{\UU} \and \oftp{\Gamma}{s}{\mathtt{QualifiedName}}}
+    {\oftp\Gamma{\mathcal N(I_{\textsc{qn}}(s), A)}{\UU}}
+  \and
+  \inferrule*[right=$\mathcal N$-\textsc{app}-\rform]
+    {\oftp\Gamma{A}{B \to \UU} \\
+     \oftp\Gamma{\mathcal N(i, A)}{\UU} \\
+     \oftp\Gamma{b}{B}}
+    {\oftp\Gamma{\mathcal N(I_{\textsc{app}}(i,b), A(b))}{\UU}}
+  \and
+  \inferrule*[right=$\mathcal N$-\textsc{qn}-\rintro]
     {\oftp{\Gamma}{A}{\UU} \\
-    \oftp{\Gamma}{N}{\mathbb S^+} \\ \oftp\Gamma{a}{A}}
-    {\oftp\Gamma{\nu_N(a)}{\mathcal N_N(A)}}
+    \oftp{\Gamma}{s}{\mathtt{QualifiedName}} \\ \oftp\Gamma{a}{A}}
+    {\oftp\Gamma{\nu(I_{\textsc{qn}}(s), a)}{\mathcal N(I_{\textsc{qn}}(s), A)}}
+  \and
+  \inferrule*[right=$\mathcal N$-\textsc{app}-\rintro]
+    {\oftp\Gamma{A}{B \to \UU} \\
+    \oftp\Gamma{\mathcal N(i, A)}{\UU} \\
+    \oftp\Gamma{b}{B} \\ \oftp\Gamma{a}{A}}
+    {\oftp\Gamma{\nu(I_{\textsc{app}}(i,b), a)}{\mathcal N(I_{\textsc{app}}(i,b), A)}}
   \and
   \inferrule*[right=$\mathcal N$-\relim]
     {\oftp{\Gamma}{A}{\UU} \\
-     \oftp{\Gamma}{C}{\mathcal N_N(A) \to \UU} \\\\
-     \oftp{\Gamma}{g}{\tprd{x:A} C(\nu_n(x))} \\
-     \oftp\Gamma{p}{\mathcal N_N(A)}}
-    {\oftp\Gamma{\ind{\mathcal N_N(A)}(C,g,p)}{C(p)}}
+     \oftp{\Gamma}{i}{\mathcal I} \\
+     \oftp{\Gamma}{C}{\mathcal N(i, A) \to \UU} \\\\
+     \oftp{\Gamma}{g}{\tprd{x:A} C(\nu(i, x))} \\
+     \oftp\Gamma{p}{\mathcal N(i, A)}}
+    {\oftp\Gamma{\ind{\mathcal N(i, A)}(C,g,p)}{C(p)}}
   \and
   \inferrule*[right=$\mathcal N$-\rcomp]
     {\oftp{\Gamma}{A}{\UU} \\
-     \oftp{\Gamma}{C}{\mathcal N_N(A) \to \UU} \\\\
-     \oftp{\Gamma}{g}{\tprd{x:A} C(\nu_n(x))} \\
+     \oftp{\Gamma}{i}{\mathcal I} \\
+     \oftp{\Gamma}{C}{\mathcal N(i,A) \to \UU} \\\\
+     \oftp{\Gamma}{g}{\tprd{x:A} C(\nu(i,x))} \\
      \oftp\Gamma{a}{A}}
-    {\jdeqtp\Gamma{\ind{\mathcal N_N(A)}(C,g,\nu_N(a))}{g(a)}{C(\nu_N(a))}}
+    {\jdeqtp\Gamma{\ind{\mathcal N(i,A)}(C,g,\nu(i,a))}{g(a)}{C(\nu(i,a))}}
 \end{mathparpagebreakable}
 
-% TODO: add a way to call (A x) where A is a named version of a type T->U, and x:T, which will unbox the named type, call the function, then box in a new name
+Note that a named type is `boxed'; in order to address the underlying type you must `unbox' the newtype wrapper first.
+This unboxing operation will be assigned a visibility later in compilation, allowing only certain modules to unbox a given type.
+Note also that the induction operation is independent of the name given to a type; the name simply acts as a marker for the compiler for more semantic knowledge about a type.
 
 \subsection{Borrowed types}
 
@@ -1312,6 +1356,8 @@ When describing schemas, we will use syntax such as \( x:A \)\lstinline{\ T}.
 This represents a Feather expression or value \( x \) of type \( A \), with S-expression type \lstinline{T}.
 If a given value is not a Feather expression or value, we might instead simply write \( x:\ \)\lstinline{T} to denote that \( x \) has S-expression type \lstinline{T}.
 
+% TODO: reorder all the subsections to match the inference rules' order
+
 \subsection{Instantiation}
 \begin{lstlisting}[mathescape=true]
 (local $x:A$ DeBruijnIndex)$ \;\longleftrightarrow\; x:A $
@@ -1335,6 +1381,7 @@ The region \( \rho \) of the borrow is to be determined by the borrow checker, a
 \end{lstlisting}
 This copies the value behind the expression \( e \), which is a borrow of an object of some type \( A \).
 The recursor is used to extract the value from behind the borrow.
+% TODO: dereference to contained borrowed types?
 
 \subsection{Let expressions}
 \begin{lstlisting}[mathescape=true]
@@ -1373,6 +1420,59 @@ By default, \( \lambda \) abstractions may capture outer variables, but they wil
 We can apply parameters to functions, provided that the parameter is bound in a local.
 This restriction is known as A-normal form.
 
+\subsection{Primitive types}
+The prefix \lstinline{f} refers to a \rform{} rule, and \lstinline{i} refers to an \rintro{} rule.
+The word `rune', referring to the type \( \mathbb U \), is intended to distinguish from conventional use of the word `char' in the C family of languages, which may not be sufficiently large to encode an arbitrary Unicode code point.
+\begin{lstlisting}[mathescape=true]
+(fu$n$)$ \;\longleftrightarrow\; \mathbb N_{n} : \UU $
+(fi$n$)$ \;\longleftrightarrow\; \mathbb Z_{n} : \UU $
+(ff$n$)$ \;\longleftrightarrow\; \mathbb F_{n} : \UU $
+(fbool)$ \;\longleftrightarrow\; \mathbb B : \UU $
+(frune)$ \;\longleftrightarrow\; \mathbb U : \UU $
+(fempty)$ \;\longleftrightarrow\; \emptyt : \UU $
+(funit)$ \;\longleftrightarrow\; \unit : \UU $
+
+(iu$n$ $u:\mathbb N_{n}$)$ \;\longleftrightarrow\; u: \mathbb N_{n} $
+(ii$n$ $i:\mathbb Z_{n}$)$ \;\longleftrightarrow\; i: \mathbb Z_{n} $
+(if$n$ $f:\mathbb F_{n}$)$ \;\longleftrightarrow\; f: \mathbb F_{n} $
+(ifalse)$ \;\longleftrightarrow\; \bot: \mathbb B $
+(itrue)$ \;\longleftrightarrow\; \top: \mathbb B $
+(irune $u:\mathbb U$)$ \;\longleftrightarrow\; u: \mathbb U $
+(iunit)$ \;\longleftrightarrow\; \ttt : \unit $
+\end{lstlisting}
+We can also use the recursor for the boolean type to construct an `if-else' expression.
+Note the change in argument order from a typical `if-else' expression.
+\begin{lstlisting}[mathescape=true]
+(if $f: \unit \to C$ Expr $t: \unit \to C$ Expr $b: \mathbb B$ Expr)$ \;\longleftrightarrow\; \ind{\mathbb B}(C,f,t,b): C $
+\end{lstlisting}
+
+\subsection{Composite types}
+We can create Feather expressions to execute the \( \times \)-\rform, \( \times \)-\rintro, and \( \times \)-\relim{} rules.
+The prefix \lstinline{r} refers to the recursor.
+\begin{lstlisting}[mathescape=true]
+(fprod $A_1:\UU$ Expr $\dots$ $A_n:\UU$ Expr)$ \;\longleftrightarrow\; \bigtimes_{j=1}^n A_j: \UU $
+(iprod $e_1:A_1$ Expr $\dots$ $e_n:A_n$ Expr)$ \;\longleftrightarrow\; (e_1,\dots, e_n): \bigtimes_{j=1}^n A_j $
+(rprod $g : A_1 \to \dots \to A_n \to C$ Expr $p:\bigtimes_{j=1}^n A_j$ Expr)
+    $\longleftrightarrow\; \rec{\bigtimes_{j=1}^n A_j}(C,g,p): C $
+\end{lstlisting}
+Note that the recursor is used atomically here, not as a function.
+We similarly define
+\begin{lstlisting}[mathescape=true]
+(fpair $A:\UU$ Expr $B:A \to \UU$ Expr)$ \;\longleftrightarrow\; \tsm{x:A} B(x) : \UU $
+(ipair $a:A$ Expr $b:B(a)$ Expr)$ \;\longleftrightarrow\; \sigma(a,b) : \tsm{x:A} B(x) $
+(rpair $g: \tprd{x:A} B(x) \to C$ Expr $p:\tsm{x:A}B(x)$ Expr)
+    $\longleftrightarrow\; \rec{\tsm{x:A} B(x)} (C,g,p): C $
+\end{lstlisting}
+The type annotation for \lstinline{ipair} is used to determine the function \( B \), since this is not uniquely determined by \( a \) and \( b \) alone.
+Finally, we define
+\begin{lstlisting}[mathescape=true]
+(fcoprod $A_1:\UU$ Expr $\dots$ $A_n:\UU$ Expr)$ \;\longleftrightarrow\; \bigplus_{j=1}^n A_j: \UU $
+(icoprod $n:\mathbb N_{32}$ $e:A$ Expr)$ \;\longleftrightarrow\; \inj_n(e): \bigplus_{j=1}^n A_j $
+(rcoprod $g_1 : A_1 \to C$ Expr $\dots$ $g_n : A_n \to C$ Expr $p:\bigplus_{j=1}^n A_j$ Expr)
+    $\longleftrightarrow\; \rec{\bigplus_{j=1}^n A_j}(C,g,p): C $
+\end{lstlisting}
+Similarly to with the dependent pair type, the type annotation for \lstinline{icoprod} is used to determine the possible variants for the coproduct.
+
 \section{Top-level hierarchy}
 
 \subsection{Modules}
@@ -1383,9 +1483,9 @@ Modules are each stored as their own S-expressions, and are not contained within
 
 \begin{tabular}{r l p{7cm}}
     \lstinline!Visibility! \( ::= \) & \lstinline!pub | priv! \\
-    \lstinline!DefInfo! \( ::= \) & \lstinline!(at Range) | (ty Expr) | (vis Visibility) | (doc\ !\( \mathbb S \)\lstinline!)! \\
-    \lstinline!defn! \( ::= \) & \lstinline!(def DefInfo* Name Expr)! \\
-    \lstinline!ModuleInfo! \( ::= \) & \lstinline!(file QualifiedName) | (doc\ !\( \mathbb S \)\lstinline!)! \\
+    \lstinline!DefInfo! \( ::= \) & \lstinline!(at Range) | (ty Expr) | (vis Visibility) | (doc !\( \mathbb S \)\lstinline!)! \\
+    \lstinline!Def! \( ::= \) & \lstinline!(def DefInfo* Name Expr)! \\
+    \lstinline!ModuleInfo! \( ::= \) & \lstinline!(file QualifiedName) | (doc !\( \mathbb S \)\lstinline!)! \\
     \lstinline!Module! \( ::= \) & \lstinline!(module ModuleInfo* Def*)!
 \end{tabular}
 
@@ -1401,9 +1501,9 @@ The module itself can then be loaded from disk when necessary.
 % TODO: sort out dependencies
 
 \begin{tabular}{r l p{7cm}}
-    \lstinline!ProjectInfo! \( ::= \) & \lstinline!(doc\ !\( \mathbb S \)\lstinline!)! \\
+    \lstinline!ProjectInfo! \( ::= \) & \lstinline!(doc !\( \mathbb S \)\lstinline!)! \\
     \lstinline!ProjectModule! \( ::= \) & \lstinline!(module QualifiedName)! \\
-    \lstinline!Project! \( ::= \) & \lstinline!(project\ !\( \mathbb S \)\lstinline!\ ProjectInfo* ProjectModule*)! \\
+    \lstinline!Project! \( ::= \) & \lstinline!(project !\( \mathbb S \)\lstinline! ProjectInfo* ProjectModule*)! \\
 \end{tabular}
 
 Any variant of the \lstinline{ProjectInfo} tag may only be supplied once.
