@@ -8,6 +8,7 @@
 \usepackage[style=numeric]{biblatex}
 \addbibresource{refs.bib}
 
+\usepackage{mathpazo}
 \usepackage{fontspec}
 \setmainfont[Ligatures=TeX]{TeX Gyre Pagella}
 \setmonofont{Fira Code}[
@@ -21,7 +22,6 @@
     basicstyle=\ttfamily   % Use \ttfamily for source code listings
 }
 
-\newcommand{\inlinecode}[1]{\lstinline{#1}}
 \newcommand{\lstatic}{\ensuremath{\overline\rho}}
 
 \usepackage{amsmath}
@@ -115,11 +115,11 @@ There are several advantages to functional programming when compared to imperati
     These functions can naturally be easily separated from each other and from the data they operate on.
     The modularity encourages the use of abstraction, and decouples the functions themselves from their implementation details, which allows for potentially easier refactoring.
     \item Combinators abstract away boilerplate.
-    Off-by-one errors are difficult to introduce when your loop is encapsulated inside a \inlinecode{map} or \inlinecode{fold}.
+    Off-by-one errors are difficult to introduce when your loop is encapsulated inside a \lstinline{map} or \lstinline{fold}.
     \item In \textit{pure} functional programming, functions have no side effects.
     In particular, they are \textit{deterministic}; a function's output depends only on the function's inputs, regardless of the execution context.
     This allows for far superior static analysis of programs.
-    Any expression may be safely and easily evaluated at compile time due to this determinism, which removes the need for complicated \inlinecode{constexpr} mechanics or code colouring.
+    Any expression may be safely and easily evaluated at compile time due to this determinism, which removes the need for complicated \lstinline{constexpr} mechanics or code colouring.
     \item Immutability is preferred by default.
     Whole transformations of input variables are more idiomatic than gradually updating a variable's contents.
     This prevents bugs which may be introduced by concurrent modification, such as altering the contents of a list while iterating through it.
@@ -153,7 +153,7 @@ At the heart of Quill is the supposition that it is worth trading absolute freed
 Unfortunately, what tradeoffs are too significant is a problem of opinion, not of logic, so this remains an unsatisfying conclusion to this analysis.
 We provide a number of heuristics to guide our future discussion.
 Note that these heuristics are very opinionated, and do not apply equally to programming as a whole.
-A number of these assertions originate from the `Zen of Zig', a description of the goals of Zig and its community, accessible on the command line by running \inlinecode{zig zen}.
+A number of these assertions originate from the `Zen of Zig', a description of the goals of Zig and its community, accessible on the command line by running \lstinline{zig zen}.
 
 We assert that the language should be built to deal with large projects better than small ones.
 Many programmers have experienced the bloat that arises when tools are used for longer than originally intended, and more and more time is spent forcing yet more features into such programs.
@@ -214,7 +214,7 @@ Constructs such as lambda abstractions and higher-order functions can in theory 
 Not all efficiency constraints are in direct opposition to some of Quill's goals.
 For example, compile-time optimisation and static analysis is greatly aided by Quill's emphasis on static typing and modular design.
 
-Concurrency may also be implemented in a way that easily aligns with Quill's objectives, by utilising concepts such as the \inlinecode{Send} and \inlinecode{Sync} marker traits from Rust.
+Concurrency may also be implemented in a way that easily aligns with Quill's objectives, by utilising concepts such as the \lstinline{Send} and \lstinline{Sync} marker traits from Rust.
 Again, compile-time guarantees are used to reduce or eliminate the possibility of runtime bugs.
 
 \section{Requirements}
@@ -260,9 +260,9 @@ Thus, we arrive at another axiom for Quill (and hence Feather) to follow: everyt
 
 In letting types and abstractions be values, the compiler is obligated to perform certain optimisations.
 Types cannot be represented in compiled machine code in the same way they can be represented in Feather, so it falls on the compiler to deduce all types at compile time.
-Higher-rank functions are used often in abstractions, such as in functors, which have a \inlinecode{map} function generic over any input type.
+Higher-rank functions are used often in abstractions, such as in functors, which have a \lstinline{map} function generic over any input type.
 Clearly, the types used inside the functor must be determined statically and converted to ordinary functions so that types do not need to be represented at runtime.
-This also adds the compile-time benefit of optimisation for specific input types; for example, a \inlinecode{memcpy} would be unnecessary if the type being copied is zero-sized.
+This also adds the compile-time benefit of optimisation for specific input types; for example, a \lstinline{memcpy} would be unnecessary if the type being copied is zero-sized.
 
 Multiple dispatch from Julia and related languages can be emulated at compile-time by simply allowing the implementation of an abstraction used to be chosen at the time of the function call, rather than forced by the type system \cite{MultipleDispatch}.
 In particular, by providing various implementations of an abstraction to the compiler itself, the compiler can choose the most appropriate abstraction for the task at compile-time using specialisation rules---although since abstractions are values, the programmer is of course free to specify which abstraction to use manually.
@@ -275,7 +275,7 @@ The compiler should be able to evaluate such functions at compile time.
 This foregoes the typical need for a macro system like in C, by simply allowing Quill to be its own macro system.
 Rust's procedural macros fill a similar role, in that they use Rust code to generate more Rust code, and can even parse code blocks and apply transformations \cite{ProcMacros}.
 In accordance with the principle of modularity, Quill's language design should be minimal yet expressive, and syntax extensions should then provide the necessary conveniences for developing idiomatic functional code.
-For example, monadic \inlinecode{do} blocks may not be part of the base language.
+For example, monadic \lstinline{do} blocks may not be part of the base language.
 
 \section{High-level design}
 
@@ -284,20 +284,20 @@ Each part should be represented as one or more distinct and non-hierarchical mod
 In particular, any shared data between two parts should be realised as a distinct shared module, not by including one part as a dependency of another.
 These parts will be presented roughly chronologically in the order they are used to compile a Quill program.
 
-\subsection{Lexer (\inlinecode{lex})}
+\subsection{Lexer (\lstinline{lex})}
 
 Quill programs are read from an input file, or standard input.
 The resulting stream of Unicode code points is converted into a stream of \textit{tokens}, logically indivisible chunks that have a type.
-For example, a symbol such as \inlinecode{/} is a token, and a string such as \inlinecode{"Hello, world!"} is also a token.
+For example, a symbol such as \lstinline{/} is a token, and a string such as \lstinline{"Hello, world!"} is also a token.
 
-Then, token streams are converted into \textit{token trees}, which are pairs of brackets of matching type and their contents, such as \inlinecode{(1 + 2)}.
+Then, token streams are converted into \textit{token trees}, which are pairs of brackets of matching type and their contents, such as \lstinline{(1 + 2)}.
 Naturally, token trees may be nested.
 
 The lexer supports syntax extensions, which alter the rules it uses to classify tokens.
-For instance, a syntax extension could be used to convert \inlinecode{10m} into \inlinecode{metres 10}.
-The resulting code \inlinecode{metres 10} will be automatically enclosed in a token tree, so that operator precedence is automatically handled, unlike in the C preprocessor.
+For instance, a syntax extension could be used to convert \lstinline{10m} into \lstinline{metres 10}.
+The resulting code \lstinline{metres 10} will be automatically enclosed in a token tree, so that operator precedence is automatically handled, unlike in the C preprocessor.
 
-\subsection{Parser (\inlinecode{parse})}
+\subsection{Parser (\lstinline{parse})}
 
 Token trees from the lexer are analysed to check that they match certain patterns defined either by the Quill compiler or by syntax extensions.
 Each pattern may contain sub-patterns that also need to be parsed recursively.
@@ -307,41 +307,41 @@ The nodes of this abstract syntax tree represent expressions or top-level defini
 Syntax extensions cannot create new node types.
 Many nodes in the syntax tree will be given a type, and most nodes in the tree will provide some typing information for the type checker, such as equivalence relations between types of certain nodes.
 
-\subsection{Type checker (\inlinecode{typeck})}
+\subsection{Type checker (\lstinline{typeck})}
 
 The type checker infers types of all variables in a given expression, given the constraints from the parser.
 This may need to execute arbitrary Quill code, especially when types are manipulated as values.
 Thus, this and almost all future parts of the compiler may be executed in parallel.
 This results in a typed syntax tree.
 
-\subsection{Feather transpiler (\inlinecode{feathergen})}
+\subsection{Feather transpiler (\lstinline{feathergen})}
 
 Typed syntax trees are converted into Feather, an intermediate language that can be executed and compiled to machine code.
 Expressions in Feather are based on a modified version of \textit{administrative normal form} (ANF), taking influence from \textit{K-normal form} (KNF).
 This representation allows many code transformations and optimisations to be performed \cite{ANFContinued}, while retaining the semantic content of regions to be used for lifetime analysis \cite{KNF}.
 
-\subsection{Interpreter (\inlinecode{interpret})}
+\subsection{Interpreter (\lstinline{interpret})}
 
 Feather code can be evaluated directly without compilation.
 The resulting code will likely run slower than compiled code, but no expensive code generation or linking step is required.
 This is used to execute expressions at compile time, such as type manipulation.
 
-\subsection{Monomorphisation (\inlinecode{mono})}
+\subsection{Monomorphisation (\lstinline{mono})}
 
 Static analysis on Feather expressions is performed, and all values of runtime-incompatible types, such as types and higher-rank functions, are deduced.
 The resulting code is duplicated for each possible (semantically different) value of these values, and usages are updated so that the code no longer depends on higher-rank functions or types as values.
 At this stage, implementations of abstractions can be resolved automatically.
 
-\subsection{Code generation (\inlinecode{codegen})}
+\subsection{Code generation (\lstinline{codegen})}
 
 Feather programs must be compiled into machine code.
-This task is handled by the \inlinecode{codegen} module.
+This task is handled by the \lstinline{codegen} module.
 At a high level, this module takes monomorphised Feather code and converts it into LLVM IR, which will be passed off to an LLVM compiler which will convert it to machine code.
 This process involves the conversion of function paradigms such as recursion into imperative constructs such as iteration, or functional transformations into mutation where applicable.
 It also must provide native implementations of standard library functions that cannot be expressed without some interaction with the OS or kernel.
 This also acts as a frontend for linking the final object files together into an executable.
 
-\subsection{Diagnostics and error handling (\inlinecode{diag})}
+\subsection{Diagnostics and error handling (\lstinline{diag})}
 
 Using this diagnostic infrastructure, errors and warnings may be emitted with reference to the actual code that caused the error, displaying an easy-to-read representation of the error on the command line.
 
@@ -355,7 +355,7 @@ This will also empower the compiler to act in parallel.
 
 \part{Feather Language Specification}
 
-\chapter{Type semantics}
+\chapter{Types and values}
 
 \iffalse{}\section{Objectives}
 
@@ -366,7 +366,7 @@ This will also empower the compiler to act in parallel.
 % TODO: talk about the fact that feather essentially *is* its type system, and how buying in to feather is essentially buying in to its type system
 % TODO: talk about how the syntax is *defined* by the type inference rules, and does not stand alone
 
-\section{Type deduction rules}
+\section{Type systems}
 
 \subsection{The typing environment}
 
@@ -411,7 +411,7 @@ A balance must be struck to create a minimal, yet versatile, subset of this type
 
 Further, we require the ability for types to self-reference without the algorithmic complexity of implementing \( \mathsf{W} \)-types.
 For example, the coproduct construction \( B = A + B \), where \( A \) is a known type, should be perfectly valid in Feather.
-Such styles of construction are used regularly in the creation of \inlinecode{cons} lists, for example.
+Such styles of construction are used regularly in the creation of \lstinline{cons} lists, for example.
 Thus, we will not use the rules of homotopy type theory directly, and we must design and prove features about our own type system.
 
 % TODO: explain types
@@ -476,9 +476,9 @@ This allows the compiler to leverage its knowledge of lambda abstractions, rathe
 Consider nested independent products \( A \times (B \times C) \) or coproducts \( A + (B + C) \).
 Since there is no dependence between \( A \) and the other types, we should be able to consider \( A, B, C \) to lie in the same space in the hierarchy; that is, there should exist types \( A \times B \times C \) and \( A + B + C \) that emphasise the fact that there is no dependence between the three types in question.
 
-\subsection{Objects and variables}
+\section{Abstract computation}
 
-% TODO: THIS IS WHERE THE RIGOUR STARTS; this should be made clear by use of section delimiters
+\subsection{Objects and variables}
 
 Feather expressions are evaluated on a computer with physical hardware, not in a hypothetical mathematical landscape with infinite processing power.
 As such, syntax that we define should respect ownership of memory.
@@ -683,6 +683,7 @@ However, this cannot be determined before compile-time.
 Then, when inference rules are applied in practice, we must check whether the expressions used in a given program respect borrowing.
 This is a compile-time check, known as the borrow checker.
 
+\section{Inference rules}
 \subsection{Structural rules}
 
 Although we skip over many of the minutiae of rigorously defining a type system, we must state the following well-known structural rules \cite{hottbook}.
@@ -718,11 +719,22 @@ Judgmental equality is an equivalence relation, respected by typing.
 \end{mathparpagebreakable}
 % TODO: verify ownership
 
-\subsection{Independent function types}
-
+\subsection{Let expressions}
 Where bound variables must be used, the syntax \( x.b \) specifically states that the name \( x \) is bound in expression \( b \).
-No variables are bound unless stated explicitly.
+\begin{mathparpagebreakable}
+  \inferrule*[right=\textsc{Let-\rintro}]
+  {\oftp{\Gamma}{A}{\UU} \and \oftp{\Gamma}{B}{\UU} \and \oftp{\Gamma,\tmtp xA}{x.b}{B} \and \oftp\Gamma{a}{A}}
+  {\oftp\Gamma{\mathtt{let}\ x = a\ \mathtt{in}\ x.b}{B}}
+\and
+  \inferrule*[right=\textsc{Let-\rcomp}]
+  {\oftp{\Gamma}{A}{\UU} \and \oftp{\Gamma}{B}{\UU} \and \oftp{\Gamma,\tmtp xA}{x.b}{B} \and \oftp\Gamma{a}{A}}
+  {\jdeqtp\Gamma{\mathtt{let}\ x = a\ \mathtt{in}\ x.b}{a.b}{B}}
+\end{mathparpagebreakable}
 
+When binding \( a \) in \( b \) in \textsc{Let-\rcomp}, we assume that \( a \) is evaluated only once, and then its value is bound in \( b \).
+Note that \lstinline{let}-polymorphism is accomplished not through the type system itself, but through dependent function types as described below.
+
+\subsection{Independent function types}
 \begin{mathparpagebreakable}
   \def\premise{\oftp{\Gamma}{A}{\UU} \and \oftp{\Gamma}{B}{\UU}}
   \inferrule*[right=$\to$-\rform]
@@ -788,8 +800,43 @@ Here, the antecedent \( \wfctx \Gamma \) is used to denote simply that \( \Gamma
 \end{mathparpagebreakable}
 
 \subsection{Primitive types}
-Feather has several primitive types that have not yet been discussed, such as the unit type \( \unit \) and the 64-bit signed integer type \( \mathbb Z_{64} \).
-In the following section, let \( \mathbb P \) denote a primitive type and let \( p \) be an arbitrary element of type \( \mathbb P \), as defined in \cref{sec:prim_types}.
+\label{sec:prim_types}
+
+We assume the definition of the type \( \mathbb N \) of natural numbers \( 0, 1, \dots \), along with the usual arithmetic operations.
+\begin{defn}
+    An \textit{\( n \)-bit unsigned integer} is an element of \( \mathbb N \) strictly less than the value \( 2^n \).
+    That is, \( x \) is an \( n \)-bit unsigned integer if there exists a value \( y : \mathbb N \) such that \( x + y = 2^n \) and \( y \neq 0 \).
+    We construct the type of \( n \)-bit unsigned integers, written \( \mathbb N_n : \UU \).
+    To preserve uniqueness of types, we will write \( x_n \) to denote the instance of \( x \) of type \( \mathbb N_n \).
+    For clarity, the notation \( x_{\mathbb N_n} \) is also used.
+\end{defn}
+Let \( \mathbb Z \) be the type of all integers, created by generating a group from \( \mathbb N \) under addition.
+\begin{defn}
+    An \textit{\( n \)-bit signed integer} is an element of \( \mathbb Z \) not less than \( -2^{n-1} \), and strictly less than \( 2^{n-1} \).
+    Likewise we construct the type of \( n \)-bit signed integers, denoted \( \mathbb Z_n : \UU \).
+    Again, the notation \( x_n = x_{\mathbb Z_n} \) is used to refer to the instance of \( x \) that has type \( \mathbb Z_n \).
+\end{defn}
+\begin{defn}
+    For \( n = 16, 32, 64, 128, 256 \), we define the \textit{\( n \)-bit floating point} type \( \mathbb F_n : \UU \) to be the quotient of \( \mathbb N_n \) by the equivalence relation defined by the IEEE 754 standard for floating point representation.
+    Arithmetic is defined on this type as per the specification \cite{IEEE754}.
+\end{defn}
+\begin{defn}
+    We define the Boolean type \( \mathbb B : \UU \) with elements \( \qty{\bot, \top} \), conventionally named `false' and `true'.
+\end{defn}
+\begin{defn}
+    Let \( \mathbb U : \UU \) be the type of Unicode code points; its elements are 64-bit unsigned integers as defined above, tagged \( x_{\mathbb U} \) such that their type is not simply \( \mathbb N \).
+\end{defn}
+\begin{defn}
+    Let \( \emptyt \) be the \textit{empty type} with no elements.
+    Let \( \unit : \UU \) be the \textit{unit type} with one element \( \ttt : \unit \).
+\end{defn}
+These are exactly the primitive types used in Feather.
+\begin{defn}
+    An \textit{atom} is an element of type \( \mathbb N_n, \mathbb Z_n, \mathbb F_n, \mathbb B, \mathbb U, \emptyt, \unit \) for any valid \( n \).
+\end{defn}
+
+In the following rules, let \( \mathbb P \) denote a primitive type and let \( p \) be an arbitrary element of type \( \mathbb P \).
+
 \begin{mathparpagebreakable}
   \inferrule*[right=$\mathbb P$-\rform]
   {\wfctx\Gamma}
@@ -799,6 +846,31 @@ In the following section, let \( \mathbb P \) denote a primitive type and let \(
   {\wfctx\Gamma}
   {\oftp\Gamma{p}{\mathbb P}}
 \end{mathparpagebreakable}
+For booleans, we provide an induction principle.
+\begin{mathparpagebreakable}
+  \inferrule*[right=$\mathbb B$-\relim]
+  {\oftp{\Gamma}{C}{\mathbb B \to \UU} \\\\
+   \oftp{\Gamma}{c_\bot}{\tprd{x:\unit} C(\bot)} \\
+   \oftp{\Gamma}{c_\top}{\tprd{x:\unit} C(\top)} \\\\
+   \oftp\Gamma{e}{\mathbb B}}
+  {\oftp\Gamma{\ind{\mathbb B}(C,c_\bot,c_\top,e)}{C(e)}}
+\and
+  \inferrule*[right=$\mathbb B$-\rcomp${}_\bot$]
+  {\oftp{\Gamma}{C}{\mathbb B \to \UU} \\
+   \oftp{\Gamma}{c_\bot}{\tprd{x:\unit} C(\bot)} \\
+   \oftp{\Gamma}{c_\top}{\tprd{x:\unit} C(\top)} \\\\
+   \oftp\Gamma{a}{A_j}}
+  {\jdeqtp\Gamma{\ind{\mathbb B}(C,c_\bot,c_\top,\bot)}{c_\bot(\ttt)}{C(\bot)}}
+\and
+  \inferrule*[right=$\mathbb B$-\rcomp${}_\top$]
+  {\oftp{\Gamma}{C}{\mathbb B \to \UU} \\
+   \oftp{\Gamma}{c_\bot}{\tprd{x:\unit} C(\bot)} \\
+   \oftp{\Gamma}{c_\top}{\tprd{x:\unit} C(\top)} \\\\
+   \oftp\Gamma{a}{A_j}}
+  {\jdeqtp\Gamma{\ind{\mathbb B}(C,c_\bot,c_\top,\top)}{c_\top(\ttt)}{C(\top)}}
+\end{mathparpagebreakable}
+Note that using the computation rule, this induction principle will only ever consume one of the two functions \( c_\bot \) and \( c_\top \).
+Therefore, a variable \( x \) may be consumed both by \( c_\bot \) and by \( c_\top \), and the induction principle will still respect ownership.
 
 \subsection{Product types}
 \begin{mathparpagebreakable}
@@ -867,17 +939,17 @@ In the following rules, let \( i \in \qty{1, \dots, n} \).
 \\
   \inferrule*[right=$+$-\relim]
   {\oftp{\Gamma}{C}{\bigplus_{j=1}^n A_j \to \UU} \\\\
-   \oftp{\Gamma}{c_1}{\tprd{x_1:A_1} C(\inj_1(x))} \\
+   \oftp{\Gamma}{c_1}{\tprd{x_1:A_1} C(\inj_1(x_1))} \\
    \cdots \\
-   \oftp{\Gamma}{c_n}{\tprd{x_n:A_n} C(\inj_n(y))} \\\\
+   \oftp{\Gamma}{c_n}{\tprd{x_n:A_n} C(\inj_n(x_n))} \\\\
    \oftp\Gamma{e}{\bigplus_{j=1}^n A_j}}
   {\oftp\Gamma{\ind{\bigplus_{j=1}^n A_j}(C,c_1,\dots,c_n,e)}{C(e)}}
 \and
   \inferrule*[right=$+$-\rcomp]
   {\oftp{\Gamma}{C}{\bigplus_{j=1}^n A_j \to \UU} \\
-   \oftp{\Gamma}{c_1}{\tprd{x_1:A_1} C(\inj_1(x))} \\
+   \oftp{\Gamma}{c_1}{\tprd{x_1:A_1} C(\inj_1(x_1))} \\
    \cdots \\
-   \oftp{\Gamma}{c_n}{\tprd{x_n:A_n} C(\inj_n(y))} \\\\
+   \oftp{\Gamma}{c_n}{\tprd{x_n:A_n} C(\inj_n(x_n))} \\\\
    \oftp\Gamma{a}{A_j}}
   {\jdeqtp\Gamma{\ind{\bigplus_{j=1}^n A_j}(C,c_1,\dots,c_n,\inj_j(a))}{c_j(a)}{C(\inj_j(a))}}
 \end{mathparpagebreakable}
@@ -886,7 +958,7 @@ In the following rules, let \( i \in \qty{1, \dots, n} \).
 
 There are certain instances where we wish to consider two types `the same' or `different' depending on semantic context.
 Two types that are isomorphic are not necessarily to be considered identical due to semantic context.
-This is known as the \inlinecode{newtype} idiom.
+This is known as the \lstinline{newtype} idiom.
 We will allow types to be uniquely named by defining the following rules.
 Let \( \mathbb S^+ \) be a type of names.
 
@@ -915,11 +987,15 @@ Let \( \mathbb S^+ \) be a type of names.
     {\jdeqtp\Gamma{\ind{\mathcal N_N(A)}(C,g,\nu_N(a))}{g(a)}{C(\nu_N(a))}}
 \end{mathparpagebreakable}
 
+% TODO: add a way to call (A x) where A is a named version of a type T->U, and x:T, which will unbox the named type, call the function, then box in a new name
+
 \subsection{Borrowed types}
 
 To use an ownership-based memory model, we will create borrowed types.
 Note that lifetimes are not considered to be part of an object's type, they are a tag attached to a judgment or judgmental equality.
 These rules interact with ownership and lifetimes in deep ways, and each such rule will be discussed.
+
+% TODO: talk more about these rules specifically
 
 \begin{mathparpagebreakable}
   \inferrule*[right=$\mathcal B$-\rform]
@@ -953,7 +1029,11 @@ The $\mathcal B$-\relim{} rule amounts to the ability to copy the value of a var
 
 % TODO: prove uniqueness rules
 
-\section{Recursors}
+\section{Functions and operations}
+
+In this section, we discuss the primitive operations that can be performed on objects.
+
+\subsection{Recursors}
 
 Currently, the induction principle is not a function but an atomic syntactic expression.
 For instance, we cannot \textit{a priori} write \( \ind{A \times B} \), we must instead write \( \ind{A \times B}(C,g,x) \) for some values \( C, g, x \) of appropriate types.
@@ -969,9 +1049,14 @@ For instance, we cannot \textit{a priori} write \( \ind{A \times B} \), we must 
     \ind{\bigtimes_{j=1}^n A_j}' \defeq &\ \Lambda\qty(C:\bigtimes_{j=1}^n A_j \to \UU).\,\lambda\qty(g:\prd{x_1:A_1} \cdots \prd{x_n:A_n} C((x_1, \dots, x_n))).\\
     &\Lambda\qty(x:\bigtimes_{j=1}^n A_j).\,\ind{\bigtimes_{j=1}^n A_j}(C,g,x)
   \end{align*}
-  From now, we will write \( \ind{\bigtimes_{j=1}^n A_j} \) to refer to this new \( \ind{\bigtimes_{j=1}^n A_j}' \).
+  From now, we may write \( \ind{\bigtimes_{j=1}^n A_j} \) to refer to this new \( \ind{\bigtimes_{j=1}^n A_j}' \).
+  Whether we are using the induction principle as a function or as an atomic syntactic element should be made clear from context.
 \end{proof}
 In a similar way, we may generalise the creation of the induction function to all predefined types with an induction principle.
+The induction function does not necessarily respect ownership in the same way that the atomic induction principle does.
+For example, the induction principle for the boolean type uses functions \( c_\bot \) and \( c_\top \), but only one of those functions is ever evaluated in the induction principle.
+When viewed as a function, however, we may partially apply \( \ind{\mathbb B} \) to \( c_\bot \) and \( c_\top \).
+The conclusion of this constructor will contain both \( c_\bot \) and \( c_\top \) in its conclusion, so ownership is not respected.
 \begin{defn}
   The \textit{recursor} for the product type is
   \begin{align*}
@@ -988,15 +1073,28 @@ In a similar way, we may generalise the creation of the induction function to al
   \]
 \end{defn}
 We can analogously define the recursor for an arbitrary type with an induction function.
-For instance, the recursor for the coproduct type has type, and is defined in a similar way; converting the dependent function call in the induction principle into an independent function call.
+For instance, the recursor for the coproduct type has the following type, and is defined in a similar way; converting many of the dependent functions in the induction principle into independent functions.
 \[
   \rec{\bigplus_{j=1}^n A_j} : \prd{C:\UU} (A_1 \to C) \to \cdots \to (A_n \to C) \to \bigplus_{j=1}^n A_j \to C
 \]
+The induction principle and the recursor function both allow us to define expressions via pattern matching.
+However, the recursor allows for easier type deduction when the resulting type of each branch is fixed.
+In particular, the recursor allows for `if-else' constructions using the boolean type.
+\[
+  \rec{\mathbb B} : \prd{C:\UU} \underbrace{(\unit \to C)}_{\text{false branch}} \to \underbrace{(\unit \to C)}_{\text{true branch}} \to \mathbb B \to C
+\]
+In particular, since only one branch of the recursor for boolean types is ever evaluated, this `if-else' construction respects ownership if its component functions do.
 
+\subsection{Primitive operations}
+
+The primitive types offer various primitive operations, such as arithmetic and logic operations.
+These operations, together with the inference rules defined above, characterise exactly the core functionality of Feather's expressions.
+
+\iffalse{}
 \section{Feather expressions and type constraints}
 
 Each expression in Feather is able to be directly translated into the more mathematical forms given above.
-For the purposes of eliding de Bruijn indices, we will assume that the Feather expression for creating an abstraction, \inlinecode{(lambda e)}, is instead written \( \lam xe \), where \( x \) is bound in the expression \( x \).
+For the purposes of eliding de Bruijn indices, we will assume that the Feather expression for creating an abstraction, \lstinline{(lambda e)}, is instead written \( \lam xe \), where \( x \) is bound in the expression \( x \).
 
 Dependent function types are written using normal function syntax, but dependent terms are named: the type \( \tprd{x:A}B(x) \) would be written \( (x:A) \to B(x) \).
 Likewise, for dependent pair types, the type \( \tsm{x:A} B(x) \) is typically written \( (x:A) \times B(x) \).
@@ -1046,58 +1144,6 @@ Then we can deduce from \((\ast)\) that
   }
   {\oftp{}{(\lam{x:\mathbb Z_{64}}x)(5_{\mathbb Z_{64}})}{\mathbb Z_{64}}}
 \]
-
-\iffalse{}
-
-We have included a subset of the logical inference rules provided by `Homotopy Type Theory' \cite{hottbook} in \cref{ch:formalisation_reference}.
-The names and properties of such rules will be used throughout the rest of this specification.
-All of the above Hindley-Milner typing rules will be replaced by formal type-theoretic rules.
-For instance, the Hindley-Milner \textsc{Var} rule is superseded by the \(\Vble\) structural rule, which contains fundamentally the same information yet is written from a type-theoretic perspective instead of a set-theoretic viewpoint.
-
-\subsection{Non-primitive types}
-
-As stated in `Homotopy Type Theory' \cite{hottbook}, each type is governed by formation rules, introduction rules, elimination rules, computation rules, and optionally uniqueness principles.
-
-% TODO: explain things
-
-The laws of \textit{dependent function types} are governed by the rules \( \Pi \)-\rform, \( \Pi \)-\rintro, \( \Pi \)-\relim, \( \Pi \)-\rcomp, and \( \Pi \)-\runiq.
-The \( \Pi \)-\rintro{} rule is a dependently typed version of the \textsc{Abs} rule defined above, and \( \Pi \)-\relim{} is likewise a dependently typed version of \textsc{App}.
-One of the requirements for \( \Pi \)-\rintro{} is \textit{very} restrictive; for all \( x:A \) we must have \( b:B(x) \), which is a type that depends on the value of \( x \).
-Some special machinery will need to be designed in Feather's compiler in order to deal with such an expression.
-
-\textit{Dependent pairs} are similarly governed by \( \Sigma \)-\rform, \( \Sigma \)-\rintro, \( \Sigma \)-\relim, and \( \Sigma \)-\rcomp.
-Suppose \( \alpha : C \to A \), \( \beta : C \to B \), and \( \varphi : (C \to A) \to (C \to B) \to (C \to A \times B) \).
-Then the following commutative diagram defines the function \( \varphi \).
-This also implies that the projection functions for products are the dual to the injective functions for coproducts.
-
-\begin{center}
-    % https://tikzcd.yichuanshen.de/#N4Igdg9gJgpgziAXAbVABwnAlgFyxMJZABgBoBGAXVJADcBDAGwFcYkQBBEAX1PU1z5CKAEwVqdJq3YAhHnxAZseAkXKliEhizaJOAHX14AtvAAEc3v2VC1pEVqm6QAYR4SYUAObwioAGYAThDGSGIgOBBIZJI67IbG9DgAFoHGwGiB3AD65CA0jPQARjCMAAoCKsIggVheyTjyAcGhiOGRSOqx0noJSanpmTki+SCFJeWVtnqMMP6NViBBIUgAzDQdiDHaPSCGTGjJ9KPjpRU2qjNzCwrLresRUYhdO86GJTjHBcVnU5c1dQaTSWLTWGye4Ve8X0DEChywhjM+0Yh3oiPeME+Jx+kwu1SwYGwsHc3CAA
-    \begin{tikzcd}
-        & A\times B \arrow[ld, "\proj 1"'] \arrow[rd, "\proj 2"]                           &   \\
-    A &                                                                                              & B \\
-        & C \arrow[lu, "\alpha"] \arrow[ru, "\beta"'] \arrow[uu, "\varphi\ \alpha\ \beta" description] &
-    \end{tikzcd}
-\end{center}
-
-\textit{Coproducts}, or \textit{disjoint unions}, are governed by \( + \)-\rform, \( + \)-\rintro\({}_1\), \( + \)-\rintro\({}_2\), \( + \)-\relim, \( + \)-\rcomp\({}_1\), and \( + \)-\rcomp\({}_2\).
-The functions \( \inl \) and \( \inr \) are the left and right \textit{injections}, that allow creation of the coproduct type.
-The function \( \rec{A + B} \) is the \textit{recursor}, which allows us to operate on the components of the coproduct.
-% TODO: how did we get the recursor - only the inductive function was defined!
-The recursor is dual to \( \varphi \) defined above.
-Let \( \alpha \colon A \to C \) and \( \beta \colon B \to C \), then the following diagram commutes.
-
-\begin{center}
-    % https://tikzcd.yichuanshen.de/#N4Igdg9gJgpgziAXAbVABwnAlgFyxMJZABgBoBGAXVJADcBDAGwFcYkQBBEAX1PU1z5CKAEwVqdJq3YAhHnxAZseAkXKliEhizaJOAajm9+yoWtIitU3SADCPCTCgBzeEVAAzAE4QAtkjIQHAgkMUkddgAdSN96HAALL19gLDBGbnlPH39EdSCQxDDtaT1o2ISklLAvDJpGegAjGEYABQEVYRAvLGd4nEyQbz8AmmCkAGYaYptopjR4+hA6xua201U9bt7+40HspDyxxEnwkpBoppxF3aGcsKOT6aiYuMTkrxgAY25ogAJZxjzeh-C4wK5LED1JqtdpmPSpbCwBzcIA
-\begin{tikzcd}
-    & A+B \arrow[dd, "\rec{A+B}\ \alpha\ \beta" description] &                                                   \\
-A \arrow[ru, "\inl"] \arrow[rd, "\alpha"'] &                                                           & B \arrow[lu, "\inr"'] \arrow[ld, "\beta"] \\
-    & C                                                         &
-\end{tikzcd}
-\end{center}
-
-The empty type is governed by \( \emptyt \)-\rform{} and \( \emptyt \)-\relim.
-
-The unit type is governed by \( \unit \)-\rform, \( \unit \)-\rintro, \( \unit \)-\relim, and \( \unit \)-\rcomp.
 \fi{}
 
 \chapter{Syntax}
@@ -1108,11 +1154,11 @@ The unit type is governed by \( \unit \)-\rform, \( \unit \)-\rintro, \( \unit \
 \subsection{Typing}
 
 Previously, we have created types of S-expressions for Feather's syntax.
-For example, \inlinecode{(const false)} has type \inlinecode{Expr}.
+For example, \lstinline{(const false)} has type \lstinline{Expr}.
 There is a need to distinguish between the type of an S-expression and the type of the Feather expression it represents.
 These two type systems are logically distinct; the existence of an S-expression type does not imply the existence of a corresponding Feather type, or vice versa.
 
-We define \( \mathcal T(e) \) to be the Feather type of an S-expression \( e : \) \inlinecode{Expr}.
+We define \( \mathcal T(e) \) to be the Feather type of an S-expression \( e : \) \lstinline{Expr}.
 
 Unless otherwise stated, all types in all following sections refer to the Feather type system, so \( x : \tau \) should be interpreted as the judgment `\( x \) is a Feather expression with type \( \tau \)'.
 Further, the word `expression' should be taken to mean `Feather expression'.
@@ -1124,51 +1170,17 @@ To this end, from now on unless otherwise stated, constructs using a de Bruijn i
 Likewise, binding expressions will be written as if they bind their variables to names.
 \fi{}
 
-\section{Representations}
+\section{Mathematical notation}
 
-Feather is a strongly typed, functional, K-normal form intermediate language. It has two representations, an \textit{in-memory} representation, and a \textit{textual} representation.
+The previous description of the Feather type and computation system was entirely mathematical.
+We will now move away from that idealism, providing syntactic and semantic building blocks that emulate the mathematical behaviour defined in the previous chapter.
+This allows us to prove logical statements about Feather using the mathematical formalism, while permitting a more programmer-friendly and more practical representation that can be encoded in a text file.
+
+Feather has two representations, an \textit{in-memory} representation, and a \textit{textual} representation.
 These two representations fundamentally encode the same data; they are in isomorphism.
 Hence, we will discuss here the textual representation, and leave the in-memory representation as an implementation detail.
 
 \section{S-expressions}
-
-\subsection{Atoms}
-\label{sec:prim_types}
-
-We begin our discussion of Feather by defining its core building blocks.
-We assume the definition of the types \( \mathbb N \) of natural numbers \( 0, 1, \dots \), along with the usual arithmetic operations.
-\begin{defn}
-    An \textit{\( n \)-bit unsigned integer} is an element of \( \mathbb N \) strictly less than the value \( 2^n \).
-    That is, \( x \) is an \( n \)-bit unsigned integer if there exists a value \( y : \mathbb N \) such that \( x + y = 2^n \) and \( y \neq 0 \).
-    We construct the type of \( n \)-bit unsigned integers, written \( \mathbb N_n : \UU \).
-    To preserve uniqueness of types, we will write \( x_n \) to denote the instance of \( x \) of type \( \mathbb N_n \).
-    For clarity, the notation \( x_{\mathbb N_n} \) is also used.
-\end{defn}
-Let \( \mathbb Z \) be the type of all integers, created by generating a group from \( \mathbb N \) under addition.
-\begin{defn}
-    An \textit{\( n \)-bit signed integer} is an element of \( \mathbb Z \) not less than \( -2^{n-1} \), and strictly less than \( 2^{n-1} \).
-    Likewise we construct the type of \( n \)-bit signed integers, denoted \( \mathbb Z_n : \UU \).
-    Again, the notation \( x_n = x_{\mathbb Z_n} \) is used to refer to the instance of \( x \) that has type \( \mathbb Z_n \).
-\end{defn}
-\begin{defn}
-    For \( n = 16, 32, 64, 128, 256 \), we define the \textit{\( n \)-bit floating point} type \( \mathbb F_n : \UU \) to be the quotient of \( \mathbb N_n \) by the equivalence relation defined by the IEEE 754 standard for floating point representation.
-    Arithmetic is defined on this type as per the specification \cite{IEEE754}.
-\end{defn}
-\begin{defn}
-    We define the Boolean type \( \mathbb B : \UU \) with elements \( \qty{\top, \bot} \), conventionally named `true' and `false'.
-\end{defn}
-\begin{defn}
-    Let \( \mathbb U : \UU \) be the type of Unicode code points; its elements are 64-bit unsigned integers as defined above, tagged \( x_{\mathbb U} \) such that their type is not simply \( \mathbb N \).
-\end{defn}
-\begin{defn}
-    Let \( \emptyt \) be the \textit{empty type} with no elements.
-    Let \( \ttt : \UU \) be the \textit{unit type} with one element \( \ttt : \ttt \).
-\end{defn}
-These are exactly the primitive types used in Feather.
-\begin{defn}
-    An \textit{atom} is an element of type \( \mathbb N_n, \mathbb Z_n, \mathbb F_n, \mathbb B, \mathbb U, \emptyt, \ttt \) for any valid \( n \).
-    Note that all atoms have small type; that is, their types are all in the space \( \UU \).
-\end{defn}
 
 \subsection{Binary representations}
 \begin{defn}
@@ -1201,14 +1213,14 @@ It is then trivial to prove the following lemma.
     A \textit{symbol} is a string of Unicode code points, written as a string.
     The type of symbols is \( \mathbb S \).
     When written textually, symbols must be \textit{escaped} in such a way that they are unambiguously symbols.
-    If the symbol contains any non-letter characters, symbols should be surrounded with quote marks \inlinecode{"} to disambiguate them.
+    If the symbol contains any non-letter characters, symbols should be surrounded with quote marks \lstinline{"} to disambiguate them.
     Standard C character escaping should be used to represent control characters and quote marks.
 \end{defn}
 \begin{defn}
-    An \textit{S-expression} is either an atom, a symbol, or a list of S-expressions, denoted \inlinecode{(x y ... z)} where \inlinecode{x}, \inlinecode{y}, \inlinecode{z} are S-expressions.
+    An \textit{S-expression} is either an atom, a symbol, or a list of S-expressions, denoted \lstinline{(x y ... z)} where \lstinline{x}, \lstinline{y}, \lstinline{z} are S-expressions.
     A \textit{schema} is a prescribed form of an S-expression; it ascribes types to S-expressions that fit a certain form.
-    The symbols \inlinecode{*} and \inlinecode{+} are used as in Backus-Naur form.
-    Note that \inlinecode{T*}, for example, is not an S-expression alone; it is a list of S-expressions which must be parenthesised in order to form an S-expression.
+    The symbols \lstinline{*} and \lstinline{+} are used as in Backus-Naur form.
+    Note that \lstinline{T*}, for example, is not an S-expression alone; it is a list of S-expressions which must be parenthesised in order to form an S-expression.
 \end{defn}
 
 \section{Expression syntax}
@@ -1218,10 +1230,10 @@ It is then trivial to prove the following lemma.
 The following schemas specify identifiers and related types.
 
 \begin{tabular}{r l p{6cm}}
-    \inlinecode{Location} \( ::= \) & \inlinecode{(}\( \mathbb N_{32} \) \( \mathbb N_{32} \)\inlinecode{)} & line number, then column number, zero indexed \\
-    \inlinecode{Range} \( ::= \) & \inlinecode{(Location Location)} & start location (inclusive), then end location (exclusive) \\
-    \inlinecode{Name} \( ::= \) & \( \mathbb S \)\inlinecode{\ | (}\( \mathbb S \)\inlinecode{\ Range)} & the symbol itself then optionally the range at which it was written \\
-    \inlinecode{QualifiedName} \( ::= \) & \inlinecode{(}\( \mathbb S \) \inlinecode{+)} & list of one or more name segments
+    \lstinline!Location! \( ::= \) & \lstinline!(!\( \mathbb N_{32} \) \( \mathbb N_{32} \)\lstinline!)! & line number, then column number, zero indexed \\
+    \lstinline!Range! \( ::= \) & \lstinline!(Location Location)! & start location (inclusive), then end location (exclusive) \\
+    \lstinline!Name! \( ::= \) & \( \mathbb S \)\lstinline! | (!\( \mathbb S \)\lstinline! Range)! & the symbol itself then optionally the range at which it was written \\
+    \lstinline!QualifiedName! \( ::= \) & \lstinline!(!\( \mathbb S \) \lstinline!+)! & list of one or more name segments
 \end{tabular}
 
 A \textit{location} represents a place in some input code.
@@ -1235,32 +1247,33 @@ Importantly, a qualified name with only one name segment is \textit{not} a name.
 \subsection{Primitives}
 
 \begin{tabular}{r l p{7cm}}
-    \inlinecode{Primitive} \( ::= \) & \( \mathbb Z_{n} \)\inlinecode{\ |\ }\( \mathbb N_{n} \)\inlinecode{\ |\ }\( \mathbb F_{n} \)\inlinecode{\ |\ }\( \mathbb U \)\inlinecode{\ |\ }\( \mathbb B \)\inlinecode{\ |\ }\( \ttt \) \\
-    \inlinecode{PrimitiveType} \( ::= \) & \inlinecode{Int}\( n \)\inlinecode{\ | Uint}\( n \)\inlinecode{\ | Float}\( n \)\inlinecode{\ | Char | Bool | Unit | Empty}
+    \lstinline!Primitive! \( ::= \) & \( \mathbb Z_{n} \)\lstinline! | !\( \mathbb N_{n} \)\lstinline! | !\( \mathbb F_{n} \)\lstinline! | !\( \mathbb U \)\lstinline! | !\( \mathbb B \)\lstinline! | !\( \ttt \) \\
+    \lstinline!PrimitiveType! \( ::= \) & \lstinline!Int!\( n \)\lstinline! | Uint!\( n \)\lstinline! | Float!\( n \)\lstinline! | Char | Bool | Unit | Empty!
 \end{tabular}
 
 The \( n \) above may be substituted for valid integers.
 
 \subsection{Expressions}
 
-The type of expressions is \inlinecode{Expr}.
+The type of expressions is \lstinline{Expr}.
 Expressions are organised into tree structures.
-There exists a partial function \( p : \) \inlinecode{Expr} \( \to \) \inlinecode{Expr} which yields the parent expression if it exists.
+There exists a partial function \( p : \) \lstinline{Expr} \( \to \) \lstinline{Expr} which yields the parent expression if it exists.
 
 \begin{defn}
     An expression is called \( n \)-\textit{binding}, or an \( n \)-\textit{binder}, if it creates \( n \) new local variables, assigning them values.
     An expression that binds no new local variables is called \textit{non-binding}.
+
+    A single expression may be binding and non-binding in different contexts.
+    In particular, an expression's binding nature must be viewed from the perspective of one of its children.
 \end{defn}
 
 \begin{defn}
-    The \textit{scope} of an expression is the set of expressions from which it can use variables.
-    If there is a parent expression, the scope is the union of the scope of the parent expression together with the set containing the parent expression.
-    Otherwise, the scope is the empty set.
-    In the context of an expression \( e \), we say that an expression \( f \) is \textit{in scope} if \( f \in \mathrm{scope}(e) \).
+    The \textit{ancestors} of an expression are the expressions from which it can use variables.
+    If there is a parent expression, it is an ancestor, and all of its ancestors are also ancestors.
 \end{defn}
 
 \begin{defn}
-    Let \( e \) be an expression, \( b \) be an \( n \)-binding expression in scope of \( e \), and \( m \in \qty{0, \dots, n-1} \).
+    Let \( e \) be an expression, \( b \) be an \( n \)-binding ancestor of \( e \), and \( m \in \qty{0, \dots, n-1} \).
     The \textit{de Bruijn index} of \( c \) from \( e \), written \( i_e(b, m) \), is a constant referring to the \( m \)th bound variable in the binding expression \( x \).
     In particular,
     \[ i_e(b, m) = \begin{cases}
@@ -1268,45 +1281,97 @@ There exists a partial function \( p : \) \inlinecode{Expr} \( \to \) \inlinecod
         i_{p(e)}(b, m) + k & \text{if } p(e) \neq b \text{ exists and is } k \text{-binding} \\
         n - m - 1 & \text{if } p(e) = b \\
     \end{cases} \]
-    This definition orders all variables defined in scope in reverse order, assigning them de Bruijn indices of sequential natural numbers.
-    Note that \( p(e) \) will always exist and this algorithm will always terminate since \( b \) was defined to be in scope of \( e \).
+    This definition orders all bound variables in reverse order, assigning them de Bruijn indices of sequential natural numbers.
+    Note that \( p(e) \) will always exist and this algorithm will always terminate since \( b \) was defined to be an ancestor of \( e \).
 \end{defn}
 
 Now that the requisite definitions have been made, we can define the schemas for expressions.
 
 \begin{tabular}{r l p{7cm}}
-    \inlinecode{DeBruijnIndex} \( ::= \) & \( \mathbb N_{32} \) \\
-    \inlinecode{ExprContents} \( ::= \) & \makecell[l]{
-        \inlinecode{(local DeBruijnIndex)} \\
-        \inlinecode{| (borrow DeBruijnIndex)} \\
-        \inlinecode{| (copy Expr)} \\
-        \inlinecode{| (inst QualifiedName)} \\
-        \inlinecode{| (ap Expr DeBruijnIndex)} \\ % note the A-normal form here
-        \inlinecode{| (lambda Expr)} \\
-        %\inlinecode{| (destructure\ }\( \mathbb N_{32} \)\inlinecode{\ Expr)} \\ % the number is how many fields to destructure, mostly used for optimising all the de bruijn calculations
-        \inlinecode{| (primty PrimitiveType)} \\
-        \inlinecode{| (prim Primitive)} \\
-        % TODO: add support for all the section 2 type rules
-        \inlinecode{| universe}
-    } \\
-    \inlinecode{ExprInfo} \( ::= \) & \inlinecode{(at Range) | (ty Expr) | (named Name)} \\
-    \inlinecode{Expr} \( ::= \) & \inlinecode{ExprContents | (ExprInfo* ExprContents)}
+    \lstinline!DeBruijnIndex! \( ::= \) & \( \mathbb N_{32} \) \\
+    \lstinline!ExprContents! \( ::= \) & \( \dots \) \\
+    \lstinline!ExprInfo! \( ::= \) & \lstinline!(at Range) | (ty Expr) | (named Name)! \\
+    \lstinline!Expr! \( ::= \) & \lstinline!ExprContents | (ExprInfo* ExprContents)!
 \end{tabular}
 
 % TODO: add lifetimes to borrow instructions?
 % TODO: add a "create type" expression
 
-Any variant of the \inlinecode{ExprInfo} tag may only be supplied once per expression.
+Any variant of the \lstinline{ExprInfo} tag may only be supplied once per expression.
+The variants for the \lstinline{ExprContents} type will be described in the following section.
 
 The expressions may have additional information attached to them, denoting the location in code where the expression was written, the variable's type (which itself is an expression), or its name if one was given in Quill code.
-The semantic meaning of each expression will be explored later; for now, it suffices to define which expressions are binders.
-In particular, \inlinecode{lambda} expressions are 1-binding, \inlinecode{destructure n} expressions are \( n \)-binding, and all other expressions defined here are non-binding.
+%The semantic meaning of each expression will be explored later; for now, it suffices to define which expressions are binders.
+%In particular, \lstinline{lambda} expressions are 1-binding, \lstinline{destructure n} expressions are \( n \)-binding, and all other expressions defined here are non-binding.
 
-The absence of \inlinecode{let} expressions does not change the capabilities of the language.
-Indeed, in pseudocode, we can apply the following rewrite rule.
-\begin{lstlisting}
-    let x = e1 in e2 => (lambda x . e2) e1
+\section{Expression contents}
+
+There are many types of expression in Feather, which are the variants of the \lstinline{ExprContents} type.
+Each will be discussed in this section.
+When describing schemas, we will use syntax such as \( x:A \)\lstinline{\ T}.
+This represents a Feather expression or value \( x \) of type \( A \), with S-expression type \lstinline{T}.
+If a given value is not a Feather expression or value, we might instead simply write \( x:\ \)\lstinline{T} to denote that \( x \) has S-expression type \lstinline{T}.
+
+\subsection{Instantiation}
+\begin{lstlisting}[mathescape=true]
+(local $x:A$ DeBruijnIndex)$ \;\longleftrightarrow\; x:A $
 \end{lstlisting}
+This expression represents the bound variable described by the de Bruijn index.
+This typically transfers ownership of the bound variable \( x \).
+\begin{lstlisting}[mathescape=true]
+(inst QualifiedName)
+\end{lstlisting}
+This expression instances the object described by the given qualified name.
+Typically, a function call must be executed to evaluate the result of this expression.
+
+\subsection{Borrowed values}
+\begin{lstlisting}[mathescape=true]
+(borrow $x:A$ DeBruijnIndex)$ \;\longleftrightarrow\; \&x:\mathcal B(A) $
+\end{lstlisting}
+This expression constructs a borrow of the bound variable described by the de Bruijn index.
+The region \( \rho \) of the borrow is to be determined by the borrow checker, and is not written explicitly.
+\begin{lstlisting}[mathescape=true]
+(copy $e:\mathcal B(A)$ Expr)$ \;\longleftrightarrow\; \rec{\mathcal B(A)}(A, \mathrm{id}_A, e): A $
+\end{lstlisting}
+This copies the value behind the expression \( e \), which is a borrow of an object of some type \( A \).
+The recursor is used to extract the value from behind the borrow.
+
+\subsection{Let expressions}
+\begin{lstlisting}[mathescape=true]
+(let $e:A$ Expr $f:B$ Expr)$ \;\longleftrightarrow\; \mathtt{let}\ x:A = e\ \mathtt{in}\ x.f : B $
+\end{lstlisting}
+Let expressions allow us to formalise the notion of applying a function immediately after creating the function.
+Consider the pseudocode transformation.
+\begin{lstlisting}
+let x = e1 in e2 => (lambda x . e2) e1
+\end{lstlisting}
+This would remove the need for explicit \lstinline{let} expressions in Feather.
+However, the behaviour of the \lstinline{lambda} abstraction as a closure could interfere with borrow checking and potentially slow program execution by abstracting expressions into external functions unnecessarily.
+
+When calculating de Bruijn indices in expression \( e \), the \lstinline{let} expression is considered a zero-binder.
+In expression \( f \), the \lstinline{let} expression is considered a 1-binder.
+
+\subsection{Abstractions and function application}
+\begin{lstlisting}[mathescape=true]
+(lambda $n:\mathbb N_{32}$ $e:A$ Expr)$ \;\longleftrightarrow\; \lambda x_1 \dots \lambda x_n\,.\,(x_1\dots x_n.e:A) $
+\end{lstlisting}
+This expression creates a \( \lambda \) abstraction.
+The type of the abstracted variables are not given, and are implicit from the type of the lambda itself.
+Note that no variable names are given for the new bound variables in the S-expression form; they can be addressed using de Bruijn indices.
+This expression is an \( n \)-binder.
+
+In order to compile Feather to machine code, we need to convert closures into functions that do not capture any variables.
+This means that we need a primitive notion of a multi-argument \( \lambda \) abstraction.
+Consider \( \lam{x}{y} x.y.z \).
+Here, \( x \) is bound in \( z \), but this is only possible if the inner \( \lambda \) captures the \( x \) from the outer \( \lambda \).
+By default, \( \lambda \) abstractions may capture outer variables, but they will later be converted into functions that do not capture outer variables.
+
+\begin{lstlisting}[mathescape=true]
+(app $e:A \to B$ Expr $x:A$ DeBruijnIndex)$ \;\longleftrightarrow\; e\ x:B $
+\end{lstlisting}
+
+We can apply parameters to functions, provided that the parameter is bound in a local.
+This restriction is known as A-normal form.
 
 \section{Top-level hierarchy}
 
@@ -1317,15 +1382,15 @@ Definitions are contained within modules.
 Modules are each stored as their own S-expressions, and are not contained within any parent object.
 
 \begin{tabular}{r l p{7cm}}
-    \inlinecode{Visibility} \( ::= \) & \inlinecode{pub | priv} \\
-    \inlinecode{DefInfo} \( ::= \) & \inlinecode{(at Range) | (ty Expr) | (vis Visibility) | (doc\ }\( \mathbb S \)\inlinecode{)} \\
-    \inlinecode{defn} \( ::= \) & \inlinecode{(def DefInfo* Name Expr)} \\
-    \inlinecode{ModuleInfo} \( ::= \) & \inlinecode{(file QualifiedName) | (doc\ }\( \mathbb S \)\inlinecode{)} \\
-    \inlinecode{Module} \( ::= \) & \inlinecode{(module ModuleInfo* Def*)}
+    \lstinline!Visibility! \( ::= \) & \lstinline!pub | priv! \\
+    \lstinline!DefInfo! \( ::= \) & \lstinline!(at Range) | (ty Expr) | (vis Visibility) | (doc\ !\( \mathbb S \)\lstinline!)! \\
+    \lstinline!defn! \( ::= \) & \lstinline!(def DefInfo* Name Expr)! \\
+    \lstinline!ModuleInfo! \( ::= \) & \lstinline!(file QualifiedName) | (doc\ !\( \mathbb S \)\lstinline!)! \\
+    \lstinline!Module! \( ::= \) & \lstinline!(module ModuleInfo* Def*)!
 \end{tabular}
 
-If present, a \inlinecode{doc} tag represents documentation for the definition or module in question.
-Any variant of the \inlinecode{DefInfo} or \inlinecode{ModuleInfo} tags may only be supplied once per definition or module.
+If present, a \lstinline{doc} tag represents documentation for the definition or module in question.
+Any variant of the \lstinline{DefInfo} or \lstinline{ModuleInfo} tags may only be supplied once per definition or module.
 Definitions must have unique names within a module.
 
 \subsection{Projects}
@@ -1336,16 +1401,16 @@ The module itself can then be loaded from disk when necessary.
 % TODO: sort out dependencies
 
 \begin{tabular}{r l p{7cm}}
-    \inlinecode{ProjectInfo} \( ::= \) & \inlinecode{(doc\ }\( \mathbb S \)\inlinecode{)} \\
-    \inlinecode{ProjectModule} \( ::= \) & \inlinecode{(module QualifiedName)} \\
-    \inlinecode{Project} \( ::= \) & \inlinecode{(project\ }\( \mathbb S \)\inlinecode{\ ProjectInfo* ProjectModule*)} \\
+    \lstinline!ProjectInfo! \( ::= \) & \lstinline!(doc\ !\( \mathbb S \)\lstinline!)! \\
+    \lstinline!ProjectModule! \( ::= \) & \lstinline!(module QualifiedName)! \\
+    \lstinline!Project! \( ::= \) & \lstinline!(project\ !\( \mathbb S \)\lstinline!\ ProjectInfo* ProjectModule*)! \\
 \end{tabular}
 
-Any variant of the \inlinecode{ProjectInfo} tag may only be supplied once.
+Any variant of the \lstinline{ProjectInfo} tag may only be supplied once.
 
 \section{Examples}
 Here is an example of a simple module which exports a function to compute the sum of two integers.
-For the purposes of this example, assume the existence of a function \inlinecode{add} of type \( \mathbb Z_{64} \to \mathbb Z_{64} \) stored within the module \inlinecode{core.i64}.
+For the purposes of this example, assume the existence of a function \lstinline{add} of type \( \mathbb Z_{64} \to \mathbb Z_{64} \) stored within the module \lstinline{core.i64}.
 \begin{lstlisting}
 (module (doc "Provides a function to compute the sum of two integers.")
     (def (vis pub) (doc "Computes the sum of two integers.") sum
@@ -1353,7 +1418,7 @@ For the purposes of this example, assume the existence of a function \inlinecode
     )
 )
 \end{lstlisting}
-If this module were saved in the directory \inlinecode{foo} with file name \inlinecode{bar}, a project containing this module might be written
+If this module were saved in the directory \lstinline{foo} with file name \lstinline{bar}, a project containing this module might be written
 \begin{lstlisting}
 (project demo_project
     (doc "An example project.")
