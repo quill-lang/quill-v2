@@ -713,7 +713,8 @@ This rule respects lifetimes vacuously, since there is no judgment or judgmental
 
 \subsection{Computation rules}
 
-Judgmental equality is an equivalence relation, respected by typing.
+% TODO: this is a pretty bad description of computation rules, also we need to change \equiv into \mapsto in all the rules below
+%Judgmental equality is an equivalence relation, respected by typing.
 \begin{mathparpagebreakable}
 \inferrule*[right=\(\mapsto\)-\textsc{refl}]{\oftp\Gamma{a}{A}}{\Gamma\vdash a \mapsto a : A}
 \and
@@ -885,7 +886,7 @@ Note that using the computation rule, this induction principle will only ever co
 Therefore, a variable \( x \) may be consumed both by \( c_\bot \) and by \( c_\top \), and the induction principle will still respect ownership.
 
 \subsection{Product types}
-To aid in clarifying semantic meaning, we permit fields in a product type to be named.
+To aid in clarifying semantic meaning, we permit fields in a composite (product, dependent pair, coproduct) type to be named.
 In particular, the notation \( \bigtimes_{j=1}^n A_j \) represents the product of the types \( A_j \), together with optionally some information about the fields' names or documentation associated with each field.
 The precise information allowed will be clarified when syntax is discussed later.
 
@@ -988,11 +989,11 @@ Let \( \mathcal I \) be the type of \textit{unique identifiers}, defined by the 
 \end{mathparpagebreakable}
 
 Informally, we can construct an identifier out of a name, or the application of a named type to an arbitrary value.
-We will allow types to be given an identifier by defining the following rules.
+We will allow values (typically types or functions which return types) to be given an identifier by defining the following rules.
 
 \begin{mathparpagebreakable}
   \inferrule*[right=$\mathcal N$-\textsc{qn}-\rform]
-    {\oftp{\Gamma}{A}{\UU} \and \oftp{\Gamma}{s}{\mathtt{QualifiedName}}}
+    {\oftp{\Gamma}{A}{\mathcal A} \and \oftp{\Gamma}{s}{\mathtt{QualifiedName}}}
     {\oftp\Gamma{\mathcal N(I_{\textsc{qn}}(s), A)}{\UU}}
   \and
   \inferrule*[right=$\mathcal N$-\textsc{app}-\rform]
@@ -1002,15 +1003,16 @@ We will allow types to be given an identifier by defining the following rules.
     {\oftp\Gamma{\mathcal N(I_{\textsc{app}}(i,b), A(b))}{\UU}}
   \and
   \inferrule*[right=$\mathcal N$-\textsc{qn}-\rintro]
-    {\oftp{\Gamma}{A}{\UU} \\
+    {\oftp{\Gamma}{A}{\mathcal A} \\
     \oftp{\Gamma}{s}{\mathtt{QualifiedName}} \\ \oftp\Gamma{a}{A}}
     {\oftp\Gamma{\nu(I_{\textsc{qn}}(s), a)}{\mathcal N(I_{\textsc{qn}}(s), A)}}
   \and
   \inferrule*[right=$\mathcal N$-\textsc{app}-\rintro]
     {\oftp\Gamma{A}{B \to \UU} \\
     \oftp\Gamma{\mathcal N(i, A)}{\UU} \\
-    \oftp\Gamma{b}{B} \\ \oftp\Gamma{a}{A}}
-    {\oftp\Gamma{\nu(I_{\textsc{app}}(i,b), a)}{\mathcal N(I_{\textsc{app}}(i,b), A)}}
+    \oftp\Gamma{b}{B} \\
+    \oftp\Gamma{c}{A(b)}}
+    {\oftp\Gamma{\nu(I_{\textsc{app}}(i,b), c)}{\mathcal N(I_{\textsc{app}}(i,b), A(b))}}
   \and
   \inferrule*[right=$\mathcal N$-\relim]
     {\oftp{\Gamma}{A}{\UU} \\
@@ -1447,10 +1449,25 @@ Note the change in argument order from a typical `if-else' expression.
 \end{lstlisting}
 
 \subsection{Composite types}
+Previously, we stated that composite types may carry extra information about field names and documentation.
+Now, we will define exactly what extra information may be given.
+A composite type comprises \textit{components}.
+A component is called a \textit{field} in a product type, and a \textit{variant} in a coproduct type.
+
+\begin{tabular}{r l p{7cm}}
+  \lstinline!ComponentInfo! \( ::= \) & \lstinline!(name !\( \mathbb S \)\lstinline!) | (doc !\( \mathbb S \)\lstinline!)! \\
+  \lstinline!Component! \( ::= \) & \lstinline!(comp ComponentInfo* Expr)!
+\end{tabular}
+
+The \lstinline{Expr} in a component evaluates to the type of the component.
+Types that differ only in their component information are considered to be equal; the component information is used primarily inside the context of a newtype, where the difference is made semantic.
+% TODO: should this really be the case?
+
 We can create Feather expressions to execute the \( \times \)-\rform, \( \times \)-\rintro, and \( \times \)-\relim{} rules.
+The syntax \( A:\UU \)\lstinline! Component! should be interpreted to mean a component whose contained type is \( A \), and which may have extra component information.
 The prefix \lstinline{r} refers to the recursor.
 \begin{lstlisting}[mathescape=true]
-(fprod $A_1:\UU$ Expr $\dots$ $A_n:\UU$ Expr)$ \;\longleftrightarrow\; \bigtimes_{j=1}^n A_j: \UU $
+(fprod $A_1:\UU$ Component $\dots$ $A_n:\UU$ Component)$ \;\longleftrightarrow\; \bigtimes_{j=1}^n A_j: \UU $
 (iprod $e_1:A_1$ Expr $\dots$ $e_n:A_n$ Expr)$ \;\longleftrightarrow\; (e_1,\dots, e_n): \bigtimes_{j=1}^n A_j $
 (rprod $g : A_1 \to \dots \to A_n \to C$ Expr $p:\bigtimes_{j=1}^n A_j$ Expr)
     $\longleftrightarrow\; \rec{\bigtimes_{j=1}^n A_j}(C,g,p): C $
@@ -1458,7 +1475,7 @@ The prefix \lstinline{r} refers to the recursor.
 Note that the recursor is used atomically here, not as a function.
 We similarly define
 \begin{lstlisting}[mathescape=true]
-(fpair $A:\UU$ Expr $B:A \to \UU$ Expr)$ \;\longleftrightarrow\; \tsm{x:A} B(x) : \UU $
+(fpair $A:\UU$ Component $B:A \to \UU$ Component)$ \;\longleftrightarrow\; \tsm{x:A} B(x) : \UU $
 (ipair $a:A$ Expr $b:B(a)$ Expr)$ \;\longleftrightarrow\; \sigma(a,b) : \tsm{x:A} B(x) $
 (rpair $g: \tprd{x:A} B(x) \to C$ Expr $p:\tsm{x:A}B(x)$ Expr)
     $\longleftrightarrow\; \rec{\tsm{x:A} B(x)} (C,g,p): C $
@@ -1466,12 +1483,36 @@ We similarly define
 The type annotation for \lstinline{ipair} is used to determine the function \( B \), since this is not uniquely determined by \( a \) and \( b \) alone.
 Finally, we define
 \begin{lstlisting}[mathescape=true]
-(fcoprod $A_1:\UU$ Expr $\dots$ $A_n:\UU$ Expr)$ \;\longleftrightarrow\; \bigplus_{j=1}^n A_j: \UU $
+(fcoprod $A_1:\UU$ Component $\dots$ $A_n:\UU$ Component)$ \;\longleftrightarrow\; \bigplus_{j=1}^n A_j: \UU $
 (icoprod $n:\mathbb N_{32}$ $e:A$ Expr)$ \;\longleftrightarrow\; \inj_n(e): \bigplus_{j=1}^n A_j $
 (rcoprod $g_1 : A_1 \to C$ Expr $\dots$ $g_n : A_n \to C$ Expr $p:\bigplus_{j=1}^n A_j$ Expr)
     $\longleftrightarrow\; \rec{\bigplus_{j=1}^n A_j}(C,g,p): C $
 \end{lstlisting}
 Similarly to with the dependent pair type, the type annotation for \lstinline{icoprod} is used to determine the possible variants for the coproduct.
+
+\subsection{Newtypes}
+Newtypes have their own information type.
+
+\begin{tabular}{r l p{7cm}}
+  \lstinline!NewtypeInfo! \( ::= \) & \lstinline!(name !\( \mathbb S \)\lstinline!) | (doc !\( \mathbb S \)\lstinline!)! \\
+\end{tabular}
+
+We can construct newtypes using the following expressions.
+
+\begin{lstlisting}[mathescape=true]
+(fnewtyqn NewtypeInfo* $A:\mathcal A$ Expr $s:\ $QualifiedName)$ \;\longleftrightarrow\; \mathcal N(I_{\textnormal{\textsc{qn}}}(s), A): \UU $
+(fnewtyapp NewtypeInfo* $A':\mathcal N(i, A: B \to C)$ Expr $b:B$ Expr)
+    $\longleftrightarrow\; \mathcal N(I_{\textnormal{\textsc{app}}}(i,b), A(b)): \UU $
+(inewtyqn $a:A$ Expr)$\;\longleftrightarrow\; \nu(I_{\textnormal{\textsc{qn}}}(s), a):\mathcal N(I_{\textnormal{\textsc{qn}}}(s), A) $
+(inewtyapp $c:A(b)$ Expr)$\;\longleftrightarrow\; \nu(I_{\textnormal{\textsc{app}}}(i,b), c):\mathcal N(I_{\textnormal{\textsc{app}}}(i,b), A(b)) $
+(rnewty $g : A \to C$ Expr $p:\mathcal N(i, A)$ Expr)$\;\longleftrightarrow\; \rec{\mathcal N(i, A)}(C,g,p): C $
+\end{lstlisting}
+
+In the \lstinline{fnewtyapp} expression, the syntax \( A':\mathcal N(i, A: B \to C) \) means both \( A':\mathcal N(i, A) \) with the restriction that \( A: B \to C \), but has been shortened for ease of writing.
+Note that the type of the \lstinline{inewty*} expressions can be used to deduce the named types in question.
+
+% \subsection{Blanks}
+% TODO: add expressions that do nothing but serve to have their types or other info inferred
 
 \section{Top-level hierarchy}
 
