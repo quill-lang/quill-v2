@@ -882,22 +882,22 @@ For booleans, we provide an induction principle.
 \begin{mathparpagebreakable}
   \inferrule*[right=$\mathbb B$-\relim]
   {\oftp{\Gamma}{C}{\mathbb B \to \UU} \\\\
-   \oftp{\Gamma}{c_\bot}{\tprd{x:\unit} C(\bot)} \\
-   \oftp{\Gamma}{c_\top}{\tprd{x:\unit} C(\top)} \\\\
+   \oftp{\Gamma}{c_\bot}{\unit \to C(\bot)} \\
+   \oftp{\Gamma}{c_\top}{\unit \to C(\top)} \\\\
    \oftp\Gamma{e}{\mathbb B}}
   {\oftp\Gamma{\ind{\mathbb B}(C,c_\bot,c_\top,e)}{C(e)}}
 \and
   \inferrule*[right=$\mathbb B$-\rcomp${}_\bot$]
   {\oftp{\Gamma}{C}{\mathbb B \to \UU} \\
-   \oftp{\Gamma}{c_\bot}{\tprd{x:\unit} C(\bot)} \\
-   \oftp{\Gamma}{c_\top}{\tprd{x:\unit} C(\top)} \\\\
+   \oftp{\Gamma}{c_\bot}{\unit \to C(\bot)} \\
+   \oftp{\Gamma}{c_\top}{\unit \to C(\top)} \\\\
    \oftp\Gamma{a}{A_j}}
   {\jdeqtp\Gamma{\ind{\mathbb B}(C,c_\bot,c_\top,\bot)}{c_\bot(\ttt)}{C(\bot)}}
 \and
   \inferrule*[right=$\mathbb B$-\rcomp${}_\top$]
   {\oftp{\Gamma}{C}{\mathbb B \to \UU} \\
-   \oftp{\Gamma}{c_\bot}{\tprd{x:\unit} C(\bot)} \\
-   \oftp{\Gamma}{c_\top}{\tprd{x:\unit} C(\top)} \\\\
+   \oftp{\Gamma}{c_\bot}{\unit \to C(\bot)} \\
+   \oftp{\Gamma}{c_\top}{\unit \to C(\top)} \\\\
    \oftp\Gamma{a}{A_j}}
   {\jdeqtp\Gamma{\ind{\mathbb B}(C,c_\bot,c_\top,\top)}{c_\top(\ttt)}{C(\top)}}
 \end{mathparpagebreakable}
@@ -989,70 +989,6 @@ In the following rules, let \( i \in \qty{1, \dots, n} \).
    \oftp\Gamma{a}{A_j}}
   {\jdeqtp\Gamma{\ind{\bigplus_{j=1}^n A_j}(C,c_1,\dots,c_n,\inj_j(a))}{c_j(a)}{C(\inj_j(a))}}
 \end{mathparpagebreakable}
-
-\subsection{Newtypes}
-
-There are certain instances where we wish to consider two types `the same' or `different' depending on semantic context.
-Two types that are isomorphic are not necessarily to be considered identical due to semantic context.
-This is known as the \lstinline{newtype} idiom.
-Let \( \mathcal I \) be the type of \textit{unique identifiers}, defined by the following rules.
-
-\begin{mathparpagebreakable}
-  \inferrule*[right=$\mathcal I$-\textsc{qn}]
-    {\oftp{\Gamma}{s}{\mathtt{QualifiedName}}}
-    {\oftp\Gamma{I_{\textsc{qn}}(s)}{\mathcal I}}
-  \and
-  \inferrule*[right=$\mathcal I$-\textsc{app}]
-    {\oftp{\Gamma}{i}{\mathcal I} \and \oftp{\Gamma}{A}{\UU} \and \oftp{\Gamma}{a}{A}}
-    {\oftp\Gamma{I_{\textsc{app}}(i,a)}{\mathcal I}}
-\end{mathparpagebreakable}
-
-Informally, we can construct an identifier out of a name, or the application of a named type to an arbitrary value.
-We will allow values (typically types or functions which return types) to be given an identifier by defining the following rules.
-
-\begin{mathparpagebreakable}
-  \inferrule*[right=$\mathcal N$-\textsc{qn}-\rform]
-    {\oftp{\Gamma}{A}{\mathcal A} \and \oftp{\Gamma}{s}{\mathtt{QualifiedName}}}
-    {\oftp\Gamma{\mathcal N(I_{\textsc{qn}}(s), A)}{\UU}}
-  \and
-  \inferrule*[right=$\mathcal N$-\textsc{app}-\rform]
-    {\oftp\Gamma{A}{B \to \UU} \\
-     \oftp\Gamma{\mathcal N(i, A)}{\UU} \\
-     \oftp\Gamma{b}{B}}
-    {\oftp\Gamma{\mathcal N(I_{\textsc{app}}(i,b), A(b))}{\UU}}
-  \and
-  \inferrule*[right=$\mathcal N$-\textsc{qn}-\rintro]
-    {\oftp{\Gamma}{A}{\mathcal A} \\
-    \oftp{\Gamma}{s}{\mathtt{QualifiedName}} \\ \oftp\Gamma{a}{A}}
-    {\oftp\Gamma{\nu(I_{\textsc{qn}}(s), a)}{\mathcal N(I_{\textsc{qn}}(s), A)}}
-  \and
-  \inferrule*[right=$\mathcal N$-\textsc{app}-\rintro]
-    {\oftp\Gamma{A}{B \to \UU} \\
-    \oftp\Gamma{\mathcal N(i, A)}{\UU} \\
-    \oftp\Gamma{b}{B} \\
-    \oftp\Gamma{c}{A(b)}}
-    {\oftp\Gamma{\nu(I_{\textsc{app}}(i,b), c)}{\mathcal N(I_{\textsc{app}}(i,b), A(b))}}
-  \and
-  \inferrule*[right=$\mathcal N$-\relim]
-    {\oftp{\Gamma}{A}{\UU} \\
-     \oftp{\Gamma}{i}{\mathcal I} \\
-     \oftp{\Gamma}{C}{\mathcal N(i, A) \to \UU} \\\\
-     \oftp{\Gamma}{g}{\tprd{x:A} C(\nu(i, x))} \\
-     \oftp\Gamma{p}{\mathcal N(i, A)}}
-    {\oftp\Gamma{\ind{\mathcal N(i, A)}(C,g,p)}{C(p)}}
-  \and
-  \inferrule*[right=$\mathcal N$-\rcomp]
-    {\oftp{\Gamma}{A}{\UU} \\
-     \oftp{\Gamma}{i}{\mathcal I} \\
-     \oftp{\Gamma}{C}{\mathcal N(i,A) \to \UU} \\\\
-     \oftp{\Gamma}{g}{\tprd{x:A} C(\nu(i,x))} \\
-     \oftp\Gamma{a}{A}}
-    {\jdeqtp\Gamma{\ind{\mathcal N(i,A)}(C,g,\nu(i,a))}{g(a)}{C(\nu(i,a))}}
-\end{mathparpagebreakable}
-
-Note that a named type is `boxed'; in order to address the underlying type you must `unbox' the newtype wrapper first.
-This unboxing operation will be assigned a visibility later in compilation, allowing only certain modules to unbox a given type.
-Note also that the induction operation is independent of the name given to a type; the name simply acts as a marker for the compiler for more semantic knowledge about a type.
 
 \subsection{Borrowed types}
 
@@ -1359,6 +1295,7 @@ In expression \( f \), the \lstinline{let} expression is considered a 1-binder.
 \begin{lstlisting}[mathescape=true]
 (lambda $n:\mathbb N_{32}$ $e:A$ Expr)$ \;\longleftrightarrow\; \lambda x_1 \dots \lambda x_n\,.\,(x_1\dots x_n.e:A) $
 \end{lstlisting}
+
 This expression creates a \( \lambda \) abstraction.
 The type of the abstracted variables are not given, and are implicit from the type of the lambda itself.
 Note that no variable names are given for the new bound variables in the S-expression form; they can be addressed using de Bruijn indices.
@@ -1371,11 +1308,23 @@ Here, \( x \) is bound in \( z \), but this is only possible if the inner \( \la
 By default, \( \lambda \) abstractions may capture outer variables, but they will later be converted into functions that do not capture outer variables.
 
 \begin{lstlisting}[mathescape=true]
+(dlambda $B:A \to \UU$ Expr $e:B(x)$ Expr)$ \;\longleftrightarrow\; \Lambda (x:A)\,.\,(x.e:B(x)) $
+\end{lstlisting}
+
+The prefix \lstinline{d} refers to dependence.
+Dependent \( \Lambda \) abstractions need not be multiply binding, since they never appear in final compiled builds, so do not need to have their captured variables checked.
+This expression is considered non-binding from the perspective of \( B \), and 1-binding from the perspective of \( e \).
+
+\begin{lstlisting}[mathescape=true]
 (ap $e:A \to B$ Expr $x:A$ DeBruijnIndex)$ \;\longleftrightarrow\; e\ x:B $
 \end{lstlisting}
 
 We can apply parameters to functions, provided that the parameter is bound in a local.
 This restriction is known as A-normal form.
+
+\begin{lstlisting}[mathescape=true]
+(dap $e:\tprd{x:A} B(x)$ Expr $x:A$ DeBruijnIndex)$ \;\longleftrightarrow\; e\ x:B(x) $
+\end{lstlisting}
 
 \subsection{Primitive types}
 The prefix \lstinline{f} refers to a \rform{} rule, and \lstinline{i} refers to an \rintro{} rule.
@@ -1401,7 +1350,9 @@ We can also use the recursor for the boolean type to construct an `if-else' expr
 Note the change in argument order from a typical `if-else' expression.
 % TODO: use the induction principle, also remove the whole lemma about turning ind into a function
 \begin{lstlisting}[mathescape=true]
-(if $f: \unit \to C$ Expr $t: \unit \to C$ Expr $b: \mathbb B$ Expr)$ \;\longleftrightarrow\; \ind{\mathbb B}(C,f,t,b): C $
+(if $f: \unit \to C$ Expr $t: \unit \to C$ Expr $b: \mathbb B$ Expr)$ \;\longleftrightarrow\; \rec{\mathbb B}(C,f,t,b): C $
+(dif $C: \mathbb B \to \UU$ $f: \unit \to F$ Expr $t: \unit \to T$ Expr $b: \mathbb B$ Expr)
+    $\longleftrightarrow\; \ind{\mathbb B}(C,f,t,b): C(b) $
 \end{lstlisting}
 
 \subsection{Composite types}
@@ -1416,25 +1367,29 @@ A component is called a \textit{field} in a product type, and a \textit{variant}
 \end{tabular}
 
 The \lstinline{Expr} in a component evaluates to the type of the component.
-Types that differ only in their component information are considered to be equal; the component information is used primarily inside the context of a newtype, where the difference is made semantic.
-% TODO: should this really be the case?
+Types that differ only in their component information are considered to be equal.
 
 We can create Feather expressions to execute the \( \times \)-\rform, \( \times \)-\rintro, and \( \times \)-\relim{} rules.
 The syntax \( A:\UU \)\lstinline! Component! should be interpreted to mean a component whose contained type is \( A \), and which may have extra component information.
-The prefix \lstinline{r} refers to the recursor.
+The prefix \lstinline{r} refers to the recursor \( \mathsf{rec} \), and the prefix \lstinline{e} refers to the elimination rule \( \mathsf{ind} \).
 \begin{lstlisting}[mathescape=true]
 (fprod $A_1:\UU$ Component $\dots$ $A_n:\UU$ Component)$ \;\longleftrightarrow\; \bigtimes_{j=1}^n A_j: \UU $
 (iprod $e_1:A_1$ Expr $\dots$ $e_n:A_n$ Expr)$ \;\longleftrightarrow\; (e_1,\dots, e_n): \bigtimes_{j=1}^n A_j $
 (rprod $g : A_1 \to \dots \to A_n \to C$ Expr $p:\bigtimes_{j=1}^n A_j$ Expr)
     $\longleftrightarrow\; \rec{\bigtimes_{j=1}^n A_j}(C,g,p): C $
+(eprod $C : \bigtimes_{j=1}^n A_j \to \UU$ Expr $g : A_1 \to \dots \to A_n \to C$ Expr $p:\bigtimes_{j=1}^n A_j$ Expr)
+    $\longleftrightarrow\; \ind{\bigtimes_{j=1}^n A_j}(C,g,p): C $
 \end{lstlisting}
-Note that the recursor is used atomically here, not as a function.
+Note that the recursor and induction function are used atomically here, not as functions.
+This helps us with ownership rules later.
 We similarly define
 \begin{lstlisting}[mathescape=true]
 (fpair $A:\UU$ Component $B:A \to \UU$ Component)$ \;\longleftrightarrow\; \tsm{x:A} B(x) : \UU $
 (ipair $a:A$ Expr $b:B(a)$ Expr)$ \;\longleftrightarrow\; \sigma(a,b) : \tsm{x:A} B(x) $
 (rpair $g: \tprd{x:A} B(x) \to C$ Expr $p:\tsm{x:A}B(x)$ Expr)
     $\longleftrightarrow\; \rec{\tsm{x:A} B(x)} (C,g,p): C $
+(epair $C:\tsm{x:A}B(x)\to\UU$ Expr $g: \tprd{x:A} B(x) \to C$ Expr $p:\tsm{x:A}B(x)$ Expr)
+    $\longleftrightarrow\; \ind{\tsm{x:A} B(x)} (C,g,p): C $
 \end{lstlisting}
 The type annotation for \lstinline{ipair} is used to determine the function \( B \), since this is not uniquely determined by \( a \) and \( b \) alone.
 Finally, we define
@@ -1443,32 +1398,13 @@ Finally, we define
 (icoprod $n:\mathbb N_{32}$ $e:A$ Expr)$ \;\longleftrightarrow\; \inj_n(e): \bigplus_{j=1}^n A_j $
 (rcoprod $g_1 : A_1 \to C$ Expr $\dots$ $g_n : A_n \to C$ Expr $p:\bigplus_{j=1}^n A_j$ Expr)
     $\longleftrightarrow\; \rec{\bigplus_{j=1}^n A_j}(C,g,p): C $
+(ecoprod $C:\bigplus_{j=1}^n A_j\to\UU$ Expr $g_1 : A_1 \to C$ Expr $\dots$ $g_n : A_n \to C$ Expr
+  $p:\bigplus_{j=1}^n A_j$ Expr)
+    $\longleftrightarrow\; \ind{\bigplus_{j=1}^n A_j}(C,g,p): C $
 \end{lstlisting}
 Similarly to with the dependent pair type, the type annotation for \lstinline{icoprod} is used to determine the possible variants for the coproduct.
-Note that we can create recursive definitions here by, for example, encasing an \lstinline{fcoprod} inside a newtype, binding it to a name, and then using an \lstinline{inst} to instance that name inside its own definition.
+Note that we can create recursive definitions here by, for example, encasing an \lstinline{fcoprod} inside a function, and then using an \lstinline{inst} to instance that name inside its own definition.
 This is the same procedure as is used in making recursive function definitions.
-
-\subsection{Newtypes}
-Newtypes have their own information type.
-
-\begin{tabular}{r l p{7cm}}
-  \lstinline!NewtypeInfo! \( ::= \) & \lstinline!(name !\( \mathbb S \)\lstinline!) | (doc !\( \mathbb S \)\lstinline!)! \\
-\end{tabular}
-
-We can construct newtypes using the following expressions.
-% TODO: regularity requirements on the qualified names that fnewty can use, as well as making sure that only one newtype uses a given name in a whole project
-
-\begin{lstlisting}[mathescape=true]
-(fnewtyqn NewtypeInfo* $A:\mathcal A$ Expr $s:\ $QualifiedName)$ \;\longleftrightarrow\; \mathcal N(I_{\textnormal{\textsc{qn}}}(s), A): \UU $
-(fnewtyapp NewtypeInfo* $A':\mathcal N(i, A: B \to C)$ Expr $b:B$ Expr)
-    $\longleftrightarrow\; \mathcal N(I_{\textnormal{\textsc{app}}}(i,b), A(b)): \UU $
-(inewtyqn $a:A$ Expr)$\;\longleftrightarrow\; \nu(I_{\textnormal{\textsc{qn}}}(s), a):\mathcal N(I_{\textnormal{\textsc{qn}}}(s), A) $
-(inewtyapp $c:A(b)$ Expr)$\;\longleftrightarrow\; \nu(I_{\textnormal{\textsc{app}}}(i,b), c):\mathcal N(I_{\textnormal{\textsc{app}}}(i,b), A(b)) $
-(rnewty $g : A \to C$ Expr $p:\mathcal N(i, A)$ Expr)$\;\longleftrightarrow\; \rec{\mathcal N(i, A)}(C,g,p): C $
-\end{lstlisting}
-
-In the \lstinline{fnewtyapp} expression, the syntax \( A':\mathcal N(i, A: B \to C) \) means both \( A':\mathcal N(i, A) \) with the restriction that \( A: B \to C \), but has been shortened for ease of writing.
-Note that the type of the \lstinline{inewty*} expressions can be used to deduce the named types in question.
 
 % \subsection{Blanks}
 % TODO: add expressions that do nothing but serve to have their types or other info inferred
