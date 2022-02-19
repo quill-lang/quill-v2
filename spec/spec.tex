@@ -1,6 +1,8 @@
-\documentclass[UKenglish, 11pt, a4paper, parskip=half]{scrbook}
+\documentclass[11pt]{book}
 \usepackage[utf8]{inputenc}
 \usepackage[UKenglish]{babel}
+\usepackage[a4paper]{geometry}
+\usepackage{parskip}
 \usepackage{makecell}
 \usepackage{microtype}
 \usepackage[pdfa]{hyperref}
@@ -707,6 +709,13 @@ Then, when inference rules are applied in practice, we must check whether the ex
 This is a compile-time check, known as the borrow checker.
 
 \section{Inference rules}
+
+\subsection{Unique construction}
+
+The construction of objects using inference rules defines a unique syntactic expression for constructing objects in this way.
+We will define inference rules such that there exists a unique way to construct any given object, ignoring computation rules.
+This will be known as the \textit{principle of unique construction}.
+
 \subsection{Structural rules}
 
 Although we skip over many of the minutiae of rigorously defining a type system, we must state the following well-known structural rules \cite{hottbook}.
@@ -1130,62 +1139,6 @@ In particular, since only one branch of the recursor for boolean types is ever e
 The primitive types offer various primitive operations, such as arithmetic and logic operations.
 These operations, together with the inference rules defined above, characterise exactly the core functionality of Feather's expressions.
 
-\iffalse{}
-\section{Feather expressions and type constraints}
-
-Each expression in Feather is able to be directly translated into the more mathematical forms given above.
-For the purposes of eliding de Bruijn indices, we will assume that the Feather expression for creating an abstraction, \lstinline{(lambda e)}, is instead written \( \lam xe \), where \( x \) is bound in the expression \( x \).
-
-Dependent function types are written using normal function syntax, but dependent terms are named: the type \( \tprd{x:A}B(x) \) would be written \( (x:A) \to B(x) \).
-Likewise, for dependent pair types, the type \( \tsm{x:A} B(x) \) is typically written \( (x:A) \times B(x) \).
-
-\subsection{Example 1}
-
-Consider the following Feather expression, which we will type check manually.
-
-\begin{lstlisting}
-(ap (lambda (local 0)) (i64 5))
-\end{lstlisting}
-
-This is equivalent to the expression \( (\lam x x)\ 5_{\mathbb Z_{64}} \), which we can see should have the type \( \mathbb Z_{64} \).
-Note that the \( \lambda \) abstraction is not polymorphic or dependent; the type of \( \lam x x \) will be determined to be \( \mathbb Z_{64} \to \mathbb Z_{64} \), not \( \tprd{A:\UU} A \).
-
-% TODO: maybe add structural rules from hott
-\[
-  \inferrule*[right=\(\to\)-\rintro]{
-    \inferrule*[right=\(\to\)-\rform]{
-      \inferrule*[right=\(\mathbb Z_{64}\)-\rform]{
-        \inferrule*[right=\ctx-\textsc{emp}]
-        { }{\wfctx\emptyctx}
-      }{\oftp{}{\mathbb Z_{64}}{\UU}}
-    }{\oftp{}{\mathbb Z_{64} \to \mathbb Z_{64}}{\UU}}
-    \and
-    \inferrule*[right=Var]{
-      \inferrule*[right=\ctx-\textsc{ext}]{
-        \inferrule*[right=\(\mathbb Z_{64}\)-\rform]{
-          \inferrule*[right=\ctx-\textsc{emp}]
-          { }{\wfctx\emptyctx}
-        }{\oftp{}{\mathbb Z_{64}}{\UU}}
-      }{\wfctx{(\tmtp{x}{\mathbb Z_{64}})}}
-    }{\oftp{(\tmtp{x}{\mathbb Z_{64}})}{x}{\mathbb Z_{64}}}
-  }{\oftp{}{\lam{x:\mathbb Z_{64}}x}{\mathbb Z_{64} \to \mathbb Z_{64}}\ (\ast)}
-\]
-
-Then we can deduce from \((\ast)\) that
-
-\[
-  \inferrule*[right=\(\to\)-\relim]{
-    \inferrule*[right=\((\ast)\)]{ }{\oftp{}{\lam{x:\mathbb Z_{64}}x}{\mathbb Z_{64} \to \mathbb Z_{64}}}
-    \and
-    \inferrule*[right=\(\mathbb Z_{64}\)-\rintro]{
-      \inferrule*[right=\ctx-\textsc{emp}]
-      { }{\wfctx\emptyctx}
-    }{\oftp{}{5_{\mathbb Z_{64}}}{\mathbb Z_{64}}}
-  }
-  {\oftp{}{(\lam{x:\mathbb Z_{64}}x)(5_{\mathbb Z_{64}})}{\mathbb Z_{64}}}
-\]
-\fi{}
-
 \chapter{Syntax}
 
 \iffalse{}
@@ -1223,6 +1176,7 @@ Hence, we will discuss here the textual representation, and leave the in-memory 
 \section{S-expressions}
 
 \subsection{Binary representations}
+% TODO: move this section to the part where we actually generate machine code
 \begin{defn}
     A \textit{(binary) representation} of a type \( A : \mathcal U \) is an injective function
     \[ \rho : A \to \mathbb B^n \]
@@ -1270,6 +1224,7 @@ It is then trivial to prove the following lemma.
 Expressions in Feather are context-free, in the sense that an arbitrary expression may be bound to an arbitrary name or instanced inline with no change in program semantics.
 This assertion assumes that names have been resolved (for instance, by the Quill language frontend).
 In particular, we may apply rules from the lambda calculus, which will be codified in the form of computation rules, to simplify terms.
+In the practical case, this is only true after type checking has been completed, since types returned as values from functions are considered different to the values themselves.
 
 \subsection{Identifiers}
 
@@ -1598,18 +1553,194 @@ Note that an expression may be well-typed, yet it (or its constructor) may \text
 The verification that the inference rules respect these constraints is to be carried out by later phases in the compiler, which will be detailed in subsequent sections.
 
 \subsection{Partial values}
+
 The process of deducing the types of expressions does not happen instantaneously; a network of information is gradually built by the compiler, and is improved incrementally until expressions are deduced to be either well-typed or not well-typed.
 When evaluating types in many programming languages, it is useful to consider type variables, which are placeholders for types that are to be evaluated later.
 We extend this notion to arbitrary expressions.
 \begin{defn}
-  A \textit{value} is a realisation of an object which cannot be simplified, where bidirectional computation rules are not considered simplifications.
+  An \textit{inference variable} is an object with known type, used in place of a value where one is not known.
+  An example is that of \textit{type variables}, usually denoted \( \alpha : \UU \).
+  These are endowed with a way of generating new free inference variables with an attached unique identifier, and an equivalence relation \( = \) that declares inference variables to be equal if their identifiers match.
 \end{defn}
+\begin{defn}
+  A \textit{value} is a computed realisation of an object which does not contain inference variables, and cannot be simplified, where bidirectional computation rules are not considered simplifications.
+  The value is said to be in \textit{normal form}.
+\end{defn}
+\begin{defn}
+  A \textit{partial value} is a realisation of an object which may contain inference variables, and may be simplifiable.
+  If there exists a finite sequence of simplifications on a partial value that reduces it to normal form, we say that the partial value is \textit{weakly normalising}, or \textit{lazily computable}.
+  If all sequences of simplifications reduce the partial value to a normal form, the value is \textit{strongly normalising}, or \textit{(strictly) computable}.
+\end{defn}
+\begin{eg}
+  The pseudocode expression \( 1 \) is a value.
+  The expression \( 1 + 1 \) is a partial value, which may be simplified into the value \( 2 \), so \( 1 + 1 \) is strongly normalising.
+  The expression \( \alpha \) is a partial value, where \( \alpha \) is an inference variable.
+  This is not computable.
+\end{eg}
+Partial values may include arbitrary self-reference, and need not be computable.
+For instance, let \( f(x) \mapsto f(x+1) \) for \( x \in \mathbb N \), then \( f(1) \) is not (lazily) computable, but it is a partial value.
+The expression \( \proj 1((1, f(0))) \), where \( \proj 1 \) represents the projection of the first element of a pair, is lazily computable, since \( f(0) \) need not be evaluated.
+However, it is not strictly computable.
+
+Formally, we say that the Feather computation system does not have the weak normalisation property, in the sense of an abstract reduction system.
+\begin{lem}
+  Feather's computation system has the unique normal form property: for any partial value \( e \), if it has normal forms \( a, b \), then \( a \equiv b \).
+\end{lem}
+\begin{proof}
+  This follows from the unique construction principle.
+\end{proof}
+
+\section{Computability}
+
+\subsection{Classes of computable functions}
+
+The Feather compiler cannot determine whether an arbitrary partial value is computable, since this would entail a solution to the halting problem.
+However, it can determine the computability of a large class of computable partial recursive functions, which here will be called \textit{hierarchically substructure recursive functions}.
+We do not aim to require that all Feather functions be hierarchically substructure recursive, for instance, a simple \lstinline{while} loop which waits for a particular user input would not satisfy this definition, as will be seen later.
+However, this is a sufficiently broad definition that `most useful functions' (under suitable assumptions) are hierarchically substructure recursive, for instance the Ackermann function.
+We require that any partial value computed at compile time be hierarchically substructure recursive, since this will guarantee that compilation will always terminate.
+%Regardless of the knowledge that compilation will terminate, it may be undesirable for the compiler to freeze for large amounts of time, computing arbitrarily complex values.
+% A compiler may emit a warning and prompt the user to cancel the operation if the compilation time is sufficiently long, such as a duration of more than a few seconds for the evaluation of a single expression.
+
+\subsection{Substructure recursive functions}
+
+% TODO: mutually hierarchically substructure recursive functions?
+
+\begin{defn}
+  An object \( a \) is a \textit{substructure} of another object \( b \) if it appears in the constructor for \( a \), or in the constructor of any substructure of \( a \).
+  If \( b: \mathbb N_n \), then \( a \) is a substructure if \( a: \mathbb N_n \) and \( a < b \).
+\end{defn}
+Substructures for natural numbers act like substructures for purposes of recursion, but have a different underlying representation.
+We can think of natural numbers as repeated calls to a `successor' constructor function, and in this case, this matches the definition of a substructure.
+\begin{lem}
+  The number of substructures of a value is finite.
+\end{lem}
+\begin{proof}
+  A value is constructed with a chain of finitely many constructors, since it must be computable.
+  Since constructors consume only finitely many values, there must be only finitely many substructures in total.
+\end{proof}
+\begin{defn}
+  A function \( f: A \to B \) is \textit{substructure recursive} if, in the simplification of \( f(a) \), \( f \) only appears in the form \( f(a') \) where \( a' \) is a substructure of \( a \), and no other function appears.
+\end{defn}
+This is a slightly more flexible definition of recursion than \textit{primitive recursion}, since it allows the use of custom types.
+\begin{lem}
+  Substructure recursive functions are computable, when provided values as their parameters.
+\end{lem}
+\begin{proof}
+  Under the assumption that no other function appears in the body of \( f \), we have a fixed upper bound on the time complexity of \( f(a) \).
+  Let \( n \) be the number of substructures of \( a \), which is well-defined since \( a \) is a value.
+  Let \( k \) be the number of occurences of \( f \) in \( f(a) \).
+  By induction, we can see that there is an upper bound on the total amount of inner invocations of \( f \) (after the initial function call), which is \( nk \).
+  Thus, \( f \) is \( \mathcal O(n) \), and is hence computable.
+\end{proof}
+\begin{defn}
+  A function \( f: A_1 \to \dots \to A_n \to B \) is \textit{hierarchically substructure recursive} if, in the simplification of \( f(a_1, \dots, a_n) \), \( f \) only appears in the form \( f(a_1', \dots, a_n') \) where there exists \( k \in \qty{1, \dots, n} \) such that \( a_k' \) is a substructure of \( a_k \), and for all \( i \in \qty{1, \dots, k-1} \), \( a_i' \) is either a substructure of \( a_i \) or equal to \( a_i \).
+\end{defn}
+This generalises the notion of primitive recursion to include many functions which are computable yet have no simple form upper bound on complexity.
+\begin{eg}
+  The Ackermann function is hierarchically substructure recursive.
+\end{eg}
+\begin{lem}
+  Hierarchically substructure recursive functions are computable, when provided values as their parameters.
+\end{lem}
+\begin{proof}
+  Let \( a_1 \) be fixed.
+  Then, suppose for purposes of induction that for an arbitrary \( i \), the expression \( f(a_1, a_2, \dots, a_{i-1}, a_i') : A_{i+1} \to \dots \to A_n \to B \) is a computable function for all substructures \( a_i' \) of \( a_i \).
+  Then, any inner function call of \( f \) is computable as it is of this form.
+  By induction on the \( n \) variables \( a_i \) in turn, since the composition of computable functions is computable, we have that \( f \) is computable with inputs \( a_1, \dots, a_n \).
+\end{proof}
+Note that hierarchically substructure recursive functions do not have an \textit{a priori} upper bound on time complexity.
+
+\section{Inference rules}
 
 \subsection{Existence of inference rules}
+
 Each expression in Feather is defined to map onto a semantically equivalent mathematical expression, with the sole exception of \lstinline{inst}.
 Thus, we can see that every non-\lstinline{inst} Feather expression has a unique inference rule that determines its type, given the types of sub-expressions and bound variables.
-We therefore will begin our description of value inference on a restricted subset of Feather expressions that may not include the \lstinline{inst} keyword.
-Later, we expand the scope of inference to include knowledge gained only through use of \lstinline{inst}.
+
+\subsection{Constraint generation}
+
+\begin{defn}
+  A \textit{constraint} is a judgmental equality between two (partial) values.
+  A constraint is \textit{satisfied} under a typing context \( \Gamma \) if \( \Gamma \) entails that the judgmental equality holds.
+\end{defn}
+\begin{defn}
+  The \textit{induced constraints} of an inference rule are the constraints that are satisfied between the types of objects that appear in the rule.
+\end{defn}
+\begin{eg}
+  Consider this modified version of the rule \( \to \)-\relim, where names of types have been deduplicated.
+  \[ \inferrule*[right=$\to$-\relim]
+  {\oftp\Gamma{f}{A \to B} \\ \oftp\Gamma{a}{A'}}
+  {\oftp\Gamma{f(a)}{B'}} \]
+  Here, the only nontrivial induced constraints are \( A \equiv A' \), \( B \equiv B' \).
+\end{eg}
+\begin{lem}
+  An expression is well-typed if and only if:
+  \begin{enumerate}
+    \item each atomic sub-expression has a unique type known \emph{a priori};
+    \item each bound variable has a known unique type; and
+    \item we can assign types to it and its sub-expressions, such that given these types, all their constraints are satisfied.
+  \end{enumerate}
+\end{lem}
+Here, an \textit{atomic} sub-expression is one that is created without consuming any objects.
+\begin{proof}
+  The only non-trivial part of this lemma is to show that the types assigned are unique.
+  According to the principle of unique construction, we can create a finite tree of constructions to make this expression.
+  All atomic sub-expressions and bound variables have known unique types, and hence we can inductively uniquely deduce the types of each sub-expression via the unique inference rule that constructs it.
+\end{proof}
+Thus, the problem of type checking has been reduced to a constraint satisfaction problem, where the values to be determined are the types of the bound variables.
+Note that this simplification is not generally possible in normal Hindley-Milner type systems, due to the existence of implicit polytypes.
+In our type system, the expression \( \lam xx \) is not well-typed since we cannot uniquely assign a type to the bound variable \( x \).
+
+\subsection{Unification}
+
+\begin{defn}
+  A mapping \( m: \alpha_i \mapsto a_i \) of inference variables to partial values is called an \textit{unification map} if the inference variables in the domain of \( m \) do not appear anywhere in its codomain.
+  They can be applied to partial values, replacing all instances of that variable with their value under \( m \).
+  The condition of inference variables not appearing in the codomain ensures idempotence of \( m \).
+
+  Let \( A \equiv B \) be a constraint.
+  Suppose there exists a unification mapping \( m: \alpha_i \mapsto a_i \) such that \( m(A) \equiv m(B) \), then we say \( A \) and \( B \) are \textit{unified} to \( m(A) \) (or, equivalently, \( m(B) \)).
+
+  Suppose \( m \) is a unification mapping such that for all unification mappings \( m' \), \( m'(A) \) and \( m'(B) \) are functions of \( m(A) \) and \( m(B) \) respectively, under another unification map.
+  Then \( m(A) \) is the \textit{most general unifier} of \( A \) and \( B \).
+\end{defn}
+The most general unifier is unique up to relabelling inference variables.
+We can create an algorithm to explicitly construct the most general unifier of two partial values under certain conditions.
+\begin{defn}
+  The function \( \mathsf{mgu} \) is a binary function on partial values.
+  In a success condition, it returns a unification map \( m \) which unifies \( A \) and \( B \).
+  In a fail condition, it returns a description of the substructures of \( A \) and \( B \) that failed to unify.
+  The function is generated by the following rules, with higher rules taking priority.
+  \begin{enumerate}
+    \item If \( A \) or \( B \) is a function application, and the function is an abstraction not an \lstinline{inst}, the function is evaluated first.
+    \item If both \( A \) and \( B \) are a composite type such as a product or coproduct, \( \mathsf{mgu} \) is called on its components.
+    \item If \( A \) and \( B \) are \lstinline{inst} expressions, they are treated as atomic, and must match exactly.
+    \item If either \( A \) or \( B \) is an inference variable, then the function succeeds, with the empty map if both are inference variables and \( A = B \), or the map \( A \mapsto B \) or \( B \mapsto A \) otherwise.
+    \item Otherwise, the function fails.
+  \end{enumerate}
+  The restriction on \lstinline{inst} allows us to ensure that \( \mathsf{mgu} \) will always terminate.
+  This is because expressions without \lstinline{inst} are strictly computable. % TODO: prove this
+\end{defn}
+Notably, this definition allows us to construct newtypes by simply having a function return the type.
+The unification algorithm treats such a function as distinct from its returned value.
+It should be clear that if \( \mathsf{mgu} \) succeeds, it is the most general unifier.
+
+\section{The inference algorithm}
+
+Given an expression \( e \), we wish to infer types and values wherever possible.
+We begin with type inference.
+The following algorithm is applied to untyped expressions to deduce their types and values.
+
+First, a set of constraints are generated for each expression.
+The expression tree is scanned for the induced constraints of each constructor.
+For each constraint, the function \( \mathsf{mgu} \) is run, and if errors are found, type inference will fail.
+If a constraint is resolved in such a way that the type of an expression is now known, we proceed to value inference for that expression.
+A process, such as that described in \cite{Heeren02generalizinghindley-milner}, may be used to solve constraints without bias.
+
+To perform value inference on an expression, we first require that the types of sub-expressions are known.
+Then, the usual computation rules defined in \cref{ch:types_and_values} can be used to deduce the value of this expression.
+If a function is instanced, it must be hierarchically substructure recursive in order for its value to be computed; any other function will not have its value deduced.
 
 % TODO: \chapter{Ownership and borrowing}
 
