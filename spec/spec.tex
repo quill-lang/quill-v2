@@ -1351,7 +1351,7 @@ Note the change in argument order from a typical `if-else' expression.
 % TODO: use the induction principle, also remove the whole lemma about turning ind into a function
 \begin{lstlisting}[mathescape=true]
 (if $f: \unit \to C$ Expr $t: \unit \to C$ Expr $b: \mathbb B$ Expr)$ \;\longleftrightarrow\; \rec{\mathbb B}(C,f,t,b): C $
-(dif $C: \mathbb B \to \UU$ $f: \unit \to F$ Expr $t: \unit \to T$ Expr $b: \mathbb B$ Expr)
+(dif $C: \mathbb B \to \UU$ $f: \unit \to C(\bot)$ Expr $t: \unit \to C(\top)$ Expr $b: \mathbb B$ Expr)
     $\longleftrightarrow\; \ind{\mathbb B}(C,f,t,b): C(b) $
 \end{lstlisting}
 
