@@ -715,6 +715,7 @@ This is a compile-time check, known as the borrow checker.
 The construction of objects using inference rules defines a unique syntactic expression for constructing objects in this way.
 We will define inference rules such that there exists a unique way to construct any given object, ignoring computation rules.
 This will be known as the \textit{principle of unique construction}.
+The only minor exception to this rule is that both dependent and independent function types may be invoked in the same way, although this will not be a problem for most use cases of this principle.
 
 \subsection{Structural rules}
 
@@ -755,11 +756,11 @@ We can simplify expressions, and the resulting value keeps the same type as the 
 Where bound variables must be used, the syntax \( x.b \) specifically states that the name \( x \) is bound in expression \( b \).
 \begin{mathparpagebreakable}
   \inferrule*[right=\textsc{Let-\rintro}]
-  {\oftp{\Gamma}{A}{\UU} \and \oftp{\Gamma}{B}{\UU} \and \oftp{\Gamma,\tmtp xA}{x.b}{B} \and \oftp\Gamma{a}{A}}
+  {\oftp{\Gamma,\tmtp xA}{x.b}{B} \and \oftp\Gamma{a}{A}}
   {\oftp\Gamma{\mathtt{let}\ x = a\ \mathtt{in}\ x.b}{B}}
 \and
   \inferrule*[right=\textsc{Let-\rcomp}]
-  {\oftp{\Gamma}{A}{\UU} \and \oftp{\Gamma}{B}{\UU} \and \oftp{\Gamma,\tmtp xA}{x.b}{B} \and \oftp\Gamma{a}{A}}
+  {\oftp{\Gamma,\tmtp xA}{x.b}{B} \and \oftp\Gamma{a}{A}}
   {\jdeqtp\Gamma{\mathtt{let}\ x = a\ \mathtt{in}\ x.b}{a.b}{B}}
 \end{mathparpagebreakable}
 
@@ -774,15 +775,15 @@ Note that \lstinline{let}-polymorphism is accomplished not through the type syst
     {\oftp\Gamma{A \to B}{\UU}}
 \and
   \inferrule*[right=$\to$-\rintro]
-  {\oftp{\Gamma}{A}{\UU} \and \oftp{\Gamma}{B}{\UU} \and \oftp{\Gamma,\tmtp xA}{x.b}{B}}
+  {\oftp{\Gamma,\tmtp xA}{x.b}{B}}
   {\oftp\Gamma{\lam{x:A} (x.b)}{A \to B}}
 \and
   \inferrule*[right=$\to$-\relim]
-  {\oftp{\Gamma}{B}{\UU} \\ \oftp\Gamma{f}{A \to B} \\ \oftp\Gamma{a}{A}}
+  {\oftp\Gamma{f}{A \to B} \\ \oftp\Gamma{a}{A}}
   {\oftp\Gamma{f(a)}{B}}
 \and
   \inferrule*[right=$\to$-\rcomp]
-  {\oftp{\Gamma}{B}{\UU} \\ \oftp{\Gamma,\tmtp xA}{x.b}{B} \\ \oftp\Gamma{a}{A}}
+  {\oftp{\Gamma,\tmtp xA}{x.b}{B} \\ \oftp\Gamma{a}{A}}
   {\jdeqtp\Gamma{(\lam{x:A} (x.b))(a)}{a.b}{B}}
 \and
   \inferrule*[right=$\to$-\runiq]
@@ -804,11 +805,11 @@ Other authors use \( \Lambda \) to refer to \( \lambda \) abstractions where the
     {\oftp\Gamma{\tprd{x:A}B(x)}{\UU}}
 \and
   \inferrule*[right=$\Pi$-\rintro]
-  {\oftp{\Gamma}{A}{\UU} \and \oftp{\Gamma}{B}{A \to \UU} \and \oftp{\Gamma,\tmtp xA}{x.b}{B(x)}}
+  {\oftp{\Gamma}{B}{A \to \UU} \and \oftp{\Gamma,\tmtp xA}{x.b}{B(x)}}
   {\oftp\Gamma{\Lambda(x:A).\,(x.b)}{\tprd{x:A} B(x)}}
 \and
   \inferrule*[right=$\Pi$-\relim]
-  {\oftp{\Gamma}{B}{A \to \UU} \\ \oftp\Gamma{f}{\tprd{x:A} B(x)} \\ \oftp\Gamma{a}{A}}
+  {\oftp\Gamma{f}{\tprd{x:A} B(x)} \\ \oftp\Gamma{a}{A}}
   {\oftp\Gamma{f(a)}{B(a)}}
 \and
   \inferrule*[right=$\Pi$-\rcomp]
@@ -944,15 +945,13 @@ The precise information allowed will be clarified when syntax is discussed later
     {\oftp\Gamma{\dtup ab}{\tsm{x:A} B(x)}}
   \and
   \inferrule*[right=$\Sigma$-\relim]
-    {\oftp{\Gamma}{B}{A \to \UU} \\
-     \oftp{\Gamma}{C}{\tsm{x:A} B(x) \to \UU} \\
+    {\oftp{\Gamma}{C}{\tsm{x:A} B(x) \to \UU} \\
      \oftp{\Gamma}{g}{\tprd{x:A} \tprd{y:B(x)} C(\dtup x y)} \\
      \oftp\Gamma{p}{\tsm{x:A} B(x)}}
     {\oftp\Gamma{\ind{\tsm{x:A} B(x)}(C,g,p)}{C(p)}}
   \and
   \inferrule*[right=$\Sigma$-\rcomp]
-    {\oftp{\Gamma}{B}{A \to \UU} \\
-     \oftp{\Gamma}{C}{\tsm{x:A} B(x) \to \UU} \\\\
+    {\oftp{\Gamma}{C}{\tsm{x:A} B(x) \to \UU} \\\\
      \oftp{\Gamma}{g}{\tprd{x:A} \tprd{y:B(x)} C(\dtup x y)} \\
      \oftp\Gamma{a}{A} \\ \oftp\Gamma{b}{B(a)}}
     {\jdeqtp\Gamma{\ind{\tsm{x:A} B(x)}(C,g,\dtup{a}{b})}{g(a)(b)}{C(\dtup a b)}}
@@ -964,15 +963,17 @@ Unlike the dependent pair type, where the second entry is dependent on the first
 For this reason, we will define the coproduct of an arbitrary finite sequence of types \( \bigplus_{j=1}^n A_j \), instead of the conventional definition \( A + B \).
 In the following rules, let \( i \in \qty{1, \dots, n} \).
 
+% TODO: re-add the old inference rule for coproduct FORM, since that's how it works semantically, but somehow define how laziness with inst works *here*
+
 \begin{mathparpagebreakable}
   \inferrule*[right=$+$-\rform]
-  {\oftp\Gamma{A_i}{\UU}}
+  {\oftp\Gamma{A_1}{\UU} \\ \cdots \\ \oftp\Gamma{A_n}{\UU}}
   {\oftp\Gamma{\bigplus_{j=1}^n A_j}{\UU}}
-\\
+\and
   \inferrule*[right=$+$-\rintro]
-  {\oftp\Gamma{A_i}{\UU} \\ \oftp\Gamma{a}{A_i}}
+  {\oftp\Gamma{a}{A_i}}
   {\oftp\Gamma{\inj_i(a)}{\bigplus_{j=1}^n A_j}}
-\\
+\and
   \inferrule*[right=$+$-\relim]
   {\oftp{\Gamma}{C}{\bigplus_{j=1}^n A_j \to \UU} \\\\
    \oftp{\Gamma}{c_1}{\tprd{x_1:A_1} C(\inj_1(x_1))} \\
@@ -986,8 +987,8 @@ In the following rules, let \( i \in \qty{1, \dots, n} \).
    \oftp{\Gamma}{c_1}{\tprd{x_1:A_1} C(\inj_1(x_1))} \\
    \cdots \\
    \oftp{\Gamma}{c_n}{\tprd{x_n:A_n} C(\inj_n(x_n))} \\\\
-   \oftp\Gamma{a}{A_j}}
-  {\jdeqtp\Gamma{\ind{\bigplus_{j=1}^n A_j}(C,c_1,\dots,c_n,\inj_j(a))}{c_j(a)}{C(\inj_j(a))}}
+   \oftp\Gamma{a}{A_k}}
+  {\jdeqtp\Gamma{\ind{\bigplus_{j=1}^n A_j}(C,c_1,\dots,c_n,\inj_k(a))}{c_k(a)}{C(\inj_k(a))}}
 \end{mathparpagebreakable}
 
 \subsection{Borrowed types}
@@ -1009,19 +1010,18 @@ These rules interact with ownership and lifetimes in deep ways, and each such ru
      \rho \leq \rho_A \cap \rho_a}
     {\oftp\Gamma{\& a}{\mathcal B(A), \rho}}
 \end{mathparpagebreakable}
-We say that the $\mathcal B$-\rintro{} rule does \textit{not} consume the variable \( a \).
+We say that the $\mathcal B$-\rintro{} rule does \textit{not} consume the variable \( a \) or the type \( A \).
+The type \( A \) is given here simply to emphasise that \( \& a \) must have a lifetime that does not exceed that of \( A \).
 Further, we state that \( a \) is borrowed for \( \rho \).
 \begin{mathparpagebreakable}
   \inferrule*[right=$\mathcal B$-\relim]
-    {\oftp{\Gamma}{A}{\UU,\rho_A} \\
-     \oftp{\Gamma}{C}{\mathcal B(A) \to \UU,\rho_C} \\\\
+    {\oftp{\Gamma}{C}{\mathcal B(A) \to \UU,\rho_C} \\\\
      \oftp{\Gamma}{g}{\tprd{x:A} C(\& x),\rho_g} \\
      \oftp\Gamma{p}{\mathcal B(A),\rho_p}}
     {\oftp\Gamma{\ind{\mathcal B(A)}(C,g,p)}{C(p)}}
   \and
   \inferrule*[right=$\mathcal B$-\rcomp]
-    {\oftp{\Gamma}{A}{\UU} \\
-     \oftp{\Gamma}{C}{\mathcal B(A) \to \UU} \\\\
+    {\oftp{\Gamma}{C}{\mathcal B(A) \to \UU} \\\\
      \oftp{\Gamma}{g}{\tprd{x:A} C(\& x)} \\
      \oftp\Gamma{a}{A}}
     {\jdeqtp\Gamma{\ind{\mathcal B(A)}(C,g,\& a)}{g(a)}{C(\& a)}}
@@ -1069,6 +1069,9 @@ In particular, the recursor allows for `if-else' constructions using the boolean
   \rec{\mathbb B} : \prd{C:\UU} \underbrace{(\unit \to C)}_{\text{false branch}} \to \underbrace{(\unit \to C)}_{\text{true branch}} \to \mathbb B \to C
 \]
 In particular, since only one branch of the recursor for boolean types is ever evaluated, this `if-else' construction respects ownership if its component functions do.
+
+We will often use the recursor atomically, not as a function.
+This will allow us to make stronger lifetime guarantees.
 
 \subsection{Primitive operations}
 
@@ -1597,19 +1600,28 @@ Thus, we can see that every non-\lstinline{inst} Feather expression has a unique
 \subsection{Constraint generation}
 
 \begin{defn}
-  A \textit{constraint} is a judgmental equality between two (partial) values.
-  A constraint is \textit{satisfied} under a typing context \( \Gamma \) if \( \Gamma \) entails that the judgmental equality holds.
+  An \textit{equality constraint} is a judgmental equality between two partial values.
+  A \textit{judgment constraint} is a judgment that one partial value is an element of the type represented by another partial value.
+  A constraint is \textit{satisfied} under a typing context \( \Gamma \) if \( \Gamma \) entails that the judgment or judgmental equality holds.
 \end{defn}
 \begin{defn}
-  The \textit{induced constraints} of an inference rule are the constraints that are satisfied between the types of objects that appear in the rule.
+  The \textit{induced constraints} of an inference rule are the constraints that are satisfied between the values and types of objects that appear in the rule's premises and conclusion.
 \end{defn}
-\begin{eg}
-  Consider this modified version of the rule \( \to \)-\relim, where names of types have been deduplicated.
+\begin{egs}
+  Consider this modified version of the rule \( \to \)-\relim, where all types have been replaced with named inference variables.
   \[ \inferrule*[right=$\to$-\relim]
-  {\oftp\Gamma{f}{A \to B} \\ \oftp\Gamma{a}{A'}}
-  {\oftp\Gamma{f(a)}{B'}} \]
-  Here, the only nontrivial induced constraints are \( A \equiv A' \), \( B \equiv B' \).
-\end{eg}
+  {\oftp\Gamma{f}{F} \\ \oftp\Gamma{a}{A}}
+  {\oftp\Gamma{f(a)}{B}} \]
+  Here, the only nontrivial induced constraint is \( F \equiv A \to B \).
+  Now, consider this modified version of the rule \( \Pi \)-\relim.
+  \[ \inferrule*[right=$\Pi$-\relim]
+  {\oftp\Gamma{f}{F} \\ \oftp\Gamma{a}{A}}
+  {\oftp\Gamma{f(a)}{C}} \]
+  The constraints are \( B: A \to \UU \), \( F \equiv \tprd{x:A} B(x) \), \( a: A \), \( C \equiv B(a) \).
+  We must include the constraint \( a:A \) since the value of \( a \) appears in the other constraints.
+
+  Note that this function application rule requires significantly more constraints than the independent case, further emphasising why the independent case should be considered the default, although it is important to recognise that most of these constraints are satisfied easily if the type of \( F \) is known.
+\end{egs}
 \begin{lem}
   An expression is well-typed if and only if:
   \begin{enumerate}
