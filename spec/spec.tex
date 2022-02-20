@@ -431,15 +431,21 @@ Thus, we will not use the rules of homotopy type theory directly, and we must de
 
 % TODO: explain types
 
-\subsection{Coproducts and universes}
+\subsection{Instancing, coproducts, and universes}
 
 Recursion in a type definition is only feasible due to the existence of coproducts, since they permit the creation of a type \( A + B \) where no object of type \( B \) need be constructed.
-It is therefore the coproduct that must be defined with great care to ensure soundness.
-We might reason that a type such as \( A = A + \emptyt \) should not be a valid type, since there is no way to construct an object of type \( A \) without already having such an object.
+In order to construct a valid recursive type definition, we must have a coproduct that references itself.
+This can be achieved by, for example, defining a function \( F \) that returns a type \( A + F \), where \( A \) is a type.
+We can see from this example that recursive type definitions are constructed exactly like recursive function definitions.
+It makes sense that such a function \( F \) should be permitted to exist in Feather's type system.
+
+To what extent should recursive coproduct types be valid?
+We might reason that a type such as \( F = \emptyt + F \) should not be a valid type, since there is no way to construct an object of type \( F \) without already having such an object.
 However, this does not qualify as a logical contradiction; after all, \( \emptyt \) itself is also a type that cannot be constructed, and such an empty type is an accepted part of many theories.
+
 Consider the following two rules from the homotopy type theoretic definition of the coproduct.
 \begin{mathpar}
-    \inferrule*[right=$+$-\rform]
+  \inferrule*[right=$+$-\rform]
   {\oftp\Gamma{A}{\UU} \\ \oftp\Gamma{B}{\UU}}
   {\oftp\Gamma{A+B}{\UU}}
   \and
@@ -448,25 +454,16 @@ Consider the following two rules from the homotopy type theoretic definition of 
   {\oftp\Gamma{\inl(a)}{A+B}}
 \end{mathpar}
 The formation rule \( + \)-\rform{} specifies that we can only deduce that \( A+B \) is a type once we have already deduced \( A \) and \( B \) are types themselves.
-Consider the following variants of those rules.
-\begin{mathpar}
-    \inferrule*
-  {\oftp\Gamma{A}{\UU}}
-  {\oftp\Gamma{A+B}{\UU}}
-  \and
-  \inferrule*
-  {\oftp\Gamma{A}{\UU} \\ \oftp\Gamma{a}{A}}
-  {\oftp\Gamma{\inl(a)}{A+B}}
-\end{mathpar}
-Using these inference rules, we may deduce the existence of the type \( A+B \) given only that \( A \) is a type.
-This circumvents the original problem with recursive definitions, provided that at least one of \( A \) and \( B \) are known.
-This immediately raises questions: does it make sense to consider \( A + e \) a type for an arbitrary object \( e \)?
+This would theoretically forbid the construction of a type such as \( F = A + F \) above.
 
-The pragmatic answer is to say \textit{yes}: it is a type, but such types may not appear in the final form of a program.
-A type \( A + B \), where the nature of \( B \) is not known, must only exist during type inference, after which they must have been resolved.
+However, we are not restricted to eagerly evaluating all facets of a type the moment it is constructed.
+By considering lazy evaluation as a possibility, we may deduce the existence of the type \( A+B \) without knowing the precise details of \( A \) and \( B \), just that they are types.
+This circumvents the original problem with recursive definitions.
+For example, when we define \( F = A + F \), the compiler sees from syntax that if \( F \) represents a valid Feather expression, it is a type.
+Hence, \( F \) may be constructed without already knowing the precise contents of \( F \).
 
-There is another problem, however, in that the universe of \( A + B \) should depend both on the universe of \( A \) and that of \( B \).
-In our new formulation, it does not.
+There is a problem, however, in that the universe of \( A + B \) should depend both on the universe of \( A \) and that of \( B \).
+In our new formulation, it does not, since we rely on syntax to determine if something is a type.
 We now must consider to what extent an infinite hierarchy of universes is required in Feather.
 In all of the typing rules in Appendix A of `Homotopy Type Theory', the universe indices in the premises are all arbitrary and exactly match the universe indices in the conclusions, with the exceptions of the \UU-\textsc{intro} and \UU-\textsc{cumul} rules \cite{hottbook}.
 This leads us to consider an alternative type theory which contains exactly one universe \UU{}, such that \( \UU : \UU \).
@@ -962,9 +959,6 @@ The precise information allowed will be clarified when syntax is discussed later
 Unlike the dependent pair type, where the second entry is dependent on the first, there is no inherent ordering associated with types in a coproduct.
 For this reason, we will define the coproduct of an arbitrary finite sequence of types \( \bigplus_{j=1}^n A_j \), instead of the conventional definition \( A + B \).
 In the following rules, let \( i \in \qty{1, \dots, n} \).
-
-% TODO: re-add the old inference rule for coproduct FORM, since that's how it works semantically, but somehow define how laziness with inst works *here*
-
 \begin{mathparpagebreakable}
   \inferrule*[right=$+$-\rform]
   {\oftp\Gamma{A_1}{\UU} \\ \cdots \\ \oftp\Gamma{A_n}{\UU}}
@@ -1041,7 +1035,6 @@ If we were to create an induction function, it would not necessarily respect own
 For example, the induction principle for the boolean type uses functions \( c_\bot \) and \( c_\top \), but only one of those functions is ever evaluated in the induction principle.
 When viewed as a function, however, we may partially apply \( \ind{\mathbb B} \) to \( c_\bot \) and \( c_\top \).
 The conclusion of this constructor will contain both \( c_\bot \) and \( c_\top \) in its conclusion, so ownership is not respected.
-% TODO: continue here, converting functions into atomic principles
 \begin{defn}
   The \textit{recursor} for the product type is
   \begin{align*}
@@ -1057,6 +1050,9 @@ The conclusion of this constructor will contain both \( c_\bot \) and \( c_\top 
     \rec{\bigtimes_{j=1}^n A_j} : \prd{C:\UU} (A_1 \to \dots \to A_j \to C) \to \bigtimes_{j=1}^n A_j \to C
   \]
 \end{defn}
+We will often use the recursor atomically, not as a function.
+This will allow us to make stronger lifetime guarantees.
+
 We can analogously define the recursor for an arbitrary type with an induction function.
 For instance, the recursor for the coproduct type has the following type, and is defined in a similar way; converting many of the dependent functions in the induction principle into independent functions.
 \[
@@ -1069,9 +1065,6 @@ In particular, the recursor allows for `if-else' constructions using the boolean
   \rec{\mathbb B} : \prd{C:\UU} \underbrace{(\unit \to C)}_{\text{false branch}} \to \underbrace{(\unit \to C)}_{\text{true branch}} \to \mathbb B \to C
 \]
 In particular, since only one branch of the recursor for boolean types is ever evaluated, this `if-else' construction respects ownership if its component functions do.
-
-We will often use the recursor atomically, not as a function.
-This will allow us to make stronger lifetime guarantees.
 
 \subsection{Primitive operations}
 
@@ -1234,9 +1227,6 @@ Now that the requisite definitions have been made, we can define the schemas for
     \lstinline!Expr! \( ::= \) & \lstinline!ExprContents | (ExprInfo* ExprContents)!
 \end{tabular}
 
-% TODO: add lifetimes to borrow instructions?
-% TODO: add a "create type" expression
-
 Any variant of the \lstinline{ExprInfo} tag may only be supplied once per expression.
 The variants for the \lstinline{ExprContents} type will be described in the following section.
 
@@ -1351,7 +1341,6 @@ The word `rune', referring to the type \( \mathbb U \), is intended to distingui
 \end{lstlisting}
 We can also use the recursor for the boolean type to construct an `if-else' expression.
 Note the change in argument order from a typical `if-else' expression.
-% TODO: use the induction principle, also remove the whole lemma about turning ind into a function
 \begin{lstlisting}[mathescape=true]
 (if $f: \unit \to C$ Expr $t: \unit \to C$ Expr $b: \mathbb B$ Expr)$ \;\longleftrightarrow\; \rec{\mathbb B}(C,f,t,b): C $
 (dif $C: \mathbb B \to \UU$ $f: \unit \to C(\bot)$ Expr $t: \unit \to C(\top)$ Expr $b: \mathbb B$ Expr)
