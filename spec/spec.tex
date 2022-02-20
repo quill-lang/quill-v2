@@ -1595,6 +1595,7 @@ Thus, we can see that every non-\lstinline{inst} Feather expression has a unique
 \end{defn}
 \begin{defn}
   The \textit{induced constraints} of an inference rule are the constraints that are satisfied between the values and types of objects that appear in the rule's premises and conclusion.
+  In particular, the induced judgment constraints are the objects that must be consumed in order to deduce all types in question.
 \end{defn}
 \begin{egs}
   Consider this modified version of the rule \( \to \)-\relim, where all types have been replaced with named inference variables.
@@ -1611,6 +1612,7 @@ Thus, we can see that every non-\lstinline{inst} Feather expression has a unique
 
   Note that this function application rule requires significantly more constraints than the independent case, further emphasising why the independent case should be considered the default, although it is important to recognise that most of these constraints are satisfied easily if the type of \( F \) is known.
 \end{egs}
+% TODO: create an appendix(?) of all the versions of the inference rules adapted for actual Feather grammar and for constraints
 \begin{lem}
   An expression is well-typed if and only if:
   \begin{enumerate}
@@ -1636,7 +1638,7 @@ In our type system, the expression \( \lam xx \) is not well-typed since we cann
   They can be applied to partial values, replacing all instances of that variable with their value under \( m \).
   The condition of inference variables not appearing in the codomain ensures idempotence of \( m \).
 
-  Let \( A \equiv B \) be a constraint.
+  Let \( A \equiv B \) be an equality constraint.
   Suppose there exists a unification mapping \( m: \alpha_i \mapsto a_i \) such that \( m(A) \equiv m(B) \), then we say \( A \) and \( B \) are \textit{unified} to \( m(A) \) (or, equivalently, \( m(B) \)).
 
   Suppose \( m \) is a unification mapping such that for all unification mappings \( m' \), \( m'(A) \) and \( m'(B) \) are functions of \( m(A) \) and \( m(B) \) respectively, under another unification map.
@@ -1671,8 +1673,9 @@ The following algorithm is applied to untyped expressions to deduce their types 
 
 First, a set of constraints are generated for each expression.
 The expression tree is scanned for the induced constraints of each constructor.
-For each constraint, the function \( \mathsf{mgu} \) is run, and if errors are found, type inference will fail.
+For each equality constraint, the function \( \mathsf{mgu} \) is run, and if errors are found, type inference will fail.
 If a constraint is resolved in such a way that the type of an expression is now known, we proceed to value inference for that expression.
+For each judgment constraint, value inference must be run for the value in question, since its value is required for other deductions.
 A process, such as that described in \cite{Heeren02generalizinghindley-milner}, may be used to solve constraints without bias.
 
 To perform value inference on an expression, we first require that the types of sub-expressions are known.
