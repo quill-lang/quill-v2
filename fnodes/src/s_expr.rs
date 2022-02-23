@@ -20,7 +20,7 @@ pub enum SexprNodeContents {
 }
 
 /// Parses an S-expression.
-pub fn sexpr_parser() -> impl Parser<char, SexprNode, Error = Simple<char>> {
+pub(super) fn sexpr_parser() -> impl Parser<char, SexprNode, Error = Simple<char>> {
     // Adapted from the JSON example <https://github.com/zesterer/chumsky/blob/master/examples/json.rs>.
     let expr = recursive(|sexpr| {
         let escape = just('\\').ignore_then(
@@ -61,7 +61,7 @@ pub fn sexpr_parser() -> impl Parser<char, SexprNode, Error = Simple<char>> {
         list.or(atom)
             .map_with_span(|contents, span| SexprNode { contents, span })
     });
-    expr.then_ignore(end())
+    expr.padded().then_ignore(end())
 }
 
 #[cfg(test)]
