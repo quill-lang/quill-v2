@@ -1223,7 +1223,7 @@ Now that the requisite definitions have been made, we can define the schemas for
     \lstinline!DeBruijnIndex! \( ::= \) & \( \mathbb N_{32} \) \\
     \lstinline!ExprContents! \( ::= \) & \( \dots \) \\
     \lstinline!ExprInfo! \( ::= \) & \lstinline!(at Span) | (ty Expr) | (named Name)! \\
-    \lstinline!Expr! \( ::= \) & \lstinline!ExprContents | (ExprInfo* ExprContents)!
+    \lstinline!Expr! \( ::= \) & \lstinline!ExprContents | (expr ExprContents ExprInfo*)!
 \end{tabular}
 
 Any variant of the \lstinline{ExprInfo} tag may only be supplied once per expression.

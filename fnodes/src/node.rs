@@ -4,6 +4,7 @@
 
 use std::{
     collections::HashMap,
+    fmt::Debug,
     marker::PhantomData,
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -49,6 +50,29 @@ impl<C> PartialEq for Node<C> {
 }
 
 impl<C> Eq for Node<C> {}
+
+impl<C> Debug for Node<C>
+where
+    C: Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if f.alternate() {
+            write!(f, "{:?}:{:#?}", self.span, self.contents)
+        } else {
+            write!(f, "{:?}:{:?}", self.span, self.contents)
+        }
+    }
+}
+
+impl<C> Node<C> {
+    pub fn new(span: Span, contents: C) -> Self {
+        Self {
+            id: NodeId::new(),
+            span,
+            contents,
+        }
+    }
+}
 
 /// Nodes may have optional node info.
 /// This optional info must implement the NodeInfo trait.
