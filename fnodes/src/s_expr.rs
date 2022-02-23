@@ -3,21 +3,24 @@
 
 use chumsky::prelude::*;
 
-/// This trait is implemented by nodes.
-/// This allows for serialisation and deserialisation of nodes to and from S-expressions.
-pub trait Node {}
+pub type Span = std::ops::Range<usize>;
 
 /// Represents a node in a tree of S-expressions.
 /// All values are stored as strings, and have no semantic meaning.
-/// Nodes should not be compared for equality, so there is no PartialEq impl.
-#[derive(Debug)]
-enum SexprNode {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SexprNode {
+    pub contents: SexprNodeContents,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum SexprNodeContents {
     Atom(String),
     List(Vec<SexprNode>),
 }
 
 /// Parses an S-expression.
-fn sexpr_parser() -> impl Parser<char, SexprNode, Error = Simple<char>> {
+pub fn sexpr_parser() -> impl Parser<char, SexprNode, Error = Simple<char>> {
     // Adapted from the JSON example <https://github.com/zesterer/chumsky/blob/master/examples/json.rs>.
     let expr = recursive(|sexpr| {
         let escape = just('\\').ignore_then(
@@ -35,7 +38,7 @@ fn sexpr_parser() -> impl Parser<char, SexprNode, Error = Simple<char>> {
             .ignore_then(filter(|c| *c != '\\' && *c != '"').or(escape).repeated())
             .then_ignore(just('"'))
             .collect::<String>()
-            .map(SexprNode::Atom)
+            .map(SexprNodeContents::Atom)
             .labelled("string");
 
         let other_atom = filter::<_, _, Simple<char>>(|c: &char| {
@@ -43,7 +46,7 @@ fn sexpr_parser() -> impl Parser<char, SexprNode, Error = Simple<char>> {
         })
         .repeated()
         .at_least(1)
-        .map(|chars| SexprNode::Atom(chars.into_iter().collect()))
+        .map(|chars| SexprNodeContents::Atom(chars.into_iter().collect()))
         .labelled("other_atom");
 
         let atom = string.or(other_atom);
@@ -51,44 +54,51 @@ fn sexpr_parser() -> impl Parser<char, SexprNode, Error = Simple<char>> {
         let list = sexpr
             .padded()
             .repeated()
-            //.or_not()
-            //.flatten()
-            .map(SexprNode::List)
+            .map(SexprNodeContents::List)
             .delimited_by(just('('), just(')'))
             .labelled("list");
 
         list.or(atom)
+            .map_with_span(|contents, span| SexprNode { contents, span })
     });
     expr.then_ignore(end())
 }
 
 #[cfg(test)]
 mod tests {
-    use chumsky::Parser;
-
-    use crate::s_expr::{sexpr_parser, SexprNode};
+    use crate::s_expr::*;
 
     #[test]
     fn atom() {
         let value = sexpr_parser().parse("123").unwrap();
-        let expected = SexprNode::Atom("123".to_string());
-        // We intentionally don't impl PartialEq on nodes, so we have to do this for testing.
-        if format!("{:#?}", value) != format!("{:#?}", expected) {
-            panic!("Got: {:#?}\n\nExpected{:#?}", value, expected);
-        }
+        let expected = SexprNode {
+            contents: SexprNodeContents::Atom("123".to_string()),
+            span: 0..3,
+        };
+        assert_eq!(value, expected);
     }
 
     #[test]
     fn list() {
         let value = sexpr_parser().parse("(a b c)").unwrap();
-        let expected = SexprNode::List(vec![
-            SexprNode::Atom("a".to_string()),
-            SexprNode::Atom("b".to_string()),
-            SexprNode::Atom("c".to_string()),
-        ]);
-        if format!("{:#?}", value) != format!("{:#?}", expected) {
-            panic!("Got:\n{:#?}\n\nExpected:\n{:#?}", value, expected);
-        }
+        let expected = SexprNode {
+            contents: SexprNodeContents::List(vec![
+                SexprNode {
+                    contents: SexprNodeContents::Atom("a".to_string()),
+                    span: 1..2,
+                },
+                SexprNode {
+                    contents: SexprNodeContents::Atom("b".to_string()),
+                    span: 3..4,
+                },
+                SexprNode {
+                    contents: SexprNodeContents::Atom("c".to_string()),
+                    span: 5..6,
+                },
+            ]),
+            span: 0..7,
+        };
+        assert_eq!(value, expected);
     }
 
     #[test]
@@ -96,32 +106,67 @@ mod tests {
         let value = sexpr_parser()
             .parse(r#"("Hello, world!" "escaping\\\"")"#)
             .unwrap();
-        let expected = SexprNode::List(vec![
-            SexprNode::Atom("Hello, world!".to_string()),
-            SexprNode::Atom("escaping\\\"".to_string()),
-        ]);
-        if format!("{:#?}", value) != format!("{:#?}", expected) {
-            panic!("Got:\n{:#?}\n\nExpected:\n{:#?}", value, expected);
-        }
+        let expected = SexprNode {
+            contents: SexprNodeContents::List(vec![
+                SexprNode {
+                    contents: SexprNodeContents::Atom("Hello, world!".to_string()),
+                    span: 1..16,
+                },
+                SexprNode {
+                    contents: SexprNodeContents::Atom("escaping\\\"".to_string()),
+                    span: 17..31,
+                },
+            ]),
+            span: 0..32,
+        };
+        assert_eq!(value, expected);
     }
 
     #[test]
     fn hierarchy() {
         let value = sexpr_parser().parse("(a b (c d) ((e) f))").unwrap();
-        let expected = SexprNode::List(vec![
-            SexprNode::Atom("a".to_string()),
-            SexprNode::Atom("b".to_string()),
-            SexprNode::List(vec![
-                SexprNode::Atom("c".to_string()),
-                SexprNode::Atom("d".to_string()),
+        let expected = SexprNode {
+            contents: SexprNodeContents::List(vec![
+                SexprNode {
+                    contents: SexprNodeContents::Atom("a".to_string()),
+                    span: 1..2,
+                },
+                SexprNode {
+                    contents: SexprNodeContents::Atom("b".to_string()),
+                    span: 3..4,
+                },
+                SexprNode {
+                    contents: SexprNodeContents::List(vec![
+                        SexprNode {
+                            contents: SexprNodeContents::Atom("c".to_string()),
+                            span: 6..7,
+                        },
+                        SexprNode {
+                            contents: SexprNodeContents::Atom("d".to_string()),
+                            span: 8..9,
+                        },
+                    ]),
+                    span: 5..10,
+                },
+                SexprNode {
+                    contents: SexprNodeContents::List(vec![
+                        SexprNode {
+                            contents: SexprNodeContents::List(vec![SexprNode {
+                                contents: SexprNodeContents::Atom("e".to_string()),
+                                span: 13..14,
+                            }]),
+                            span: 12..15,
+                        },
+                        SexprNode {
+                            contents: SexprNodeContents::Atom("f".to_string()),
+                            span: 16..17,
+                        },
+                    ]),
+                    span: 11..18,
+                },
             ]),
-            SexprNode::List(vec![
-                SexprNode::List(vec![SexprNode::Atom("e".to_string())]),
-                SexprNode::Atom("f".to_string()),
-            ]),
-        ]);
-        if format!("{:#?}", value) != format!("{:#?}", expected) {
-            panic!("Got:\n{:#?}\n\nExpected:\n{:#?}", value, expected);
-        }
+            span: 0..19,
+        };
+        assert_eq!(value, expected);
     }
 }
