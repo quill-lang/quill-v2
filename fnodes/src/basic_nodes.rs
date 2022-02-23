@@ -1,24 +1,17 @@
-use crate::{deserialise::*, s_expr::*};
+use crate::*;
 
-/// Represents a line-column pair in source code.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
-pub struct Location {
-    /// Zero-indexed line number.
-    pub line: u32,
-    /// Zero-indexed column number.
-    pub col: u32,
-}
-
-impl SexprListParsable for Location {
+impl SexprListParsable for Span {
     const KEYWORD: Option<&'static str> = None;
 
     fn parse_list(span: Span, args: Vec<SexprNode>) -> Result<Self, ParseError> {
-        let [line, col] = force_arity(span, args)?;
+        let [start, end] = force_arity(span, args)?;
 
-        let line = AtomParsableWrapper::<u32>::parse(line)?.0;
-        let col = AtomParsableWrapper::<u32>::parse(col)?.0;
+        // For the sake of compatibility across platforms, we enforce that spans are decoded as `u32`s first.
 
-        Ok(Location { line, col })
+        let start = AtomParsableWrapper::<u32>::parse(start)?.0;
+        let end = AtomParsableWrapper::<u32>::parse(end)?.0;
+
+        Ok((start as usize)..(end as usize))
     }
 }
 
@@ -29,16 +22,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn location() {
+    fn span() {
         let pairs = [
-            (
-                "(123 324)",
-                Ok(Location {
-                    line: 123,
-                    col: 324,
-                }),
-            ),
-            ("(0 0)", Ok(Location { line: 0, col: 0 })),
+            ("(123 324)", Ok(123..324)),
+            ("(0 0)", Ok(0..0)),
             (
                 "(3 -45)",
                 Err(ParseError {
@@ -59,9 +46,8 @@ mod tests {
         ];
 
         for (string, expected) in pairs {
-            let actual =
-                ListParsableWrapper::<Location>::parse(sexpr_parser().parse(string).unwrap())
-                    .map(|x| x.0);
+            let actual = ListParsableWrapper::<Span>::parse(sexpr_parser().parse(string).unwrap())
+                .map(|x| x.0);
             assert_eq!(actual, expected);
         }
     }

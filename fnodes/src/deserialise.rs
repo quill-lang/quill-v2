@@ -171,7 +171,7 @@ pub fn force_arity<const N: usize>(
         .map_err(|args_moved: Vec<SexprNode>| ParseError {
             span,
             reason: ParseErrorReason::WrongArity {
-                expected_arity: 2,
+                expected_arity: N,
                 found_arity: args_moved.len(),
             },
         })

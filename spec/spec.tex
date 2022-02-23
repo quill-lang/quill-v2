@@ -1163,16 +1163,15 @@ In the practical case, this is only true after type checking has been completed,
 The following schemas specify identifiers and related types.
 
 \begin{tabular}{r l p{6cm}}
-    \lstinline!Location! \( ::= \) & \lstinline!(!\( \mathbb N_{32} \) \( \mathbb N_{32} \)\lstinline!)! & line number, then column number, zero indexed \\
-    \lstinline!Range! \( ::= \) & \lstinline!(Location Location)! & start location (inclusive), then end location (exclusive) \\
-    \lstinline!Name! \( ::= \) & \( \mathbb S \)\lstinline! | (!\( \mathbb S \)\lstinline! Range)! & the symbol itself then optionally the range at which it was written \\
+    \lstinline!Span! \( ::= \) & \lstinline!(!\( \mathbb N_{32} \) \( \mathbb N_{32} \)\lstinline!)! & start location (inclusive), then end location (exclusive) \\
+    \lstinline!Name! \( ::= \) & \( \mathbb S \)\lstinline! | (!\( \mathbb S \)\lstinline! Span)! & the symbol itself then optionally the span at which it was written \\
     \lstinline!QualifiedName! \( ::= \) & \lstinline!(!\( \mathbb S \) \lstinline!+)! & list of one or more name segments
 \end{tabular}
 
-A \textit{location} represents a place in some input code.
+A \textit{location} represents a place in some input code, represented as an amount of Unicode code points from the start of the file.
 Since Feather is an IL, locations refer to a place inside a file of Quill code.
 This allows error messages and debug symbols to refer to the original code.
-A \textit{range} refers to a region of code, typically a single token or token tree.
+A \textit{span} refers to a region of code, delimited by two locations, typically a single token or token tree.
 
 Feather distinguishes between \textit{names}, which are single symbols representing in-scope items, and \textit{qualified names}, which represent a module hierarchy and then optionally refer to an item inside that hierarchy, depending on context.
 Importantly, a qualified name with only one name segment is \textit{not} a name.
@@ -1223,7 +1222,7 @@ Now that the requisite definitions have been made, we can define the schemas for
 \begin{tabular}{r l p{7cm}}
     \lstinline!DeBruijnIndex! \( ::= \) & \( \mathbb N_{32} \) \\
     \lstinline!ExprContents! \( ::= \) & \( \dots \) \\
-    \lstinline!ExprInfo! \( ::= \) & \lstinline!(at Range) | (ty Expr) | (named Name)! \\
+    \lstinline!ExprInfo! \( ::= \) & \lstinline!(at Span) | (ty Expr) | (named Name)! \\
     \lstinline!Expr! \( ::= \) & \lstinline!ExprContents | (ExprInfo* ExprContents)!
 \end{tabular}
 
@@ -1411,7 +1410,7 @@ Modules are each stored as their own S-expressions, and are not contained within
 
 \begin{tabular}{r l p{7cm}}
     \lstinline!Visibility! \( ::= \) & \lstinline!pub | priv! \\
-    \lstinline!DefInfo! \( ::= \) & \lstinline!(at Range) | (ty Expr) | (vis Visibility) | (doc !\( \mathbb S \)\lstinline!)! \\
+    \lstinline!DefInfo! \( ::= \) & \lstinline!(at Span) | (ty Expr) | (vis Visibility) | (doc !\( \mathbb S \)\lstinline!)! \\
     \lstinline!Def! \( ::= \) & \lstinline!(def DefInfo* Name Expr)! \\
     \lstinline!ModuleInfo! \( ::= \) & \lstinline!(file QualifiedName) | (doc !\( \mathbb S \)\lstinline!)! \\
     \lstinline!Module! \( ::= \) & \lstinline!(module ModuleInfo* Def*)!
