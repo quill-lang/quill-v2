@@ -73,6 +73,25 @@ impl SexprParsable for Name {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct QualifiedName(pub Vec<Name>);
+
+impl SexprListParsable for QualifiedName {
+    const KEYWORD: Option<&'static str> = None;
+
+    fn parse_list(
+        infos: &mut NodeInfoInserters,
+        interner: &StringInterner,
+        _span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        args.into_iter()
+            .map(|arg| Name::parse(infos, interner, arg))
+            .collect::<Result<Vec<_>, _>>()
+            .map(QualifiedName)
+    }
+}
+
 /// Specifies where in source (Quill) code a node came from.
 /// This is often used in names and expressions.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,6 +108,15 @@ impl SexprListParsable for SourceSpan {
     ) -> Result<Self, ParseError> {
         let [value] = force_arity(span, args)?;
         Ok(Self(ListParsableWrapper::parse(infos, interner, value)?.0))
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DeBruijnIndex(u32);
+
+impl SexprAtomParsable for DeBruijnIndex {
+    fn parse_atom(interner: &StringInterner, text: String) -> Result<Self, ParseErrorReason> {
+        u32::parse_atom(interner, text).map(Self)
     }
 }
 

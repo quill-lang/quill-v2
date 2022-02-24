@@ -1,6 +1,6 @@
 use fnodes::{
     basic_nodes::SourceSpan,
-    expr::{Expr, ExprContents},
+    expr::{Expr, ExprContents, ExprTy},
     parse_and_report, NodeInfoContainer, NodeInfoInserters,
 };
 use lasso::Spur;
@@ -9,6 +9,8 @@ fn main() {
     let mut infos = NodeInfoInserters::default();
     let mut expr_at = NodeInfoContainer::<ExprContents, SourceSpan>::new();
     infos.register_expr_info(&mut expr_at);
+    let mut expr_ty = NodeInfoContainer::<ExprContents, ExprTy>::new();
+    infos.register_expr_info(&mut expr_ty);
     let mut name_at = NodeInfoContainer::<Spur, SourceSpan>::new();
     infos.register_name_info(&mut name_at);
     println!(

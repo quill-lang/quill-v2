@@ -1165,7 +1165,7 @@ The following schemas specify identifiers and related types.
 \begin{tabular}{r l p{6cm}}
     \lstinline!Span! \( ::= \) & \lstinline!(!\( \mathbb N_{32} \) \( \mathbb N_{32} \)\lstinline!)! & start location (inclusive), then end location (exclusive) \\
     \lstinline!Name! \( ::= \) & \( \mathbb S \)\lstinline! | (!\( \mathbb S \)\lstinline! Span)! & the symbol itself then optionally the span at which it was written \\
-    \lstinline!QualifiedName! \( ::= \) & \lstinline!(!\( \mathbb S \) \lstinline!+)! & list of one or more name segments
+    \lstinline!QualifiedName! \( ::= \) & \lstinline!(!Name\lstinline!+)! & list of one or more name segments
 \end{tabular}
 
 A \textit{location} represents a place in some input code, represented as an amount of Unicode code points from the start of the file.
@@ -1222,7 +1222,7 @@ Now that the requisite definitions have been made, we can define the schemas for
 \begin{tabular}{r l p{7cm}}
     \lstinline!DeBruijnIndex! \( ::= \) & \( \mathbb N_{32} \) \\
     \lstinline!ExprContents! \( ::= \) & \( \dots \) \\
-    \lstinline!ExprInfo! \( ::= \) & \lstinline!(at Span) | (ty Expr) | (named Name)! \\
+    \lstinline!ExprInfo! \( ::= \) & \lstinline!(at Span) | (ty Expr)! \\
     \lstinline!Expr! \( ::= \) & \lstinline!ExprContents | (expr ExprContents ExprInfo*)!
 \end{tabular}
 

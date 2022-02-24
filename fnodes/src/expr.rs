@@ -1,6 +1,25 @@
-use crate::basic_nodes::Name;
+use crate::basic_nodes::{DeBruijnIndex, QualifiedName};
 use crate::deserialise::SexprParsable;
 use crate::*;
+
+/// Move the value of a local variable into this expression.
+/// The value of this variable is a de Bruijn index.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct IntroLocal(DeBruijnIndex);
+
+impl SexprListParsable for IntroLocal {
+    const KEYWORD: Option<&'static str> = Some("local");
+
+    fn parse_list(
+        infos: &mut NodeInfoInserters,
+        interner: &StringInterner,
+        span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        let [value] = force_arity(span, args)?;
+        Ok(Self(AtomParsableWrapper::parse(infos, interner, value)?.0))
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct IntroU64(u64);
@@ -16,6 +35,40 @@ impl SexprListParsable for IntroU64 {
     ) -> Result<Self, ParseError> {
         let [value] = force_arity(span, args)?;
         Ok(Self(AtomParsableWrapper::parse(infos, interner, value)?.0))
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct IntroFalse;
+
+impl SexprListParsable for IntroFalse {
+    const KEYWORD: Option<&'static str> = Some("ifalse");
+
+    fn parse_list(
+        _infos: &mut NodeInfoInserters,
+        _interner: &StringInterner,
+        span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        let [] = force_arity(span, args)?;
+        Ok(Self)
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct IntroTrue;
+
+impl SexprListParsable for IntroTrue {
+    const KEYWORD: Option<&'static str> = Some("itrue");
+
+    fn parse_list(
+        _infos: &mut NodeInfoInserters,
+        _interner: &StringInterner,
+        span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        let [] = force_arity(span, args)?;
+        Ok(Self)
     }
 }
 
@@ -36,13 +89,11 @@ impl SexprListParsable for IntroUnit {
     }
 }
 
-/// TODO: Remove this.
-/// Used for demoing name resolution.
 #[derive(Debug, PartialEq, Eq)]
-pub struct IntroLocal(Name);
+pub struct Inst(QualifiedName);
 
-impl SexprListParsable for IntroLocal {
-    const KEYWORD: Option<&'static str> = Some("local");
+impl SexprListParsable for Inst {
+    const KEYWORD: Option<&'static str> = Some("inst");
 
     fn parse_list(
         infos: &mut NodeInfoInserters,
@@ -51,7 +102,101 @@ impl SexprListParsable for IntroLocal {
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
         let [value] = force_arity(span, args)?;
-        Ok(Self(Name::parse(infos, interner, value)?))
+        Ok(Self(ListParsableWrapper::parse(infos, interner, value)?.0))
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ExprTy(Expr);
+
+impl SexprListParsable for ExprTy {
+    const KEYWORD: Option<&'static str> = Some("ty");
+
+    fn parse_list(
+        infos: &mut NodeInfoInserters,
+        interner: &StringInterner,
+        span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        let [value] = force_arity(span, args)?;
+        Ok(Self(
+            ListParsableWrapper::<Expr>::parse(infos, interner, value)?.0,
+        ))
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Let {
+    /// The value to assign to the new bound variable.
+    to_assign: Box<Expr>,
+    /// The main body of the expression to be executed after assigning the value.
+    body: Box<Expr>,
+}
+
+impl SexprListParsable for Let {
+    const KEYWORD: Option<&'static str> = Some("let");
+
+    fn parse_list(
+        infos: &mut NodeInfoInserters,
+        interner: &StringInterner,
+        span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        let [to_assign, body] = force_arity(span, args)?;
+        Ok(Let {
+            to_assign: Box::new(ListParsableWrapper::<Expr>::parse(infos, interner, to_assign)?.0),
+            body: Box::new(ListParsableWrapper::<Expr>::parse(infos, interner, body)?.0),
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Lambda {
+    /// The amount of new variables to be bound in the body of the lambda.
+    binding_count: u32,
+    /// The body of the lambda, also called the lambda term.
+    body: Box<Expr>,
+}
+
+impl SexprListParsable for Lambda {
+    const KEYWORD: Option<&'static str> = Some("lambda");
+
+    fn parse_list(
+        infos: &mut NodeInfoInserters,
+        interner: &StringInterner,
+        span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        let [binding_count, body] = force_arity(span, args)?;
+        Ok(Lambda {
+            binding_count: AtomParsableWrapper::<u32>::parse(infos, interner, binding_count)?.0,
+            body: Box::new(ListParsableWrapper::<Expr>::parse(infos, interner, body)?.0),
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Apply {
+    /// The function to be invoked.
+    function: Box<Expr>,
+    /// The argument to apply to the function.
+    argument: Box<Expr>,
+}
+
+impl SexprListParsable for Apply {
+    const KEYWORD: Option<&'static str> = Some("ap");
+
+    fn parse_list(
+        infos: &mut NodeInfoInserters,
+        interner: &StringInterner,
+        span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        let [function, argument] = force_arity(span, args)?;
+        Ok(Apply {
+            function: Box::new(ListParsableWrapper::<Expr>::parse(infos, interner, function)?.0),
+            argument: Box::new(ListParsableWrapper::<Expr>::parse(infos, interner, argument)?.0),
+        })
     }
 }
 
@@ -136,9 +281,15 @@ macro_rules! gen_variants {
 
 gen_variants! {
     ExprContents "<any expression>":
-    IntroU64
-    IntroUnit
     IntroLocal
+    IntroU64
+    IntroFalse
+    IntroTrue
+    IntroUnit
+    Inst
+    Let
+    Lambda
+    Apply
 }
 
 pub type Expr = Node<ExprContents>;
