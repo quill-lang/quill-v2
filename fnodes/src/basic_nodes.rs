@@ -3,13 +3,17 @@ use crate::*;
 impl SexprListParsable for Span {
     const KEYWORD: Option<&'static str> = None;
 
-    fn parse_list(span: Span, args: Vec<SexprNode>) -> Result<Self, ParseError> {
+    fn parse_list(
+        infos: &mut NodeInfoInserters,
+        span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
         let [start, end] = force_arity(span, args)?;
 
         // For the sake of compatibility across platforms, we enforce that spans are decoded as `u32`s first.
 
-        let start = AtomParsableWrapper::<u32>::parse(start)?.0;
-        let end = AtomParsableWrapper::<u32>::parse(end)?.0;
+        let start = AtomParsableWrapper::<u32>::parse(infos, start)?.0;
+        let end = AtomParsableWrapper::<u32>::parse(infos, end)?.0;
 
         Ok((start as usize)..(end as usize))
     }
@@ -46,8 +50,11 @@ mod tests {
         ];
 
         for (string, expected) in pairs {
-            let actual = ListParsableWrapper::<Span>::parse(sexpr_parser().parse(string).unwrap())
-                .map(|x| x.0);
+            let actual = ListParsableWrapper::<Span>::parse(
+                &mut NodeInfoInserters::default(),
+                sexpr_parser().parse(string).unwrap(),
+            )
+            .map(|x| x.0);
             assert_eq!(actual, expected);
         }
     }

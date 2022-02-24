@@ -6,6 +6,7 @@ use chumsky::Parser;
 use crate::{
     deserialise::{ListParsableWrapper, ParseErrorReason, SexprListParsable, SexprParsable},
     s_expr::sexpr_parser,
+    NodeInfoInserters,
 };
 
 /// Parse this input source.
@@ -13,7 +14,7 @@ use crate::{
 ///
 /// TODO: Convert this into a query-style function.
 /// This should only be used for testing purposes.
-pub fn parse_and_report<P>(src: &str) -> Option<P>
+pub fn parse_and_report<P>(infos: &mut NodeInfoInserters, src: &str) -> Option<P>
 where
     P: SexprListParsable + Debug,
 {
@@ -84,7 +85,7 @@ where
         }
     };
 
-    let result = ListParsableWrapper::<P>::parse(s_expr).map(|x| x.0);
+    let result = ListParsableWrapper::<P>::parse(infos, s_expr).map(|x| x.0);
     match result {
         Ok(value) => Some(value),
         Err(err) => {
@@ -112,6 +113,9 @@ where
                     "expected this list to have {} elements, but found {}",
                     expected_arity, found_arity
                 ),
+                ParseErrorReason::RepeatedInfo { info_keyword } => {
+                    format!("info keyword '{}' occured twice", info_keyword)
+                }
             };
 
             let report = Report::build(ReportKind::Error, (), err.span.start)

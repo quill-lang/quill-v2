@@ -7,7 +7,7 @@ use std::{num::ParseIntError, str::FromStr};
 
 use num::Integer;
 
-use crate::s_expr::*;
+use crate::{s_expr::*, NodeInfoInserters};
 
 /// An error type used when parsing S-expressions into Feather expressions.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,13 +47,15 @@ pub enum ParseErrorReason {
         expected_arity: usize,
         found_arity: usize,
     },
+    /// An info type was given more than once.
+    RepeatedInfo { info_keyword: &'static str },
 }
 
 /// Trait implemented by types that can be deserialised from S-expressions.
 /// Normally you shouldn't implement this trait yourself, and should instead use
 /// [`SexprAtomParsable`] or [`SexprListParsable`].
 pub trait SexprParsable: Sized {
-    fn parse(node: SexprNode) -> Result<Self, ParseError>;
+    fn parse(infos: &mut NodeInfoInserters, node: SexprNode) -> Result<Self, ParseError>;
 }
 
 /// Provides the ability to deserialise an atomic S-expression (a string)
@@ -71,7 +73,10 @@ impl<P> SexprParsable for AtomParsableWrapper<P>
 where
     P: SexprAtomParsable,
 {
-    fn parse(SexprNode { span, contents }: SexprNode) -> Result<Self, ParseError> {
+    fn parse(
+        _infos: &mut NodeInfoInserters,
+        SexprNode { span, contents }: SexprNode,
+    ) -> Result<Self, ParseError> {
         match contents {
             SexprNodeContents::Atom(text) => P::parse_atom(text)
                 .map_err(|reason| ParseError { span, reason })
@@ -93,7 +98,11 @@ pub trait SexprListParsable: Sized {
     const KEYWORD: Option<&'static str>;
     /// The provided span is the span of the entire list S-expression, including parentheses and
     /// the initial keyword if present.
-    fn parse_list(span: Span, args: Vec<SexprNode>) -> Result<Self, ParseError>;
+    fn parse_list(
+        infos: &mut NodeInfoInserters,
+        span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError>;
 }
 
 /// See [`SexprListParsable`].
@@ -103,7 +112,10 @@ impl<P> SexprParsable for ListParsableWrapper<P>
 where
     P: SexprListParsable,
 {
-    fn parse(SexprNode { span, contents }: SexprNode) -> Result<Self, ParseError> {
+    fn parse(
+        infos: &mut NodeInfoInserters,
+        SexprNode { span, contents }: SexprNode,
+    ) -> Result<Self, ParseError> {
         match contents {
             SexprNodeContents::Atom(_) => Err(ParseError {
                 span,
@@ -145,7 +157,7 @@ where
                         });
                     }
                 };
-                P::parse_list(span, list).map(ListParsableWrapper)
+                P::parse_list(infos, span, list).map(ListParsableWrapper)
             }
         }
     }
