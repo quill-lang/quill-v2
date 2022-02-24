@@ -1,3 +1,4 @@
+use crate::basic_nodes::Name;
 use crate::deserialise::SexprParsable;
 use crate::*;
 
@@ -9,11 +10,12 @@ impl SexprListParsable for IntroU64 {
 
     fn parse_list(
         infos: &mut NodeInfoInserters,
+        interner: &StringInterner,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
         let [value] = force_arity(span, args)?;
-        Ok(Self(AtomParsableWrapper::parse(infos, value)?.0))
+        Ok(Self(AtomParsableWrapper::parse(infos, interner, value)?.0))
     }
 }
 
@@ -25,6 +27,7 @@ impl SexprListParsable for IntroUnit {
 
     fn parse_list(
         _infos: &mut NodeInfoInserters,
+        _interner: &StringInterner,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
@@ -33,25 +36,28 @@ impl SexprListParsable for IntroUnit {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExprAt(Span);
+/// TODO: Remove this.
+/// Used for demoing name resolution.
+#[derive(Debug, PartialEq, Eq)]
+pub struct IntroLocal(Name);
 
-impl SexprListParsable for ExprAt {
-    const KEYWORD: Option<&'static str> = Some("at");
+impl SexprListParsable for IntroLocal {
+    const KEYWORD: Option<&'static str> = Some("local");
 
     fn parse_list(
         infos: &mut NodeInfoInserters,
+        interner: &StringInterner,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
         let [value] = force_arity(span, args)?;
-        Ok(Self(ListParsableWrapper::parse(infos, value)?.0))
+        Ok(Self(Name::parse(infos, interner, value)?))
     }
 }
 
 macro_rules! gen_variants {
     ($n: ident $label: tt: $( $t: ident )*) => {
-        #[derive(Debug, Clone, PartialEq, Eq)]
+        #[derive(Debug, PartialEq, Eq)]
         pub enum $n {
             $( $t($t) ),*
         }
@@ -84,7 +90,7 @@ macro_rules! gen_variants {
         impl SexprListParsable for $n {
             const KEYWORD: Option<&'static str> = None;
 
-            fn parse_list(infos: &mut NodeInfoInserters, span: Span, mut args: Vec<SexprNode>) -> Result<Self, ParseError> {
+            fn parse_list(infos: &mut NodeInfoInserters, interner: &StringInterner, span: Span, mut args: Vec<SexprNode>) -> Result<Self, ParseError> {
                 if args.is_empty() {
                     return Err(ParseError {
                         span,
@@ -111,11 +117,11 @@ macro_rules! gen_variants {
 
                 Ok(match Some(keyword) {
                     $(
-                        $t::KEYWORD => $t::parse_list(infos, span, args)?.into(),
+                        $t::KEYWORD => $t::parse_list(infos, interner, span, args)?.into(),
                     )*
                     _ => {
                         return Err(ParseError {
-                            span: args.first().unwrap().span.clone(),
+                            span: first.span.clone(),
                             reason: ParseErrorReason::WrongKeyword {
                                 expected: $label,
                                 found: keyword.to_string(),
@@ -132,6 +138,7 @@ gen_variants! {
     ExprContents "<any expression>":
     IntroU64
     IntroUnit
+    IntroLocal
 }
 
 pub type Expr = Node<ExprContents>;
@@ -141,6 +148,7 @@ impl SexprListParsable for Expr {
 
     fn parse_list(
         infos: &mut NodeInfoInserters,
+        interner: &StringInterner,
         span: Span,
         mut args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
@@ -165,15 +173,15 @@ impl SexprListParsable for Expr {
             }
             let _expr_keyword = args.remove(0);
             let expr_contents =
-                ListParsableWrapper::<ExprContents>::parse(infos, args.remove(0))?.0;
+                ListParsableWrapper::<ExprContents>::parse(infos, interner, args.remove(0))?.0;
             let expr = Node::new(span, expr_contents);
             for info in args {
-                infos.process_expr_info(&expr, info)?;
+                infos.process_expr_info(interner, &expr, info)?;
             }
             Ok(expr)
         } else {
             // This is of the form `ExprContents`.
-            ExprContents::parse_list(infos, span.clone(), args)
+            ExprContents::parse_list(infos, interner, span.clone(), args)
                 .map(|expr_contents| Node::new(span, expr_contents))
         }
     }

@@ -3,11 +3,12 @@
 //! not handwritten. It suffices to generate a nice error message for the first syntax error in a file.
 //! `?` syntax is useful for stopping after the first parse error.
 
-use std::{num::ParseIntError, str::FromStr};
+use std::{num::ParseIntError, sync::Arc};
 
-use num::Integer;
-
+use lasso::ThreadedRodeo;
 use crate::{s_expr::*, NodeInfoInserters};
+
+pub type StringInterner = Arc<ThreadedRodeo>;
 
 /// An error type used when parsing S-expressions into Feather expressions.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,7 +56,11 @@ pub enum ParseErrorReason {
 /// Normally you shouldn't implement this trait yourself, and should instead use
 /// [`SexprAtomParsable`] or [`SexprListParsable`].
 pub trait SexprParsable: Sized {
-    fn parse(infos: &mut NodeInfoInserters, node: SexprNode) -> Result<Self, ParseError>;
+    fn parse(
+        infos: &mut NodeInfoInserters,
+        interner: &StringInterner,
+        node: SexprNode,
+    ) -> Result<Self, ParseError>;
 }
 
 /// Provides the ability to deserialise an atomic S-expression (a string)
@@ -63,7 +68,7 @@ pub trait SexprParsable: Sized {
 /// The type [`AtomParsableWrapper`], parametrised with `Self`, will then automatically implement
 /// [`SexprParsable`].
 pub trait SexprAtomParsable: Sized {
-    fn parse_atom(text: String) -> Result<Self, ParseErrorReason>;
+    fn parse_atom(interner: &StringInterner, text: String) -> Result<Self, ParseErrorReason>;
 }
 
 /// See [`SexprAtomParsable`].
@@ -75,10 +80,11 @@ where
 {
     fn parse(
         _infos: &mut NodeInfoInserters,
+        interner: &StringInterner,
         SexprNode { span, contents }: SexprNode,
     ) -> Result<Self, ParseError> {
         match contents {
-            SexprNodeContents::Atom(text) => P::parse_atom(text)
+            SexprNodeContents::Atom(text) => P::parse_atom(interner, text)
                 .map_err(|reason| ParseError { span, reason })
                 .map(AtomParsableWrapper),
             SexprNodeContents::List(_) => Err(ParseError {
@@ -100,6 +106,7 @@ pub trait SexprListParsable: Sized {
     /// the initial keyword if present.
     fn parse_list(
         infos: &mut NodeInfoInserters,
+        interner: &StringInterner,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError>;
@@ -114,6 +121,7 @@ where
 {
     fn parse(
         infos: &mut NodeInfoInserters,
+        interner: &StringInterner,
         SexprNode { span, contents }: SexprNode,
     ) -> Result<Self, ParseError> {
         match contents {
@@ -157,21 +165,36 @@ where
                         });
                     }
                 };
-                P::parse_list(infos, span, list).map(ListParsableWrapper)
+                P::parse_list(infos, interner, span, list).map(ListParsableWrapper)
             }
         }
     }
 }
 
-impl<I> SexprAtomParsable for I
-where
-    I: Integer + FromStr<Err = ParseIntError>,
-{
-    fn parse_atom(text: String) -> Result<Self, ParseErrorReason> {
-        text.parse()
-            .map_err(|err| ParseErrorReason::ParseIntError { text, err })
-    }
+macro_rules! gen_int_parsable {
+    ($t:ty) => {
+        impl SexprAtomParsable for $t {
+            fn parse_atom(
+                _interner: &StringInterner,
+                text: String,
+            ) -> Result<Self, ParseErrorReason> {
+                text.parse()
+                    .map_err(|err| ParseErrorReason::ParseIntError { text, err })
+            }
+        }
+    };
 }
+
+gen_int_parsable!(i128);
+gen_int_parsable!(u128);
+gen_int_parsable!(i64);
+gen_int_parsable!(u64);
+gen_int_parsable!(i32);
+gen_int_parsable!(u32);
+gen_int_parsable!(i16);
+gen_int_parsable!(u16);
+gen_int_parsable!(i8);
+gen_int_parsable!(u8);
 
 /// If `args` has length `N`, then return the elements as an array.
 /// Otherwise, raise a [`ParseErrorReason::WrongArity`] error.

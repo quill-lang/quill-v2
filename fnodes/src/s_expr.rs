@@ -3,6 +3,8 @@
 
 use chumsky::prelude::*;
 
+use crate::{ParseError, ParseErrorReason};
+
 pub type Span = std::ops::Range<usize>;
 
 /// Represents a node in a tree of S-expressions.
@@ -62,6 +64,37 @@ pub(super) fn sexpr_parser() -> impl Parser<char, SexprNode, Error = Simple<char
             .map_with_span(|contents, span| SexprNode { contents, span })
     });
     expr.padded().then_ignore(end())
+}
+
+/// Suppose that this node is of the form `(kwd ...)`.
+/// Then return `kwd`, or a parse error if this was not the case.
+pub fn find_keyword_from_list(node: &SexprNode) -> Result<String, ParseError> {
+    match &node.contents {
+        SexprNodeContents::Atom(_) => Err(ParseError {
+            span: node.span.clone(),
+            reason: ParseErrorReason::ExpectedList,
+        }),
+        SexprNodeContents::List(entries) => {
+            if let Some(first) = entries.first() {
+                match &first.contents {
+                    SexprNodeContents::Atom(kwd) => Ok(kwd.clone()),
+                    SexprNodeContents::List(_) => Err(ParseError {
+                        span: node.span.clone(),
+                        reason: ParseErrorReason::ExpectedKeywordFoundList {
+                            expected: "<any expression info>",
+                        },
+                    }),
+                }
+            } else {
+                Err(ParseError {
+                    span: node.span.clone(),
+                    reason: ParseErrorReason::ExpectedKeywordFoundEmpty {
+                        expected: "<any expression info>",
+                    },
+                })
+            }
+        }
+    }
 }
 
 #[cfg(test)]

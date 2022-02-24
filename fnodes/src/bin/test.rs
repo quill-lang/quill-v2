@@ -1,12 +1,16 @@
 use fnodes::{
-    expr::{Expr, ExprAt, ExprContents},
+    basic_nodes::SourceSpan,
+    expr::{Expr, ExprContents},
     parse_and_report, NodeInfoContainer, NodeInfoInserters,
 };
+use lasso::Spur;
 
 fn main() {
     let mut infos = NodeInfoInserters::default();
-    let mut expr_at = NodeInfoContainer::<ExprContents, ExprAt>::new();
+    let mut expr_at = NodeInfoContainer::<ExprContents, SourceSpan>::new();
     infos.register_expr_info(&mut expr_at);
+    let mut name_at = NodeInfoContainer::<Spur, SourceSpan>::new();
+    infos.register_name_info(&mut name_at);
     println!(
         "{:#?}",
         parse_and_report::<Expr>(
@@ -15,5 +19,6 @@ fn main() {
         )
     );
     println!("ignored {:#?}", infos.finish());
-    println!("spans {:#?}", expr_at);
+    println!("exprs {:#?}", expr_at);
+    println!("names {:#?}", name_at);
 }

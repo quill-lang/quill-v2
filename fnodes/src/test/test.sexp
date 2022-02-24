@@ -1,1 +1,1 @@
-(expr (iu64 8) (at (1 3)))
+(expr (local (foo (at (3 45)))) (at (1 3)))

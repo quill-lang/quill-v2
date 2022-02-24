@@ -10,7 +10,9 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use crate::{deserialise::*, expr::Expr};
+use lasso::Spur;
+
+use crate::deserialise::*;
 use crate::{expr::ExprContents, s_expr::*};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -138,7 +140,13 @@ trait AbstractNodeInfoContainer<C> {
     #[allow(clippy::type_complexity)]
     fn parse_node(
         &self,
-    ) -> Box<dyn FnOnce(&mut NodeInfoInserters, SexprNode) -> Result<Box<dyn Any>, ParseError>>;
+    ) -> Box<
+        dyn FnOnce(
+            &mut NodeInfoInserters,
+            &StringInterner,
+            SexprNode,
+        ) -> Result<Box<dyn Any>, ParseError>,
+    >;
     /// Must accept the same type as is returned by [`Self::parse_node`].
     fn insert_value(
         &mut self,
@@ -159,13 +167,20 @@ where
 
     fn parse_node(
         &self,
-    ) -> Box<dyn FnOnce(&mut NodeInfoInserters, SexprNode) -> Result<Box<dyn Any>, ParseError>>
-    {
-        Box::new(|infos: &mut NodeInfoInserters, value_node: SexprNode| {
-            //let value_node_span = value_node.span.clone();
-            ListParsableWrapper::<T>::parse(infos, value_node)
-                .map(|x| Box::new(x.0) as Box<dyn Any>)
-        })
+    ) -> Box<
+        dyn FnOnce(
+            &mut NodeInfoInserters,
+            &StringInterner,
+            SexprNode,
+        ) -> Result<Box<dyn Any>, ParseError>,
+    > {
+        Box::new(
+            |infos: &mut NodeInfoInserters, interner: &StringInterner, value_node: SexprNode| {
+                //let value_node_span = value_node.span.clone();
+                ListParsableWrapper::<T>::parse(infos, interner, value_node)
+                    .map(|x| Box::new(x.0) as Box<dyn Any>)
+            },
+        )
     }
 
     fn insert_value(
@@ -205,104 +220,95 @@ impl<C, T> Default for NodeInfoContainer<C, T> {
 /// The containers will be filled with all the info found in S-expressions.
 #[derive(Default)]
 pub struct NodeInfoInserters<'a> {
-    /// Containers to be filled with node info.
+    /// Containers to be filled with expression node info.
     expr_infos: Vec<&'a mut dyn AbstractNodeInfoContainer<ExprContents>>,
     /// A list of all of the keywords for expression infos that were ignored (see [`Self::process_expr_info`]).
     expr_ignored_keywords: HashSet<String>,
+
+    /// Containers to be filled with name node info.
+    name_infos: Vec<&'a mut dyn AbstractNodeInfoContainer<Spur>>,
+    /// A list of all of the keywords for name infos that were ignored (see [`Self::process_expr_info`]).
+    name_ignored_keywords: HashSet<String>,
+}
+
+macro_rules! generate_process_functions {
+    ($t:ty, $register_fname:ident, $process_fname:ident, $infos:ident, $kwds:ident) => {
+        /// Passes in a reference to a node info container.
+        pub fn $register_fname<T>(&mut self, info: &'a mut NodeInfoContainer<$t, T>)
+        where
+            T: SexprListParsable + 'static,
+        {
+            // Check to see if this keyword has already been used for an expression info.
+            for expr_info in &self.$infos {
+                if info.keyword() == expr_info.keyword() {
+                    panic!("keyword {} used for two different infos", info.keyword())
+                }
+            }
+
+            self.$infos.push(info);
+        }
+
+        /// Call this with an info node to be parsed.
+        /// If its leading keyword matched any info registered with [`Self::register_expr_info`] (for example),
+        /// it will be processed.
+        /// Otherwise, it will be *ignored*, and the ignored keyword will be appended to the list of ignored
+        /// keywords.
+        pub(crate) fn $process_fname(
+            &mut self,
+            interner: &StringInterner,
+            node: &Node<$t>,
+            value_node: SexprNode,
+        ) -> Result<(), ParseError> {
+            let keyword = find_keyword_from_list(&value_node)?;
+
+            let value_node_span = value_node.span.clone();
+
+            // This is a bit of lifetime hacking to make it possible to dynamically
+            // insert arbitrary amounts of AbstractNodeInfoContainers.
+            // We find the correct info once in order to get the parse function, then
+            // we find it again mutably so that we can emplace the new parsed
+            // value into its backing map.
+
+            let info = self.$infos.iter().find(|info| info.keyword() == keyword);
+            let value = if let Some(info) = info {
+                info.parse_node()(self, interner, value_node)?
+            } else {
+                // Ignore the info.
+                self.$kwds.insert(keyword.clone());
+                return Ok(());
+            };
+
+            let info = self
+                .$infos
+                .iter_mut()
+                .find(|info| info.keyword() == keyword);
+            if let Some(info) = info {
+                info.insert_value(node, value_node_span, value)
+            } else {
+                panic!(
+                    "failed to find info for keyword '{}' a second time",
+                    keyword
+                );
+            }
+        }
+    };
 }
 
 impl<'a> NodeInfoInserters<'a> {
-    /// Passes in a reference to a node info container.
-    /// When a node info
-    pub fn register_expr_info<T>(&mut self, info: &'a mut NodeInfoContainer<ExprContents, T>)
-    where
-        T: SexprListParsable + 'static,
-    {
-        // Check to see if this keyword has already been used for an expression info.
-        for expr_info in &self.expr_infos {
-            if info.keyword() == expr_info.keyword() {
-                panic!("keyword {} used for two different infos", info.keyword())
-            }
-        }
-
-        self.expr_infos.push(info);
-    }
-
-    /// Call this with an expression info node to be parsed.
-    /// If its leading keyword matched any expression info registered with [`Self::register_expr_info`],
-    /// it will be processed.
-    /// Otherwise, it will be *ignored*, and the ignored keyword will be appended to the list of ignored
-    /// keywords.
-    pub(crate) fn process_expr_info(
-        &mut self,
-        expr: &Expr,
-        value_node: SexprNode,
-    ) -> Result<(), ParseError> {
-        // TODO: Refactor this keyword-finding block into a function
-        let keyword = match &value_node.contents {
-            SexprNodeContents::Atom(_) => {
-                return Err(ParseError {
-                    span: value_node.span,
-                    reason: ParseErrorReason::ExpectedList,
-                })
-            }
-            SexprNodeContents::List(entries) => {
-                if let Some(first) = entries.first() {
-                    match &first.contents {
-                        SexprNodeContents::Atom(kwd) => kwd.clone(),
-                        SexprNodeContents::List(_) => {
-                            return Err(ParseError {
-                                span: value_node.span,
-                                reason: ParseErrorReason::ExpectedKeywordFoundList {
-                                    expected: "<any expression info>",
-                                },
-                            })
-                        }
-                    }
-                } else {
-                    return Err(ParseError {
-                        span: value_node.span,
-                        reason: ParseErrorReason::ExpectedKeywordFoundEmpty {
-                            expected: "<any expression info>",
-                        },
-                    });
-                }
-            }
-        };
-
-        let value_node_span = value_node.span.clone();
-
-        // This is a bit of lifetime hacking to make it possible to dynamically
-        // insert arbitrary amounts of AbstractNodeInfoContainers.
-        // We find the correct info once in order to get the parse function, then
-        // we find it again mutably so that we can emplace the new parsed
-        // value into its backing map.
-
-        let info = self
-            .expr_infos
-            .iter()
-            .find(|info| info.keyword() == keyword);
-        let value = if let Some(info) = info {
-            info.parse_node()(self, value_node)?
-        } else {
-            // Ignore the info.
-            self.expr_ignored_keywords.insert(keyword.clone());
-            return Ok(());
-        };
-
-        let info = self
-            .expr_infos
-            .iter_mut()
-            .find(|info| info.keyword() == keyword);
-        if let Some(info) = info {
-            info.insert_value(expr, value_node_span, value)
-        } else {
-            panic!(
-                "failed to find info for keyword '{}' a second time",
-                keyword
-            );
-        }
-    }
+    generate_process_functions!(
+        ExprContents,
+        register_expr_info,
+        process_expr_info,
+        expr_infos,
+        expr_ignored_keywords
+    );
+    generate_process_functions!(
+        Spur,
+        register_name_info,
+        process_name_info,
+        name_infos,
+        name_ignored_keywords
+    );
 
     /// Relinquish the borrows of the node info containers.
     /// Returns the list of expr info keywords that were ignored and not processed.
