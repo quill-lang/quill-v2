@@ -73,6 +73,8 @@ impl SexprParsable for Name {
     }
 }
 
+/// A qualified name that may have been written in code, rather than one simply stored internally
+/// that was never written in code (see [`fcommon::Path`] for that use case).
 #[derive(Debug, PartialEq, Eq)]
 pub struct QualifiedName(pub Vec<Name>);
 

@@ -1165,7 +1165,7 @@ The following schemas specify identifiers and related types.
 \begin{tabular}{r l p{6cm}}
     \lstinline!Span! \( ::= \) & \lstinline!(!\( \mathbb N_{32} \) \( \mathbb N_{32} \)\lstinline!)! & start location (inclusive), then end location (exclusive) \\
     \lstinline!Name! \( ::= \) & \( \mathbb S \)\lstinline! | (!\( \mathbb S \)\lstinline! Span)! & the symbol itself then optionally the span at which it was written \\
-    \lstinline!QualifiedName! \( ::= \) & \lstinline!(!Name\lstinline!+)! & list of one or more name segments
+    \lstinline!QualifiedName! \( ::= \) & \lstinline!(Name+)! & list of one or more name segments
 \end{tabular}
 
 A \textit{location} represents a place in some input code, represented as an amount of Unicode code points from the start of the file.
@@ -1322,6 +1322,7 @@ This restriction is known as A-normal form.
 The prefix \lstinline{f} refers to a \rform{} rule, and \lstinline{i} refers to an \rintro{} rule.
 The word `rune', referring to the type \( \mathbb U \), is intended to distinguish from conventional use of the word `char' in the C family of languages, which may not be sufficiently large to encode an arbitrary Unicode code point.
 \begin{lstlisting}[mathescape=true]
+(funiverse)$ \;\longleftrightarrow\; \UU : \UU $
 (fu$n$)$ \;\longleftrightarrow\; \mathbb N_{n} : \UU $
 (fi$n$)$ \;\longleftrightarrow\; \mathbb Z_{n} : \UU $
 (ff$n$)$ \;\longleftrightarrow\; \mathbb F_{n} : \UU $

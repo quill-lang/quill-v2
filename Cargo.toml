@@ -1,2 +1,3 @@
 [workspace]
-members = ["fnodes"]
+members = ["feather", "fcommon", "fnodes"]
+default-members = ["feather"]
