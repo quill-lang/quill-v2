@@ -1,3 +1,5 @@
+use fcommon::Span;
+
 use crate::basic_nodes::{DeBruijnIndex, QualifiedName};
 use crate::deserialise::SexprParsable;
 use crate::*;

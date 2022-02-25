@@ -5,8 +5,9 @@
 
 use std::{num::ParseIntError, sync::Arc};
 
-use lasso::ThreadedRodeo;
 use crate::{s_expr::*, NodeInfoInserters};
+use fcommon::Span;
+use lasso::ThreadedRodeo;
 
 pub type StringInterner = Arc<ThreadedRodeo>;
 

@@ -1,3 +1,4 @@
+use fcommon::Span;
 use lasso::Spur;
 
 use crate::*;

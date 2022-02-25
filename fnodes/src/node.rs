@@ -10,6 +10,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+use fcommon::Span;
 use lasso::Spur;
 
 use crate::deserialise::*;

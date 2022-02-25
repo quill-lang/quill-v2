@@ -2,10 +2,9 @@
 //! This module provides functionality for both serialisation and deserialisation.
 
 use chumsky::prelude::*;
+use fcommon::Span;
 
 use crate::{ParseError, ParseErrorReason};
-
-pub type Span = std::ops::Range<usize>;
 
 /// Represents a node in a tree of S-expressions.
 /// All values are stored as strings, and have no semantic meaning.
