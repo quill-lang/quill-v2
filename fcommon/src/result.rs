@@ -58,6 +58,35 @@ impl Report {
         self.labels.push(label);
         self
     }
+
+    /// Convert this report into an [`ariadne::Report`] and then
+    /// display it to the user.
+    #[cfg(feature = "ariadne")]
+    pub fn render(&self, db: &impl crate::FileReader) {
+        ariadne::Report::from(self)
+            .eprint(ariadne::Source::from(db.source(self.source).as_str()))
+            .unwrap();
+    }
+}
+
+/// Convert this report into an [`ariadne::Report`] in order
+/// to display it to the user.
+/// Enabled only when the `ariadne` feature flag is set.
+#[cfg(feature = "ariadne")]
+impl From<&Report> for ariadne::Report {
+    fn from(report: &Report) -> Self {
+        let mut result = ariadne::Report::build(report.kind.into(), (), report.offset.unwrap_or(0));
+        if let Some(message) = &report.message {
+            result = result.with_message(message);
+        }
+        if let Some(note) = &report.note {
+            result = result.with_note(note);
+        }
+        for label in &report.labels {
+            result = result.with_label(label.into());
+        }
+        result.finish()
+    }
 }
 
 /// <https://rustc-dev-guide.rust-lang.org/diagnostics.html#diagnostic-levels>
@@ -65,6 +94,16 @@ impl Report {
 pub enum ReportKind {
     Error,
     Warning,
+}
+
+#[cfg(feature = "ariadne")]
+impl From<ReportKind> for ariadne::ReportKind {
+    fn from(kind: ReportKind) -> Self {
+        match kind {
+            ReportKind::Error => ariadne::ReportKind::Error,
+            ReportKind::Warning => ariadne::ReportKind::Warning,
+        }
+    }
 }
 
 /// A localised message in a report.
@@ -78,11 +117,36 @@ pub struct Label {
     priority: i32,
 }
 
+#[cfg(feature = "ariadne")]
+impl From<&Label> for ariadne::Label {
+    fn from(label: &Label) -> Self {
+        let mut result = Self::new(label.span.clone())
+            .with_color(label.ty.into())
+            .with_order(label.order)
+            .with_priority(label.priority);
+        if let Some(message) = &label.message {
+            result = result.with_message(message);
+        }
+        result
+    }
+}
+
 /// Influences the colour used to display this label.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LabelType {
     Error,
     Warning,
+}
+
+/// Each label type is associated with a particular colour.
+#[cfg(feature = "ariadne")]
+impl From<LabelType> for ariadne::Color {
+    fn from(ty: LabelType) -> Self {
+        match ty {
+            LabelType::Error => Self::Red,
+            LabelType::Warning => Self::Yellow,
+        }
+    }
 }
 
 impl Label {
@@ -315,6 +379,11 @@ impl<T> Dr<T> {
     /// Retrieves the value for inspection.
     pub fn value(&self) -> &Option<T> {
         &self.value
+    }
+
+    /// Retrieves the list of reports.
+    pub fn reports(&self) -> &[Report] {
+        &self.reports
     }
 }
 

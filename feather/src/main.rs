@@ -22,7 +22,11 @@ fn run(watch_for_file_updates: bool) {
         ty: SourceType::Feather,
     };
 
-    println!("{:#?}", db.expr_from_feather_source(src));
+    let result = db.expr_from_feather_source(src);
+    for report in result.reports() {
+        report.render(&db);
+    }
+    // println!("{:#?}", db.expr_from_feather_source(src));
 
     /*if watch_for_file_updates {
         loop {
