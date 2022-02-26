@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::{Source, Span};
 
 /// An message to be displayed to the user, such as an error or warning.
@@ -91,7 +93,13 @@ where
         Ok(match self.files.entry(*id) {
             std::collections::hash_map::Entry::Occupied(occupied) => occupied.into_mut(),
             std::collections::hash_map::Entry::Vacant(vacant) => {
-                vacant.insert(ariadne::Source::from(self.db.source(*id).as_str()))
+                vacant.insert(ariadne::Source::from(
+                    self.db
+                        .source(*id)
+                        .value
+                        .as_deref()
+                        .unwrap_or("<could not read file>"),
+                ))
             }
         })
     }
@@ -428,6 +436,25 @@ impl<T> Dr<T> {
     /// Retrieves the list of reports.
     pub fn reports(&self) -> &[Report] {
         &self.reports
+    }
+
+    /// Returns a diagnostic result with the same reports, but where the value is borrowed.
+    pub fn as_ref(&self) -> Dr<&T> {
+        Dr {
+            value: self.value.as_ref(),
+            reports: self.reports.clone(),
+        }
+    }
+
+    /// Returns a diagnostic result with the same reports, but where the value is dereferenced.
+    pub fn as_deref(&self) -> Dr<&T::Target>
+    where
+        T: Deref,
+    {
+        Dr {
+            value: self.value.as_deref(),
+            reports: self.reports.clone(),
+        }
     }
 }
 

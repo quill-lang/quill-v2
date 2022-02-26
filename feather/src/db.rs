@@ -30,13 +30,15 @@ impl FileWatcher for FeatherDatabase {
         // Add a path to be watched. All files and directories at that path and
         // below will be monitored for changes.
         let mut watcher = self.watcher.lock().unwrap();
-        watcher
-            .watch(
-                self.path_to_path_buf(src.path)
-                    .with_extension(src.ty.extension()),
-                notify::RecursiveMode::Recursive,
-            )
-            .unwrap();
+        // If we couldn't find the file for whatever reason,
+        // the compilation step reading this file will fail anyway.
+        // So we can safely ignore watching this path.
+        // TODO: Watch parent paths to check if this file is ever created.
+        let _ = watcher.watch(
+            self.path_to_path_buf(src.path)
+                .with_extension(src.ty.extension()),
+            notify::RecursiveMode::Recursive,
+        );
     }
 
     fn did_change_file(&mut self, src: Source) {

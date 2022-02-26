@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::Arc};
 
-use crate::{InternExt, Source};
+use crate::{Dr, InternExt, Report, ReportKind, Source};
 
 #[salsa::query_group(FileReaderStorage)]
 pub trait FileReader: InternExt + FileWatcher {
@@ -10,7 +10,7 @@ pub trait FileReader: InternExt + FileWatcher {
 
     /// Loads source code from a file.
     /// This is performed lazily when needed (see [`FileWatcher`]).
-    fn source(&self, file_name: Source) -> Arc<String>;
+    fn source(&self, file_name: Source) -> Arc<Dr<String>>;
 }
 
 /// A trait to be implemented by databases which
@@ -24,7 +24,7 @@ pub trait FileWatcher {
     fn did_change_file(&mut self, source: Source);
 }
 
-fn source(db: &dyn FileReader, source: Source) -> Arc<String> {
+fn source(db: &dyn FileReader, source: Source) -> Arc<Dr<String>> {
     db.salsa_runtime()
         .report_synthetic_read(salsa::Durability::LOW);
 
@@ -33,5 +33,14 @@ fn source(db: &dyn FileReader, source: Source) -> Arc<String> {
         .project_root()
         .join(db.path_to_path_buf(source.path))
         .with_extension(source.ty.extension());
-    Arc::new(std::fs::read_to_string(&path_buf).unwrap_or_default())
+    Arc::new(match std::fs::read_to_string(&path_buf) {
+        Ok(value) => value.into(),
+        Err(err) => Dr::fail(
+            Report::new_in_file(ReportKind::Error, source).with_message(format!(
+                "could not read file '{}': {}",
+                path_buf.to_string_lossy(),
+                err,
+            )),
+        ),
+    })
 }
