@@ -10,9 +10,9 @@ use crate::{Source, Span};
 /// `ariadne` itself, of course.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Report {
-    /// The severity of the diagnostic.
+    /// The severity of the report.
     /// Used to determine colouring of output if rendered using `ariadne`.
-    severity: Severity,
+    kind: ReportKind,
     /// The source file that the diagnostic comes from.
     source: Source,
     /// The location in the source file at which the diagnostic originates.
@@ -27,9 +27,9 @@ pub struct Report {
 }
 
 impl Report {
-    pub fn in_file(severity: Severity, source: Source) -> Self {
+    pub fn new_in_file(kind: ReportKind, source: Source) -> Self {
         Self {
-            severity,
+            kind,
             source,
             offset: None,
             message: None,
@@ -38,9 +38,9 @@ impl Report {
         }
     }
 
-    pub fn at(severity: Severity, source: Source, offset: usize) -> Self {
+    pub fn new(kind: ReportKind, source: Source, offset: usize) -> Self {
         Self {
-            severity,
+            kind,
             source,
             offset: Some(offset),
             message: None,
@@ -48,11 +48,21 @@ impl Report {
             labels: Vec::new(),
         }
     }
+
+    pub fn with_message(mut self, message: impl ToString) -> Self {
+        self.message = Some(message.to_string());
+        self
+    }
+
+    pub fn with_label(mut self, label: Label) -> Self {
+        self.labels.push(label);
+        self
+    }
 }
 
 /// <https://rustc-dev-guide.rust-lang.org/diagnostics.html#diagnostic-levels>
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Severity {
+pub enum ReportKind {
     Error,
     Warning,
 }
@@ -62,17 +72,47 @@ pub enum Severity {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Label {
     span: Span,
-    message: Option<String>,
     ty: LabelType,
+    message: Option<String>,
     order: i32,
     priority: i32,
 }
 
+/// Influences the colour used to display this label.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LabelType {
-    Label,
-    Help,
-    Note,
+    Error,
+    Warning,
+}
+
+impl Label {
+    pub fn new(span: Span, ty: LabelType) -> Self {
+        Self {
+            span,
+            ty,
+            message: None,
+            order: 0,
+            priority: 0,
+        }
+    }
+
+    /// See [`ariadne::Label::with_message`].
+    pub fn with_message(mut self, message: impl ToString) -> Self {
+        self.message = Some(message.to_string());
+        self
+    }
+
+    /// See [`ariadne::Label::with_order`].
+    pub fn with_order(mut self, order: i32) -> Self {
+        self.order = order;
+        self
+    }
+
+    /// See [`ariadne::Label::with_priority`].
+    pub fn with_priority(mut self, priority: i32) -> Self {
+        self.priority = priority;
+        self
+    }
 }
 
 /// Short for "diagnostic result".
@@ -144,7 +184,7 @@ impl<T> Dr<T> {
 
     /// The computation failed. An error message is mandatory if the computation failed.
     pub fn fail(report: Report) -> Self {
-        assert!(report.severity == Severity::Error);
+        assert!(report.kind == ReportKind::Error);
         Self {
             value: None,
             reports: vec![report],
@@ -152,7 +192,7 @@ impl<T> Dr<T> {
     }
 
     pub fn fail_many(reports: Vec<Report>) -> Self {
-        assert!(reports.iter().any(|m| m.severity == Severity::Error));
+        assert!(reports.iter().any(|m| m.kind == ReportKind::Error));
         Self {
             value: None,
             reports,
@@ -216,7 +256,7 @@ impl<T> Dr<T> {
     /// Converts a successful diagnostic that had one or more `Error` reports into a failed diagnostic (with the same reports).
     /// Diagnostics without `Error` reports are unaffected.
     pub fn deny(self) -> Self {
-        if self.reports.iter().any(|m| m.severity == Severity::Error) {
+        if self.reports.iter().any(|m| m.kind == ReportKind::Error) {
             Self {
                 value: None,
                 reports: self.reports,

@@ -4,7 +4,6 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-ariadne = "0.1.3"
 chumsky = "0.8.0"
 fcommon = { version = "0.0.0", path = "../fcommon" }
 salsa = "0.16.1"

@@ -2,7 +2,7 @@
 //! This module provides functionality for both serialisation and deserialisation.
 
 use chumsky::prelude::*;
-use fcommon::{Dr, Span};
+use fcommon::{Dr, Label, LabelType, Report, ReportKind, Source, Span};
 
 use crate::{ParseError, ParseErrorReason};
 
@@ -21,10 +21,63 @@ pub enum SexprNodeContents {
 }
 
 /// Parses an S-expression.
-pub fn parse_sexpr(source: &str) -> Dr<SexprNode> {
-    match sexpr_parser().parse(source) {
-        Ok(result) => result.into(),
-        Err(_) => todo!(),
+/// TODO: Convert this into a query.
+pub fn parse_sexpr(source: Source, source_contents: &str) -> Dr<SexprNode> {
+    match sexpr_parser().parse(source_contents) {
+        Ok(value) => value.into(),
+        Err(errs) => {
+            let mut reports = Vec::new();
+            for e in errs.into_iter() {
+                let msg = format!(
+                    "{}{}, expected {}",
+                    if e.found().is_some() {
+                        "unexpected token"
+                    } else {
+                        "unexpected end of input"
+                    },
+                    if let Some(label) = e.label() {
+                        format!(" while parsing {}", label)
+                    } else {
+                        String::new()
+                    },
+                    if e.expected().len() == 0 {
+                        "something else".to_string()
+                    } else {
+                        e.expected()
+                            .map(|expected| match expected {
+                                Some(expected) => expected.to_string(),
+                                None => "end of input".to_string(),
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    },
+                );
+
+                let report = Report::new(ReportKind::Error, source, e.span().start)
+                    .with_message(msg)
+                    .with_label(Label::new(e.span(), LabelType::Error).with_message(format!(
+                                "unexpected {}",
+                                e.found()
+                                    .map(|c| format!("token {}", c))
+                                    .unwrap_or_else(|| "end of input".to_string())
+                            )));
+
+                let report = match e.reason() {
+                    chumsky::error::SimpleReason::Unclosed { span, delimiter } => report
+                        .with_label(
+                            Label::new(span.clone(), LabelType::Error)
+                                .with_message(format!("unclosed delimiter {}", delimiter)),
+                        ),
+                    chumsky::error::SimpleReason::Unexpected => report,
+                    chumsky::error::SimpleReason::Custom(msg) => {
+                        report.with_label(Label::new(e.span(), LabelType::Error).with_message(msg))
+                    }
+                };
+
+                reports.push(report);
+            }
+            return Dr::fail_many(reports);
+        }
     }
 }
 

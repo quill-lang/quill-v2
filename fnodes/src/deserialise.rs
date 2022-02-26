@@ -6,7 +6,7 @@
 use std::num::ParseIntError;
 
 use crate::{s_expr::*, SexprParseContext, SexprParser};
-use fcommon::Span;
+use fcommon::{Label, LabelType, Report, ReportKind, Source, Span};
 
 /// An error type used when parsing S-expressions into Feather expressions.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,6 +48,45 @@ pub enum ParseErrorReason {
     },
     /// An info type was given more than once.
     RepeatedInfo { info_keyword: &'static str },
+}
+
+impl ParseError {
+    pub(crate) fn into_report(self, source: Source) -> Report {
+        let msg = match self.reason {
+            ParseErrorReason::ParseIntError { text, err } => {
+                format!("couldn't parse '{}' as int: {}", text, err)
+            }
+            ParseErrorReason::ExpectedAtom => "expected an atom, but found a list".to_string(),
+            ParseErrorReason::ExpectedList => "expected a list, but found an atom".to_string(),
+            ParseErrorReason::ExpectedKeywordFoundList { expected } => {
+                format!("expected keyword '{}', but found a list", expected)
+            }
+            ParseErrorReason::ExpectedKeywordFoundEmpty { expected } => format!(
+                "expected keyword '{}' at the start of this list, but the list was empty",
+                expected
+            ),
+            ParseErrorReason::WrongKeyword { expected, found } => format!(
+                "expected keyword '{}', but found keyword '{}'",
+                expected, found
+            ),
+            ParseErrorReason::WrongArity {
+                expected_arity,
+                found_arity,
+            } => format!(
+                "expected this list to have {} elements, but found {}",
+                expected_arity, found_arity
+            ),
+            ParseErrorReason::RepeatedInfo { info_keyword } => {
+                format!("info keyword '{}' occured twice", info_keyword)
+            }
+        };
+
+        Report::new(ReportKind::Error, source, self.span.start)
+            .with_message(msg)
+            .with_label(
+                Label::new(self.span, LabelType::Error).with_message("error originated here"),
+            )
+    }
 }
 
 /// Trait implemented by types that can be deserialised from S-expressions.

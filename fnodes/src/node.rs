@@ -336,8 +336,8 @@ impl<'a> SexprParseContext<'a> {
 pub struct SexprParseContextResult {
     /// A node ID generator associated with the nodes generated in this parse operation.
     pub node_id_gen: NodeIdGenerator,
-    /// A list of all of the keywords for expression infos that were ignored (see [`SexprParseContext::process_expr_info`]).
+    /// A list of all of the keywords for expression infos that were ignored.
     pub expr_ignored_keywords: HashSet<String>,
-    /// A list of all of the keywords for name infos that were ignored (see [`SexprParseContext::process_name_info`]).
+    /// A list of all of the keywords for name infos that were ignored.
     pub name_ignored_keywords: HashSet<String>,
 }

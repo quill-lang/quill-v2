@@ -125,7 +125,6 @@ dependencies = [
 name = "fnodes"
 version = "0.0.0"
 dependencies = [
- "ariadne",
  "chumsky",
  "fcommon",
  "salsa",
