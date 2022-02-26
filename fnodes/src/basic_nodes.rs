@@ -38,13 +38,19 @@ impl SexprParsable for Name {
         node: SexprNode,
     ) -> Result<Self, ParseError> {
         match node.contents {
-            SexprNodeContents::Atom(text) => Ok(Node::new(node.span, db.intern_string_data(text))),
+            SexprNodeContents::Atom(text) => Ok(Node::new(
+                ctx.node_id_gen.gen(),
+                node.span,
+                db.intern_string_data(text),
+            )),
             SexprNodeContents::List(entries) => {
                 let name = if let Some(first) = entries.first() {
                     match &first.contents {
-                        SexprNodeContents::Atom(text) => {
-                            Node::new(node.span, db.intern_string_data(text.to_string()))
-                        }
+                        SexprNodeContents::Atom(text) => Node::new(
+                            ctx.node_id_gen.gen(),
+                            node.span,
+                            db.intern_string_data(text.to_string()),
+                        ),
                         SexprNodeContents::List(_) => {
                             return Err(ParseError {
                                 span: node.span.clone(),

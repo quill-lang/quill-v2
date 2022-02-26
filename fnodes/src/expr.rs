@@ -325,7 +325,7 @@ impl SexprListParsable for Expr {
             let _expr_keyword = args.remove(0);
             let expr_contents =
                 ListParsableWrapper::<ExprContents>::parse(ctx, db, args.remove(0))?.0;
-            let expr = Node::new(span, expr_contents);
+            let expr = Node::new(ctx.node_id_gen.gen(), span, expr_contents);
             for info in args {
                 ctx.process_expr_info(db, &expr, info)?;
             }
@@ -333,7 +333,7 @@ impl SexprListParsable for Expr {
         } else {
             // This is of the form `ExprContents`.
             ExprContents::parse_list(ctx, db, span.clone(), args)
-                .map(|expr_contents| Node::new(span, expr_contents))
+                .map(|expr_contents| Node::new(ctx.node_id_gen.gen(), span, expr_contents))
         }
     }
 }

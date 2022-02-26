@@ -5,12 +5,13 @@ use fcommon::{Dr, FileReader, Source, Str};
 use crate::{
     basic_nodes::SourceSpan,
     expr::{Expr, ExprContents, ExprTy},
-    parse_sexpr, ListParsableWrapper, NodeInfoContainer, SexprParsable, SexprParseContext,
+    parse_sexpr, ListParsableWrapper, NodeIdGenerator, NodeInfoContainer, SexprParsable,
+    SexprParseContext,
 };
 
 #[salsa::query_group(SexprParserStorage)]
 pub trait SexprParser: FileReader {
-    fn expr_from_feather_source(&self, source: Source) -> Arc<Dr<(Expr, DefaultInfos)>>;
+    fn expr_from_feather_source(&self, source: Source) -> Arc<Dr<ExprParseResult>>;
 }
 
 /// A set of infos that may be useful to any feather compiler component.
@@ -30,7 +31,17 @@ impl DefaultInfos {
     }
 }
 
-fn expr_from_feather_source(db: &dyn SexprParser, source: Source) -> Arc<Dr<(Expr, DefaultInfos)>> {
+/// Represents the result of an expression parse operation.
+/// `I` is expected to be a type containing node infos.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ExprParseResult<I = DefaultInfos> {
+    pub expr: Expr,
+    /// The node ID generator associated with the nodes in the returned expression.
+    pub node_id_gen: NodeIdGenerator,
+    pub infos: I,
+}
+
+fn expr_from_feather_source(db: &dyn SexprParser, source: Source) -> Arc<Dr<ExprParseResult>> {
     let source_code = db.source(source);
     let s_expr = parse_sexpr(source_code.as_str());
     Arc::new(s_expr.bind(|s_expr| {
@@ -38,7 +49,11 @@ fn expr_from_feather_source(db: &dyn SexprParser, source: Source) -> Arc<Dr<(Exp
         let mut ctx = SexprParseContext::default();
         default_infos.register(&mut ctx);
         let result = ListParsableWrapper::<Expr>::parse(&mut ctx, db, s_expr).map(|x| x.0);
-        let ignored = ctx.finish();
-        Dr::ok(result.unwrap()).map(|expr| (expr, default_infos))
+        let ctx_result = ctx.finish();
+        Dr::ok(result.unwrap()).map(|expr| ExprParseResult {
+            expr,
+            node_id_gen: ctx_result.node_id_gen,
+            infos: default_infos,
+        })
     }))
 }
