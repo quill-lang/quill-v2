@@ -2,7 +2,7 @@
 //! This module provides functionality for both serialisation and deserialisation.
 
 use chumsky::prelude::*;
-use fcommon::Span;
+use fcommon::{Dr, Span};
 
 use crate::{ParseError, ParseErrorReason};
 
@@ -21,7 +21,15 @@ pub enum SexprNodeContents {
 }
 
 /// Parses an S-expression.
-pub(super) fn sexpr_parser() -> impl Parser<char, SexprNode, Error = Simple<char>> {
+pub fn parse_sexpr(source: &str) -> Dr<SexprNode> {
+    match sexpr_parser().parse(source) {
+        Ok(result) => result.into(),
+        Err(_) => todo!(),
+    }
+}
+
+/// Parses an S-expression.
+fn sexpr_parser() -> impl Parser<char, SexprNode, Error = Simple<char>> {
     // Adapted from the JSON example <https://github.com/zesterer/chumsky/blob/master/examples/json.rs>.
     let expr = recursive(|sexpr| {
         let escape = just('\\').ignore_then(

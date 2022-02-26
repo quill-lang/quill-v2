@@ -10,10 +10,9 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use fcommon::Span;
-use lasso::Spur;
+use fcommon::{Span, Str};
 
-use crate::deserialise::*;
+use crate::{deserialise::*, SexprParser};
 use crate::{expr::ExprContents, s_expr::*};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -80,6 +79,7 @@ impl<C> Node<C> {
 
 /// Nodes may have optional node info.
 /// This is stored in a node info container.
+#[derive(PartialEq, Eq)]
 pub struct NodeInfoContainer<C, T> {
     map: HashMap<NodeId, T>,
     /// We will enforce that only nodes of type `Node<C>` will have entries in this map.
@@ -143,8 +143,8 @@ trait AbstractNodeInfoContainer<C> {
         &self,
     ) -> Box<
         dyn FnOnce(
-            &mut NodeInfoInserters,
-            &StringInterner,
+            &mut SexprParseContext,
+            &dyn SexprParser,
             SexprNode,
         ) -> Result<Box<dyn Any>, ParseError>,
     >;
@@ -170,15 +170,15 @@ where
         &self,
     ) -> Box<
         dyn FnOnce(
-            &mut NodeInfoInserters,
-            &StringInterner,
+            &mut SexprParseContext,
+            &dyn SexprParser,
             SexprNode,
         ) -> Result<Box<dyn Any>, ParseError>,
     > {
         Box::new(
-            |infos: &mut NodeInfoInserters, interner: &StringInterner, value_node: SexprNode| {
+            |ctx: &mut SexprParseContext, db: &dyn SexprParser, value_node: SexprNode| {
                 //let value_node_span = value_node.span.clone();
-                ListParsableWrapper::<T>::parse(infos, interner, value_node)
+                ListParsableWrapper::<T>::parse(ctx, db, value_node)
                     .map(|x| Box::new(x.0) as Box<dyn Any>)
             },
         )
@@ -217,17 +217,17 @@ impl<C, T> Default for NodeInfoContainer<C, T> {
     }
 }
 
-/// Mutable references to all node info containers known about during a parse operation.
+/// Contains mutable references to all node info containers known about during a parse operation.
 /// The containers will be filled with all the info found in S-expressions.
 #[derive(Default)]
-pub struct NodeInfoInserters<'a> {
+pub struct SexprParseContext<'a> {
     /// Containers to be filled with expression node info.
     expr_infos: Vec<&'a mut dyn AbstractNodeInfoContainer<ExprContents>>,
     /// A list of all of the keywords for expression infos that were ignored (see [`Self::process_expr_info`]).
     expr_ignored_keywords: HashSet<String>,
 
     /// Containers to be filled with name node info.
-    name_infos: Vec<&'a mut dyn AbstractNodeInfoContainer<Spur>>,
+    name_infos: Vec<&'a mut dyn AbstractNodeInfoContainer<Str>>,
     /// A list of all of the keywords for name infos that were ignored (see [`Self::process_expr_info`]).
     name_ignored_keywords: HashSet<String>,
 }
@@ -256,7 +256,7 @@ macro_rules! generate_process_functions {
         /// keywords.
         pub(crate) fn $process_fname(
             &mut self,
-            interner: &StringInterner,
+            db: &dyn SexprParser,
             node: &Node<$t>,
             value_node: SexprNode,
         ) -> Result<(), ParseError> {
@@ -272,7 +272,7 @@ macro_rules! generate_process_functions {
 
             let info = self.$infos.iter().find(|info| info.keyword() == keyword);
             let value = if let Some(info) = info {
-                info.parse_node()(self, interner, value_node)?
+                info.parse_node()(self, db, value_node)?
             } else {
                 // Ignore the info.
                 self.$kwds.insert(keyword.clone());
@@ -295,7 +295,7 @@ macro_rules! generate_process_functions {
     };
 }
 
-impl<'a> NodeInfoInserters<'a> {
+impl<'a> SexprParseContext<'a> {
     generate_process_functions!(
         ExprContents,
         register_expr_info,
@@ -304,7 +304,7 @@ impl<'a> NodeInfoInserters<'a> {
         expr_ignored_keywords
     );
     generate_process_functions!(
-        Spur,
+        Str,
         register_name_info,
         process_name_info,
         name_infos,

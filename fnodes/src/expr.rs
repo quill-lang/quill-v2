@@ -13,13 +13,13 @@ impl SexprListParsable for IntroLocal {
     const KEYWORD: Option<&'static str> = Some("local");
 
     fn parse_list(
-        infos: &mut NodeInfoInserters,
-        interner: &StringInterner,
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
         let [value] = force_arity(span, args)?;
-        Ok(Self(AtomParsableWrapper::parse(infos, interner, value)?.0))
+        Ok(Self(AtomParsableWrapper::parse(ctx, db, value)?.0))
     }
 }
 
@@ -30,13 +30,13 @@ impl SexprListParsable for IntroU64 {
     const KEYWORD: Option<&'static str> = Some("iu64");
 
     fn parse_list(
-        infos: &mut NodeInfoInserters,
-        interner: &StringInterner,
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
         let [value] = force_arity(span, args)?;
-        Ok(Self(AtomParsableWrapper::parse(infos, interner, value)?.0))
+        Ok(Self(AtomParsableWrapper::parse(ctx, db, value)?.0))
     }
 }
 
@@ -47,8 +47,8 @@ impl SexprListParsable for IntroFalse {
     const KEYWORD: Option<&'static str> = Some("ifalse");
 
     fn parse_list(
-        _infos: &mut NodeInfoInserters,
-        _interner: &StringInterner,
+        _ctx: &mut SexprParseContext,
+        _db: &dyn SexprParser,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
@@ -64,8 +64,8 @@ impl SexprListParsable for IntroTrue {
     const KEYWORD: Option<&'static str> = Some("itrue");
 
     fn parse_list(
-        _infos: &mut NodeInfoInserters,
-        _interner: &StringInterner,
+        _ctx: &mut SexprParseContext,
+        _db: &dyn SexprParser,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
@@ -81,8 +81,8 @@ impl SexprListParsable for IntroUnit {
     const KEYWORD: Option<&'static str> = Some("iunit");
 
     fn parse_list(
-        _infos: &mut NodeInfoInserters,
-        _interner: &StringInterner,
+        _ctx: &mut SexprParseContext,
+        _db: &dyn SexprParser,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
@@ -98,13 +98,13 @@ impl SexprListParsable for Inst {
     const KEYWORD: Option<&'static str> = Some("inst");
 
     fn parse_list(
-        infos: &mut NodeInfoInserters,
-        interner: &StringInterner,
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
         let [value] = force_arity(span, args)?;
-        Ok(Self(ListParsableWrapper::parse(infos, interner, value)?.0))
+        Ok(Self(ListParsableWrapper::parse(ctx, db, value)?.0))
     }
 }
 
@@ -115,15 +115,13 @@ impl SexprListParsable for ExprTy {
     const KEYWORD: Option<&'static str> = Some("ty");
 
     fn parse_list(
-        infos: &mut NodeInfoInserters,
-        interner: &StringInterner,
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
         let [value] = force_arity(span, args)?;
-        Ok(Self(
-            ListParsableWrapper::<Expr>::parse(infos, interner, value)?.0,
-        ))
+        Ok(Self(ListParsableWrapper::<Expr>::parse(ctx, db, value)?.0))
     }
 }
 
@@ -139,15 +137,15 @@ impl SexprListParsable for Let {
     const KEYWORD: Option<&'static str> = Some("let");
 
     fn parse_list(
-        infos: &mut NodeInfoInserters,
-        interner: &StringInterner,
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
         let [to_assign, body] = force_arity(span, args)?;
         Ok(Let {
-            to_assign: Box::new(ListParsableWrapper::<Expr>::parse(infos, interner, to_assign)?.0),
-            body: Box::new(ListParsableWrapper::<Expr>::parse(infos, interner, body)?.0),
+            to_assign: Box::new(ListParsableWrapper::<Expr>::parse(ctx, db, to_assign)?.0),
+            body: Box::new(ListParsableWrapper::<Expr>::parse(ctx, db, body)?.0),
         })
     }
 }
@@ -164,15 +162,15 @@ impl SexprListParsable for Lambda {
     const KEYWORD: Option<&'static str> = Some("lambda");
 
     fn parse_list(
-        infos: &mut NodeInfoInserters,
-        interner: &StringInterner,
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
         let [binding_count, body] = force_arity(span, args)?;
         Ok(Lambda {
-            binding_count: AtomParsableWrapper::<u32>::parse(infos, interner, binding_count)?.0,
-            body: Box::new(ListParsableWrapper::<Expr>::parse(infos, interner, body)?.0),
+            binding_count: AtomParsableWrapper::<u32>::parse(ctx, db, binding_count)?.0,
+            body: Box::new(ListParsableWrapper::<Expr>::parse(ctx, db, body)?.0),
         })
     }
 }
@@ -189,15 +187,15 @@ impl SexprListParsable for Apply {
     const KEYWORD: Option<&'static str> = Some("ap");
 
     fn parse_list(
-        infos: &mut NodeInfoInserters,
-        interner: &StringInterner,
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
         let [function, argument] = force_arity(span, args)?;
         Ok(Apply {
-            function: Box::new(ListParsableWrapper::<Expr>::parse(infos, interner, function)?.0),
-            argument: Box::new(ListParsableWrapper::<Expr>::parse(infos, interner, argument)?.0),
+            function: Box::new(ListParsableWrapper::<Expr>::parse(ctx, db, function)?.0),
+            argument: Box::new(ListParsableWrapper::<Expr>::parse(ctx, db, argument)?.0),
         })
     }
 }
@@ -237,7 +235,7 @@ macro_rules! gen_variants {
         impl SexprListParsable for $n {
             const KEYWORD: Option<&'static str> = None;
 
-            fn parse_list(infos: &mut NodeInfoInserters, interner: &StringInterner, span: Span, mut args: Vec<SexprNode>) -> Result<Self, ParseError> {
+            fn parse_list(ctx: &mut SexprParseContext, db: &dyn SexprParser, span: Span, mut args: Vec<SexprNode>) -> Result<Self, ParseError> {
                 if args.is_empty() {
                     return Err(ParseError {
                         span,
@@ -264,7 +262,7 @@ macro_rules! gen_variants {
 
                 Ok(match Some(keyword) {
                     $(
-                        $t::KEYWORD => $t::parse_list(infos, interner, span, args)?.into(),
+                        $t::KEYWORD => $t::parse_list(ctx, db, span, args)?.into(),
                     )*
                     _ => {
                         return Err(ParseError {
@@ -300,8 +298,8 @@ impl SexprListParsable for Expr {
     const KEYWORD: Option<&'static str> = None;
 
     fn parse_list(
-        infos: &mut NodeInfoInserters,
-        interner: &StringInterner,
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
         span: Span,
         mut args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
@@ -326,15 +324,15 @@ impl SexprListParsable for Expr {
             }
             let _expr_keyword = args.remove(0);
             let expr_contents =
-                ListParsableWrapper::<ExprContents>::parse(infos, interner, args.remove(0))?.0;
+                ListParsableWrapper::<ExprContents>::parse(ctx, db, args.remove(0))?.0;
             let expr = Node::new(span, expr_contents);
             for info in args {
-                infos.process_expr_info(interner, &expr, info)?;
+                ctx.process_expr_info(db, &expr, info)?;
             }
             Ok(expr)
         } else {
             // This is of the form `ExprContents`.
-            ExprContents::parse_list(infos, interner, span.clone(), args)
+            ExprContents::parse_list(ctx, db, span.clone(), args)
                 .map(|expr_contents| Node::new(span, expr_contents))
         }
     }

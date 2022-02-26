@@ -41,10 +41,10 @@ impl Str {
 pub struct Source {
     /// The relative path from the project root to this source file.
     /// File extensions are *not* appended to this path.
-    path: Path,
+    pub path: Path,
     /// The type of the file.
     /// This is used to deduce the file extension.
-    ty: SourceType,
+    pub ty: SourceType,
 }
 
 /// Used to deduce the file extension of a [`Source`].
@@ -52,6 +52,14 @@ pub struct Source {
 pub enum SourceType {
     /// A feather source file, written as an S-expression encoded as UTF-8.
     Feather,
+}
+
+impl SourceType {
+    pub fn extension(self) -> &'static str {
+        match self {
+            SourceType::Feather => "sexp",
+        }
+    }
 }
 
 /// A fully qualified path.

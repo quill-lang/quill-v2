@@ -1,6 +1,7 @@
 use std::{path::PathBuf, sync::Arc};
 
-use fcommon::{FileReader, FileWatcher, Intern, PathData};
+use fcommon::{FileReader, Intern, PathData, Source, SourceType};
+use fnodes::SexprParser;
 use salsa::Durability;
 
 mod db;
@@ -14,12 +15,16 @@ fn run(watch_for_file_updates: bool) {
     db.set_project_root_with_durability(Arc::new(PathBuf::new()), Durability::HIGH);
     let path = db.intern_path_data(PathData(vec![
         db.intern_string_data("test".to_string()),
-        db.intern_string_data("test.sexp".to_string()),
+        db.intern_string_data("test".to_string()),
     ]));
+    let src = Source {
+        path,
+        ty: SourceType::Feather,
+    };
 
-    println!("{}", db.source(path));
+    println!("{:#?}", db.expr_from_feather_source(src));
 
-    if watch_for_file_updates {
+    /*if watch_for_file_updates {
         loop {
             match rx.recv() {
                 Ok(event) => {
@@ -54,5 +59,5 @@ fn run(watch_for_file_updates: bool) {
                 Err(e) => println!("watch error: {:?}", e),
             }
         }
-    }
+    }*/
 }

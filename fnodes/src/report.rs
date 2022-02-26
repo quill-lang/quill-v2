@@ -2,12 +2,10 @@ use std::{fmt::Debug, sync::Arc};
 
 use ariadne::{Color, Fmt, Label, Report, ReportKind, Source};
 use chumsky::Parser;
-use lasso::ThreadedRodeo;
 
 use crate::{
     deserialise::{ListParsableWrapper, ParseErrorReason, SexprListParsable, SexprParsable},
-    s_expr::sexpr_parser,
-    NodeInfoInserters,
+    SexprParseContext,
 };
 
 /// Parse this input source.
@@ -15,11 +13,13 @@ use crate::{
 ///
 /// TODO: Convert this into a query-style function.
 /// This should only be used for testing purposes.
-pub fn parse_and_report<P>(infos: &mut NodeInfoInserters, src: &str) -> Option<P>
+pub fn parse_and_report<P>(ctx: &mut SexprParseContext, src: &str) -> Option<P>
 where
     P: SexprListParsable + Debug,
 {
-    let interner = Arc::new(ThreadedRodeo::new());
+    None
+    /*
+    let db = Arc::new(ThreadedRodeo::new());
 
     let s_expr = sexpr_parser().parse(src);
     let s_expr = match s_expr {
@@ -88,7 +88,7 @@ where
         }
     };
 
-    let result = ListParsableWrapper::<P>::parse(infos, &interner, s_expr).map(|x| x.0);
+    let result = ListParsableWrapper::<P>::parse(infos, &db, s_expr).map(|x| x.0);
     match result {
         Ok(value) => Some(value),
         Err(err) => {
@@ -133,4 +133,5 @@ where
             None
         }
     }
+    */
 }

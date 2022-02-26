@@ -4,11 +4,12 @@ use std::{
 };
 
 use fcommon::*;
+use fnodes::SexprParserStorage;
 use notify::{RecommendedWatcher, Watcher};
 use salsa::Snapshot;
 
 /// The main database that manages all the compiler's queries.
-#[salsa::database(FileReaderStorage, InternStorage)]
+#[salsa::database(FileReaderStorage, InternStorage, SexprParserStorage)]
 pub struct FeatherDatabase {
     storage: salsa::Storage<Self>,
     watcher: Arc<Mutex<RecommendedWatcher>>,
@@ -25,20 +26,21 @@ impl salsa::ParallelDatabase for FeatherDatabase {
 }
 
 impl FileWatcher for FeatherDatabase {
-    fn watch(&self, path: Path) {
+    fn watch(&self, src: Source) {
         // Add a path to be watched. All files and directories at that path and
         // below will be monitored for changes.
         let mut watcher = self.watcher.lock().unwrap();
         watcher
             .watch(
-                self.path_to_path_buf(path),
+                self.path_to_path_buf(src.path)
+                    .with_extension(src.ty.extension()),
                 notify::RecursiveMode::Recursive,
             )
             .unwrap();
     }
 
-    fn did_change_file(&mut self, path: Path) {
-        SourceQuery.in_db_mut(self).invalidate(&path);
+    fn did_change_file(&mut self, src: Source) {
+        SourceQuery.in_db_mut(self).invalidate(&src);
     }
 }
 

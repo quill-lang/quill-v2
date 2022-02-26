@@ -1,6 +1,6 @@
 (ap (ap
     (lambda 2
-        (let (iu64 1) (local 0)))
+        (expr (let (iu64 1) (local 0)) (at (3 5))))
     (iunit))
-    (ifalse)
+    (inst ("core" "add" "i32"))
 )
