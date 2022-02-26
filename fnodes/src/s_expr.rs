@@ -55,28 +55,30 @@ pub fn parse_sexpr(source: Source, source_contents: &str) -> Dr<SexprNode> {
 
                 let report = Report::new(ReportKind::Error, source, e.span().start)
                     .with_message(msg)
-                    .with_label(Label::new(e.span(), LabelType::Error).with_message(format!(
+                    .with_label(Label::new(source, e.span(), LabelType::Error).with_message(
+                        format!(
                                 "unexpected {}",
                                 e.found()
                                     .map(|c| format!("token {}", c))
                                     .unwrap_or_else(|| "end of input".to_string())
-                            )));
+                            ),
+                    ));
 
                 let report = match e.reason() {
                     chumsky::error::SimpleReason::Unclosed { span, delimiter } => report
                         .with_label(
-                            Label::new(span.clone(), LabelType::Error)
+                            Label::new(source, span.clone(), LabelType::Error)
                                 .with_message(format!("unclosed delimiter {}", delimiter)),
                         ),
                     chumsky::error::SimpleReason::Unexpected => report,
-                    chumsky::error::SimpleReason::Custom(msg) => {
-                        report.with_label(Label::new(e.span(), LabelType::Error).with_message(msg))
-                    }
+                    chumsky::error::SimpleReason::Custom(msg) => report.with_label(
+                        Label::new(source, e.span(), LabelType::Error).with_message(msg),
+                    ),
                 };
 
                 reports.push(report);
             }
-            return Dr::fail_many(reports);
+            Dr::fail_many(reports)
         }
     }
 }

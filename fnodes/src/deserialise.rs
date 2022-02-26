@@ -84,7 +84,8 @@ impl ParseError {
         Report::new(ReportKind::Error, source, self.span.start)
             .with_message(msg)
             .with_label(
-                Label::new(self.span, LabelType::Error).with_message("error originated here"),
+                Label::new(source, self.span, LabelType::Error)
+                    .with_message("error originated here"),
             )
     }
 }

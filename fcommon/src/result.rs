@@ -64,8 +64,46 @@ impl Report {
     #[cfg(feature = "ariadne")]
     pub fn render(&self, db: &impl crate::FileReader) {
         ariadne::Report::from(self)
-            .eprint(ariadne::Source::from(db.source(self.source).as_str()))
+            .eprint(FileReaderCache {
+                db,
+                files: Default::default(),
+            })
             .unwrap();
+    }
+}
+
+/// Holds a database and uses it as a cache for `ariadne`.
+#[cfg(feature = "ariadne")]
+struct FileReaderCache<'db, T>
+where
+    T: crate::FileReader,
+{
+    db: &'db T,
+    files: std::collections::HashMap<Source, ariadne::Source>,
+}
+
+#[cfg(feature = "ariadne")]
+impl<'db, T> ariadne::Cache<Source> for FileReaderCache<'db, T>
+where
+    T: crate::FileReader,
+{
+    fn fetch(&mut self, id: &Source) -> Result<&ariadne::Source, Box<dyn std::fmt::Debug + '_>> {
+        Ok(match self.files.entry(*id) {
+            std::collections::hash_map::Entry::Occupied(occupied) => occupied.into_mut(),
+            std::collections::hash_map::Entry::Vacant(vacant) => {
+                vacant.insert(ariadne::Source::from(self.db.source(*id).as_str()))
+            }
+        })
+    }
+
+    fn display<'a>(&self, id: &'a Source) -> Option<Box<dyn std::fmt::Display + 'a>> {
+        Some(Box::new(
+            self.db
+                .path_to_path_buf(id.path)
+                .with_extension(id.ty.extension())
+                .to_string_lossy()
+                .to_string(),
+        ))
     }
 }
 
@@ -73,9 +111,13 @@ impl Report {
 /// to display it to the user.
 /// Enabled only when the `ariadne` feature flag is set.
 #[cfg(feature = "ariadne")]
-impl From<&Report> for ariadne::Report {
+impl From<&Report> for ariadne::Report<(Source, Span)> {
     fn from(report: &Report) -> Self {
-        let mut result = ariadne::Report::build(report.kind.into(), (), report.offset.unwrap_or(0));
+        let mut result = ariadne::Report::build(
+            report.kind.into(),
+            report.source,
+            report.offset.unwrap_or(0),
+        );
         if let Some(message) = &report.message {
             result = result.with_message(message);
         }
@@ -110,6 +152,7 @@ impl From<ReportKind> for ariadne::ReportKind {
 /// See the `ariadne` crate for more information.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Label {
+    source: Source,
     span: Span,
     ty: LabelType,
     message: Option<String>,
@@ -118,9 +161,9 @@ pub struct Label {
 }
 
 #[cfg(feature = "ariadne")]
-impl From<&Label> for ariadne::Label {
+impl From<&Label> for ariadne::Label<(Source, Span)> {
     fn from(label: &Label) -> Self {
-        let mut result = Self::new(label.span.clone())
+        let mut result = Self::new((label.source, label.span.clone()))
             .with_color(label.ty.into())
             .with_order(label.order)
             .with_priority(label.priority);
@@ -150,8 +193,9 @@ impl From<LabelType> for ariadne::Color {
 }
 
 impl Label {
-    pub fn new(span: Span, ty: LabelType) -> Self {
+    pub fn new(source: Source, span: Span, ty: LabelType) -> Self {
         Self {
+            source,
             span,
             ty,
             message: None,
