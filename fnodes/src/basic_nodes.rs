@@ -135,7 +135,7 @@ impl SexprListParsable for SourceSpan {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DeBruijnIndex(u32);
+pub struct DeBruijnIndex(pub u32);
 
 impl SexprAtomParsable for DeBruijnIndex {
     fn parse_atom(db: &dyn SexprParser, text: String) -> Result<Self, ParseErrorReason> {

@@ -7,7 +7,7 @@ use crate::*;
 /// Move the value of a local variable into this expression.
 /// The value of this variable is a de Bruijn index.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct IntroLocal(DeBruijnIndex);
+pub struct IntroLocal(pub DeBruijnIndex);
 
 impl SexprListParsable for IntroLocal {
     const KEYWORD: Option<&'static str> = Some("local");
@@ -189,7 +189,7 @@ pub struct Apply<E = Expr> {
     /// The function to be invoked.
     pub function: Box<E>,
     /// The argument to apply to the function.
-    pub argument: Box<E>,
+    pub argument: DeBruijnIndex,
 }
 
 impl SexprListParsable for Apply {
@@ -204,7 +204,7 @@ impl SexprListParsable for Apply {
         let [function, argument] = force_arity(span, args)?;
         Ok(Apply {
             function: Box::new(ListParsableWrapper::<Expr>::parse(ctx, db, function)?.0),
-            argument: Box::new(ListParsableWrapper::<Expr>::parse(ctx, db, argument)?.0),
+            argument: AtomParsableWrapper::<DeBruijnIndex>::parse(ctx, db, argument)?.0,
         })
     }
 }
@@ -247,6 +247,7 @@ impl VarGenerator {
     }
 }
 
+// TODO: Document this in the spec.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormFunc<E = Expr> {
     /// The type of the parameter.

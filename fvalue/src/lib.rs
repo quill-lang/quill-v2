@@ -35,6 +35,7 @@ pub fn infer_values(db: &dyn ValueInferenceEngine, source: Source) -> Dr<()> {
             &res.expr,
             &mut tys,
             &mut spans,
+            &[],
             &mut constraints,
             &mut node_id_gen,
             &mut var_gen,
@@ -89,62 +90,159 @@ struct Equality {
     right: NodeId,
 }
 
+/// `locals` is a stack of the locals in scope.
+/// They can be indexed with de Bruijn indices.
 fn traverse(
     expr: &Expr,
     tys: &mut NodeInfoContainer<ExprContents, Expr>,
     spans: &mut NodeInfoContainer<ExprContents, SourceSpan>,
+    locals: &[NodeId],
     constraints: &mut Vec<Constraint>,
     node_id_gen: &mut NodeIdGenerator,
     var_gen: &mut VarGenerator,
 ) {
     spans.insert(expr, SourceSpan(expr.span()));
-    match &expr.contents {
-        ExprContents::IntroUnit(_) => {
-            tys.insert(
-                expr,
-                Expr::new(
-                    node_id_gen.gen(),
-                    expr.span(),
-                    ExprContents::FormUnit(FormUnit),
-                ),
-            );
-        }
+    let ty = match &expr.contents {
+        ExprContents::IntroUnit(_) => Expr::new(
+            node_id_gen.gen(),
+            expr.span(),
+            ExprContents::FormUnit(FormUnit),
+        ),
         ExprContents::Lambda(lambda) => {
-            traverse(&lambda.body, tys, spans, constraints, node_id_gen, var_gen);
+            // lambda (x0:T0) (x1:T1) ... (x(binding_count - 1):T(binding_count - 1))
+            let (params, param_tys): (Vec<_>, Vec<_>) = (0..lambda.binding_count)
+                .map(|_| {
+                    // TODO: the parameter type should be spanned at the correct location, not the whole lambda
+                    let param_val = Expr::new(
+                        node_id_gen.gen(),
+                        expr.span(),
+                        ExprContents::Var(var_gen.gen()),
+                    );
+                    let param_ty = Expr::new(
+                        node_id_gen.gen(),
+                        expr.span(),
+                        ExprContents::Var(var_gen.gen()),
+                    );
+                    spans.insert(&param_val, SourceSpan(expr.span()));
+                    spans.insert(&param_ty, SourceSpan(expr.span()));
+                    let ty_id = param_ty.id();
+                    tys.insert(&param_val, param_ty);
+                    (param_val, ty_id)
+                })
+                .unzip();
 
-            let param_ty = Expr::new(
+            info!("{:?}, {:?}", params, param_tys);
+
+            // The last bound variable has the lowest de Bruijn index.
+            let new_locals = params
+                .iter()
+                .rev()
+                .map(|expr| expr.id())
+                .chain(locals.iter().copied())
+                .collect::<Vec<_>>();
+
+            traverse(
+                &lambda.body,
+                tys,
+                spans,
+                &new_locals,
+                constraints,
+                node_id_gen,
+                var_gen,
+            );
+
+            let mut result_ty = Expr::new(
                 node_id_gen.gen(),
                 expr.span(),
                 ExprContents::Var(var_gen.gen()),
             );
-            spans.insert(&param_ty, SourceSpan(expr.span()));
-
-            let result_ty = Expr::new(
-                node_id_gen.gen(),
-                expr.span(),
-                ExprContents::Var(var_gen.gen()),
-            );
-            spans.insert(&result_ty, SourceSpan(expr.span()));
 
             constraints.push(Constraint::Equality(Equality {
                 left: tys.get(&lambda.body).unwrap().id(),
                 right: result_ty.id(),
             }));
 
-            let func_ty = Expr::new(
+            for param_ty in param_tys.into_iter().rev() {
+                spans.insert(&result_ty, SourceSpan(expr.span()));
+
+                let param_ty_var = Expr::new(
+                    node_id_gen.gen(),
+                    expr.span(),
+                    ExprContents::Var(var_gen.gen()),
+                );
+                spans.insert(&param_ty_var, SourceSpan(expr.span()));
+
+                constraints.push(Constraint::Equality(Equality {
+                    left: param_ty,
+                    right: param_ty_var.id(),
+                }));
+
+                result_ty = Expr::new(
+                    node_id_gen.gen(),
+                    expr.span(),
+                    ExprContents::FormFunc(FormFunc {
+                        parameter: Box::new(param_ty_var),
+                        result: Box::new(result_ty),
+                    }),
+                );
+            }
+
+            result_ty
+        }
+        ExprContents::Let(let_expr) => {
+            traverse(
+                &let_expr.to_assign,
+                tys,
+                spans,
+                locals,
+                constraints,
+                node_id_gen,
+                var_gen,
+            );
+
+            let new_locals = std::iter::once(let_expr.to_assign.id())
+                .chain(locals.iter().copied())
+                .collect::<Vec<_>>();
+
+            traverse(
+                &let_expr.body,
+                tys,
+                spans,
+                &new_locals,
+                constraints,
+                node_id_gen,
+                var_gen,
+            );
+
+            let result_ty = Expr::new(
                 node_id_gen.gen(),
                 expr.span(),
-                ExprContents::FormFunc(FormFunc {
-                    parameter: Box::new(param_ty),
-                    result: Box::new(result_ty),
-                }),
+                ExprContents::Var(var_gen.gen()),
             );
-            spans.insert(&func_ty, SourceSpan(expr.span()));
 
-            tys.insert(expr, func_ty);
+            constraints.push(Constraint::Equality(Equality {
+                left: tys.get(&let_expr.body).unwrap().id(),
+                right: result_ty.id(),
+            }));
+
+            result_ty
+        }
+        ExprContents::IntroLocal(local) => {
+            let result_ty = Expr::new(
+                node_id_gen.gen(),
+                expr.span(),
+                ExprContents::Var(var_gen.gen()),
+            );
+            constraints.push(Constraint::Equality(Equality {
+                left: tys.get_from_id(locals[local.0 .0 as usize]).unwrap().id(),
+                right: result_ty.id(),
+            }));
+            result_ty
         }
         _ => todo!(),
-    }
+    };
+    spans.insert(&ty, SourceSpan(expr.span()));
+    tys.insert(expr, ty);
 }
 
 /// Partition the set of nodes into equivalence classes given by the constraints.
@@ -245,7 +343,10 @@ impl PartialValue {
     /// Replace all instances of inference variables with their values.
     fn replace_vars(&mut self, var_to_val: &HashMap<Var, PartialValue>) {
         match self {
-            PartialValue::Let(_) => todo!(),
+            PartialValue::Let(Let { to_assign, body }) => {
+                to_assign.replace_vars(var_to_val);
+                body.replace_vars(var_to_val);
+            }
             PartialValue::Lambda(Lambda { body, .. }) => {
                 body.replace_vars(var_to_val);
             }
@@ -271,7 +372,7 @@ fn values(
 ) -> NodeInfoContainer<ExprContents, PartialValue> {
     let mut container = NodeInfoContainer::new();
     compute_values_of_expr(expr, &mut container);
-    for (id, ty_expr) in tys.iter() {
+    for (_id, ty_expr) in tys.iter() {
         compute_values_of_expr(ty_expr, &mut container);
     }
     container
@@ -283,7 +384,7 @@ fn compute_values_of_expr(
     container: &mut NodeInfoContainer<ExprContents, PartialValue>,
 ) -> PartialValue {
     let result = match &expr.contents {
-        ExprContents::IntroLocal(_) => todo!(),
+        ExprContents::IntroLocal(local) => PartialValue::IntroLocal(*local),
         ExprContents::IntroU64(val) => PartialValue::IntroU64(*val),
         ExprContents::IntroFalse(_) => todo!(),
         ExprContents::IntroTrue(_) => todo!(),
@@ -292,7 +393,10 @@ fn compute_values_of_expr(
         ExprContents::FormBool(_) => todo!(),
         ExprContents::FormUnit(_) => PartialValue::FormUnit,
         ExprContents::Inst(_) => todo!(),
-        ExprContents::Let(_) => todo!(),
+        ExprContents::Let(Let { to_assign, body }) => PartialValue::Let(Let {
+            to_assign: Box::new(compute_values_of_expr(to_assign, container)),
+            body: Box::new(compute_values_of_expr(body, container)),
+        }),
         ExprContents::Lambda(Lambda {
             binding_count,
             body,
@@ -340,11 +444,13 @@ fn find_representative<'a>(
             .map(|id| spans.get_from_id(*id).unwrap())
             .collect::<Vec<_>>();
         var_spans.sort();
-        let mut report = Report::new(ReportKind::Error, source, var_spans[0].0.start)
-            .with_message("could not deduce type of this equivalence class");
+        let mut reports = Vec::new();
         for span in var_spans {
-            report = report.with_label(Label::new(source, span.0.clone(), LabelType::Error));
+            let report = Report::new(ReportKind::Error, source, span.0.start)
+                .with_message("could not deduce the type of this expression")
+                .with_label(Label::new(source, span.0.clone(), LabelType::Error));
+            reports.push(report);
         }
-        Dr::fail(report)
+        Dr::fail_many(reports)
     }
 }
