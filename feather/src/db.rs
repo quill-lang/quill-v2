@@ -6,11 +6,17 @@ use std::{
 
 use fcommon::*;
 use fnodes::SexprParserStorage;
+use fvalue::ValueInferenceStorage;
 use notify::{RecommendedWatcher, Watcher};
 use salsa::Snapshot;
 
 /// The main database that manages all the compiler's queries.
-#[salsa::database(FileReaderStorage, InternStorage, SexprParserStorage)]
+#[salsa::database(
+    FileReaderStorage,
+    InternStorage,
+    SexprParserStorage,
+    ValueInferenceStorage
+)]
 pub struct FeatherDatabase {
     storage: salsa::Storage<Self>,
     watcher: Arc<Mutex<RecommendedWatcher>>,

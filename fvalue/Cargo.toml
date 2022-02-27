@@ -8,4 +8,5 @@ edition = "2021"
 [dependencies]
 fcommon = { path = "../fcommon" }
 fnodes = { path = "../fnodes" }
+salsa = "0.16.1"
 tracing = "0.1.31"

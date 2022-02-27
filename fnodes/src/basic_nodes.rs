@@ -103,7 +103,22 @@ impl SexprListParsable for QualifiedName {
 /// Specifies where in source (Quill) code a node came from.
 /// This is often used in names and expressions.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceSpan(Span);
+pub struct SourceSpan(pub Span);
+
+impl PartialOrd for SourceSpan {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SourceSpan {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0
+            .start
+            .cmp(&other.0.start)
+            .then(self.0.end.cmp(&other.0.end))
+    }
+}
 
 impl SexprListParsable for SourceSpan {
     const KEYWORD: Option<&'static str> = Some("at");

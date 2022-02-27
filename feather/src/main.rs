@@ -2,6 +2,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use fcommon::{FileReader, Intern, PathData, Source, SourceType};
 use fnodes::SexprParser;
+use fvalue::ValueInferenceEngine;
 use salsa::Durability;
 use tracing::info;
 use tracing_subscriber::{fmt::format::FmtSpan, FmtSubscriber};
@@ -31,9 +32,7 @@ fn main() {
         ty: SourceType::Feather,
     };
 
-    let result = db
-        .expr_from_feather_source(source)
-        .map(|x| fvalue::test(source, &*x));
+    let result = db.infer_values(source);
     for report in result.reports() {
         report.render(&db);
     }

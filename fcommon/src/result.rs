@@ -61,6 +61,11 @@ impl Report {
         self
     }
 
+    pub fn with_note(mut self, note: impl ToString) -> Self {
+        self.note = Some(note.to_string());
+        self
+    }
+
     /// Convert this report into an [`ariadne::Report`] and then
     /// display it to the user.
     #[cfg(feature = "ariadne")]
