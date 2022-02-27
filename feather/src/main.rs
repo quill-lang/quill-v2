@@ -26,12 +26,14 @@ fn main() {
         db.intern_string_data("test".to_string()),
         db.intern_string_data("test".to_string()),
     ]));
-    let src = Source {
+    let source = Source {
         path,
         ty: SourceType::Feather,
     };
 
-    let result = db.expr_from_feather_source(src);
+    let result = db
+        .expr_from_feather_source(source)
+        .map(|x| fvalue::test(source, &*x));
     for report in result.reports() {
         report.render(&db);
     }

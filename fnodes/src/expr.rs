@@ -74,22 +74,31 @@ impl SexprListParsable for IntroTrue {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct IntroUnit;
+macro_rules! gen_nullary {
+    ($n:ident $s:expr) => {
+        #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+        pub struct $n;
 
-impl SexprListParsable for IntroUnit {
-    const KEYWORD: Option<&'static str> = Some("iunit");
+        impl SexprListParsable for $n {
+            const KEYWORD: Option<&'static str> = Some($s);
 
-    fn parse_list(
-        _ctx: &mut SexprParseContext,
-        _db: &dyn SexprParser,
-        span: Span,
-        args: Vec<SexprNode>,
-    ) -> Result<Self, ParseError> {
-        let [] = force_arity(span, args)?;
-        Ok(Self)
-    }
+            fn parse_list(
+                _ctx: &mut SexprParseContext,
+                _db: &dyn SexprParser,
+                span: Span,
+                args: Vec<SexprNode>,
+            ) -> Result<Self, ParseError> {
+                let [] = force_arity(span, args)?;
+                Ok(Self)
+            }
+        }
+    };
 }
+
+gen_nullary!(IntroUnit "iunit");
+gen_nullary!(FormU64 "fu64");
+gen_nullary!(FormBool "fbool");
+gen_nullary!(FormUnit "funit");
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Inst(QualifiedName);
@@ -125,12 +134,12 @@ impl SexprListParsable for ExprTy {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct Let {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Let<E = Expr> {
     /// The value to assign to the new bound variable.
-    to_assign: Box<Expr>,
+    pub to_assign: Box<E>,
     /// The main body of the expression to be executed after assigning the value.
-    body: Box<Expr>,
+    pub body: Box<E>,
 }
 
 impl SexprListParsable for Let {
@@ -150,12 +159,12 @@ impl SexprListParsable for Let {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct Lambda {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Lambda<E = Expr> {
     /// The amount of new variables to be bound in the body of the lambda.
-    binding_count: u32,
+    pub binding_count: u32,
     /// The body of the lambda, also called the lambda term.
-    body: Box<Expr>,
+    pub body: Box<E>,
 }
 
 impl SexprListParsable for Lambda {
@@ -175,12 +184,12 @@ impl SexprListParsable for Lambda {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct Apply {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Apply<E = Expr> {
     /// The function to be invoked.
-    function: Box<Expr>,
+    pub function: Box<E>,
     /// The argument to apply to the function.
-    argument: Box<Expr>,
+    pub argument: Box<E>,
 }
 
 impl SexprListParsable for Apply {
@@ -196,6 +205,69 @@ impl SexprListParsable for Apply {
         Ok(Apply {
             function: Box::new(ListParsableWrapper::<Expr>::parse(ctx, db, function)?.0),
             argument: Box::new(ListParsableWrapper::<Expr>::parse(ctx, db, argument)?.0),
+        })
+    }
+}
+
+/// An inference variable.
+/// May have theoretically any type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Var(u32);
+
+impl SexprListParsable for Var {
+    const KEYWORD: Option<&'static str> = Some("var");
+
+    fn parse_list(
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
+        span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        let [num] = force_arity(span, args)?;
+        Ok(Var(AtomParsableWrapper::<u32>::parse(ctx, db, num)?.0))
+    }
+}
+
+/// Generates unique inference variable names.
+pub struct VarGenerator {
+    next_var: Var,
+}
+
+impl Default for VarGenerator {
+    fn default() -> Self {
+        Self { next_var: Var(0) }
+    }
+}
+
+impl VarGenerator {
+    pub fn gen(&mut self) -> Var {
+        let result = self.next_var;
+        self.next_var.0 += 1;
+        result
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormFunc<E = Expr> {
+    /// The type of the parameter.
+    pub parameter: Box<E>,
+    /// The type of the result.
+    pub result: Box<E>,
+}
+
+impl SexprListParsable for FormFunc {
+    const KEYWORD: Option<&'static str> = Some("ffunc");
+
+    fn parse_list(
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
+        span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        let [parameter, result] = force_arity(span, args)?;
+        Ok(FormFunc {
+            parameter: Box::new(ListParsableWrapper::<Expr>::parse(ctx, db, parameter)?.0),
+            result: Box::new(ListParsableWrapper::<Expr>::parse(ctx, db, result)?.0),
         })
     }
 }
@@ -281,15 +353,25 @@ macro_rules! gen_variants {
 
 gen_variants! {
     ExprContents "<any expression>":
+
     IntroLocal
+
     IntroU64
     IntroFalse
     IntroTrue
     IntroUnit
+
+    FormU64
+    FormBool
+    FormUnit
+
     Inst
     Let
     Lambda
     Apply
+    Var
+
+    FormFunc
 }
 
 pub type Expr = Node<ExprContents>;

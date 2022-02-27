@@ -28,7 +28,7 @@ pub struct Node<C> {
     /// The span at which the node resides in the S-expression.
     span: Span,
     /// The actual contents for this node.
-    contents: C,
+    pub contents: C,
 }
 
 impl<C> PartialEq for Node<C> {
@@ -55,6 +55,16 @@ where
 impl<C> Node<C> {
     pub fn new(id: NodeId, span: Span, contents: C) -> Self {
         Self { id, span, contents }
+    }
+
+    /// Get the node's ID.
+    pub fn id(&self) -> NodeId {
+        self.id
+    }
+
+    /// Get the node's span.
+    pub fn span(&self) -> Span {
+        self.span.clone()
     }
 }
 
@@ -90,14 +100,40 @@ impl<C, T> NodeInfoContainer<C, T> {
         self.map.insert(node.id, value)
     }
 
+    /// Assumes that the given ID is of a node of type `C`.
+    /// See [`HashMap::insert`].
+    pub fn insert_from_id(&mut self, id: NodeId, value: T) -> Option<T> {
+        self.map.insert(id, value)
+    }
+
     /// See [`HashMap::get`].
     pub fn get(&self, node: &Node<C>) -> Option<&T> {
         self.map.get(&node.id)
     }
 
+    /// Assumes that the given ID is of a node of type `C`.
+    /// See [`HashMap::get`].
+    pub fn get_from_id(&self, id: NodeId) -> Option<&T> {
+        self.map.get(&id)
+    }
+
     /// See [`HashMap::get_mut`].
     pub fn get_mut(&mut self, node: &Node<C>) -> Option<&mut T> {
         self.map.get_mut(&node.id)
+    }
+
+    /// Assumes that the given ID is of a node of type `C`.
+    /// See [`HashMap::get_mut`].
+    pub fn get_mut_from_id(&mut self, id: NodeId) -> Option<&mut T> {
+        self.map.get_mut(&id)
+    }
+
+    pub fn keys(&self) -> std::collections::hash_map::Keys<NodeId, T> {
+        self.map.keys()
+    }
+
+    pub fn iter(&self) -> std::collections::hash_map::Iter<NodeId, T> {
+        self.map.iter()
     }
 }
 
@@ -203,7 +239,7 @@ impl<C, T> Default for NodeInfoContainer<C, T> {
 /// requires nodes.
 /// Nodes are compared solely using their IDs, so it is *not* sound
 /// to compare nodes associated with different generators.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct NodeIdGenerator {
     /// The node ID to be assigned to the next node that is created.
     next_node_id: NodeId,
