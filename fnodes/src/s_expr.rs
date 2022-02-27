@@ -21,8 +21,8 @@ pub enum SexprNodeContents {
 }
 
 /// Parses an S-expression.
-/// TODO: Convert this into a query.
-pub fn parse_sexpr(source: Source, source_contents: &str) -> Dr<SexprNode> {
+/// Normally, you should use the query [`crate::SexprParser::parse_sexpr`] instead of calling this function directly.
+pub(crate) fn parse_sexpr_from_string(source: Source, source_contents: &str) -> Dr<SexprNode> {
     match sexpr_parser().parse(source_contents) {
         Ok(value) => value.into(),
         Err(errs) => {

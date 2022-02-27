@@ -97,7 +97,8 @@ where
                     self.db
                         .source(*id)
                         .value
-                        .as_deref()
+                        .as_ref()
+                        .map(|x| x.as_str())
                         .unwrap_or("<could not read file>"),
                 ))
             }
@@ -239,7 +240,13 @@ impl Label {
 ///
 /// Upon exiting the program, all error messages will be scanned to check the most severe error level.
 /// If any errors exist, no warnings will be emitted.
-#[derive(Debug, PartialEq, Eq)]
+///
+/// If no reports are provided, this does not allocate, and has roughly the same cost as a normal `Result`.
+/// If using [`std::sync::Arc`] or similar to encapsulate a value together with reports, the [`Dr`] should
+/// typically be the outermost container. This is because we are optimising for the path on which no
+/// reports are emitted, so the cost is negligible, and it provides for a nicer API since we have direct
+/// access to all of [`Dr`]'s methods.
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[must_use = "errors must be processed by an ErrorEmitter"]
 pub struct Dr<T> {
     /// If this is `None`, then the computation failed. Error messages will be contained inside `reports`.

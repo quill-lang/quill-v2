@@ -10,7 +10,7 @@ pub trait FileReader: InternExt + FileWatcher {
 
     /// Loads source code from a file.
     /// This is performed lazily when needed (see [`FileWatcher`]).
-    fn source(&self, file_name: Source) -> Arc<Dr<String>>;
+    fn source(&self, file_name: Source) -> Dr<Arc<String>>;
 }
 
 /// A trait to be implemented by databases which
@@ -24,7 +24,7 @@ pub trait FileWatcher {
     fn did_change_file(&mut self, source: Source);
 }
 
-fn source(db: &dyn FileReader, source: Source) -> Arc<Dr<String>> {
+fn source(db: &dyn FileReader, source: Source) -> Dr<Arc<String>> {
     db.salsa_runtime()
         .report_synthetic_read(salsa::Durability::LOW);
 
@@ -33,8 +33,8 @@ fn source(db: &dyn FileReader, source: Source) -> Arc<Dr<String>> {
         .project_root()
         .join(db.path_to_path_buf(source.path))
         .with_extension(source.ty.extension());
-    Arc::new(match std::fs::read_to_string(&path_buf) {
-        Ok(value) => value.into(),
+    match std::fs::read_to_string(&path_buf) {
+        Ok(value) => Dr::ok(value).map(Arc::new),
         Err(err) => Dr::fail(
             Report::new_in_file(ReportKind::Error, source).with_message(format!(
                 "could not read file '{}': {}",
@@ -42,5 +42,5 @@ fn source(db: &dyn FileReader, source: Source) -> Arc<Dr<String>> {
                 err,
             )),
         ),
-    })
+    }
 }

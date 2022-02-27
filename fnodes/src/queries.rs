@@ -5,13 +5,14 @@ use fcommon::{Dr, FileReader, Source, Str};
 use crate::{
     basic_nodes::SourceSpan,
     expr::{Expr, ExprContents, ExprTy},
-    parse_sexpr, ListParsableWrapper, NodeIdGenerator, NodeInfoContainer, SexprParsable,
-    SexprParseContext,
+    parse_sexpr_from_string, ListParsableWrapper, NodeIdGenerator, NodeInfoContainer, SexprNode,
+    SexprParsable, SexprParseContext,
 };
 
 #[salsa::query_group(SexprParserStorage)]
 pub trait SexprParser: FileReader {
-    fn expr_from_feather_source(&self, source: Source) -> Arc<Dr<ExprParseResult>>;
+    fn parse_sexpr(&self, source: Source) -> Dr<Arc<SexprNode>>;
+    fn expr_from_feather_source(&self, source: Source) -> Dr<Arc<ExprParseResult>>;
 }
 
 /// A set of infos that may be useful to any feather compiler component.
@@ -41,14 +42,21 @@ pub struct ExprParseResult<I = DefaultInfos> {
     pub infos: I,
 }
 
-fn expr_from_feather_source(db: &dyn SexprParser, source: Source) -> Arc<Dr<ExprParseResult>> {
-    Arc::new(db.source(source).as_deref().bind(|source_code| {
-        let s_expr = parse_sexpr(source, source_code);
-        s_expr.bind(|s_expr| {
+fn parse_sexpr(db: &dyn SexprParser, source: Source) -> Dr<Arc<SexprNode>> {
+    db.source(source)
+        .as_deref()
+        .bind(|source_code| parse_sexpr_from_string(source, source_code))
+        .map(Arc::new)
+}
+
+fn expr_from_feather_source(db: &dyn SexprParser, source: Source) -> Dr<Arc<ExprParseResult>> {
+    db.parse_sexpr(source)
+        .as_deref()
+        .bind(|s_expr| {
             let mut default_infos = DefaultInfos::default();
             let mut ctx = SexprParseContext::default();
             default_infos.register(&mut ctx);
-            let result: Dr<_> = ListParsableWrapper::<Expr>::parse(&mut ctx, db, s_expr)
+            let result: Dr<_> = ListParsableWrapper::<Expr>::parse(&mut ctx, db, s_expr.clone())
                 .map(|x| x.0)
                 .map_err(|x| x.into_report(source))
                 .into();
@@ -59,5 +67,5 @@ fn expr_from_feather_source(db: &dyn SexprParser, source: Source) -> Arc<Dr<Expr
                 infos: default_infos,
             })
         })
-    }))
+        .map(Arc::new)
 }
