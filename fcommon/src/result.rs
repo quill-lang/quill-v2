@@ -65,11 +65,18 @@ impl Report {
     /// display it to the user.
     #[cfg(feature = "ariadne")]
     pub fn render(&self, db: &impl crate::FileReader) {
+        // Use a locked version of `stderr`, so that reports are not interspersed
+        // with other things such as tracing messages from other threads.
+        let stderr = std::io::stderr();
+        let lock = stderr.lock();
         ariadne::Report::from(self)
-            .eprint(FileReaderCache {
-                db,
-                files: Default::default(),
-            })
+            .write(
+                FileReaderCache {
+                    db,
+                    files: Default::default(),
+                },
+                lock,
+            )
             .unwrap();
     }
 }

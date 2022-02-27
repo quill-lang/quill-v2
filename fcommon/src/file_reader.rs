@@ -24,6 +24,7 @@ pub trait FileWatcher {
     fn did_change_file(&mut self, source: Source);
 }
 
+#[tracing::instrument(level = "debug")]
 fn source(db: &dyn FileReader, source: Source) -> Dr<Arc<String>> {
     db.salsa_runtime()
         .report_synthetic_read(salsa::Durability::LOW);

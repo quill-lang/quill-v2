@@ -1,4 +1,5 @@
 use std::{
+    fmt::Debug,
     sync::{mpsc, Arc, Mutex},
     time::Duration,
 };
@@ -13,6 +14,12 @@ use salsa::Snapshot;
 pub struct FeatherDatabase {
     storage: salsa::Storage<Self>,
     watcher: Arc<Mutex<RecommendedWatcher>>,
+}
+
+impl Debug for FeatherDatabase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<db>")
+    }
 }
 
 impl salsa::Database for FeatherDatabase {}

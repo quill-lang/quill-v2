@@ -3,15 +3,24 @@ use std::{path::PathBuf, sync::Arc};
 use fcommon::{FileReader, Intern, PathData, Source, SourceType};
 use fnodes::SexprParser;
 use salsa::Durability;
+use tracing::info;
+use tracing_subscriber::{fmt::format::FmtSpan, FmtSubscriber};
 
 mod db;
 
 fn main() {
-    run(false);
-}
+    let log_level = tracing::Level::TRACE;
+    let subscriber = FmtSubscriber::builder()
+        .with_max_level(log_level)
+        .with_span_events(FmtSpan::CLOSE)
+        .with_timer(tracing_subscriber::fmt::time::uptime())
+        .pretty()
+        .finish();
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("could not set default tracing subscriber");
+    info!("initialised logging with verbosity level {}", log_level);
 
-fn run(watch_for_file_updates: bool) {
-    let (mut db, rx) = db::FeatherDatabase::new();
+    let (mut db, _rx) = db::FeatherDatabase::new();
     db.set_project_root_with_durability(Arc::new(PathBuf::new()), Durability::HIGH);
     let path = db.intern_path_data(PathData(vec![
         db.intern_string_data("test".to_string()),
@@ -26,42 +35,42 @@ fn run(watch_for_file_updates: bool) {
     for report in result.reports() {
         report.render(&db);
     }
-    // println!("{:#?}", db.expr_from_feather_source(src));
+    //println!("{:#?}", db.expr_from_feather_source(src));
 
-    /*if watch_for_file_updates {
-        loop {
-            match rx.recv() {
-                Ok(event) => {
-                    println!("caught event {:?}", event);
-                    if let notify::DebouncedEvent::Write(filepath_buf) = event {
-                        // Convert this PathBuf into a rust Path, relativised to the current project directory.
-                        if let Ok(path_relativised) = filepath_buf.strip_prefix(&*db.project_root())
-                        {
-                            // Convert this relativised rust Path into a feather Path.
-                            let path = db.intern_path_data(PathData(
-                                path_relativised
-                                    .iter()
-                                    .map(|component| {
-                                        db.intern_string_data(
-                                            component.to_string_lossy().to_string(),
-                                        )
-                                    })
-                                    .collect(),
-                            ));
-                            // Tell the database that the file got changed.
-                            println!("file '{}' changed", filepath_buf.to_string_lossy());
-                            db.did_change_file(path);
-                        } else {
-                            // TODO: Add the tracing crate.
-                            println!(
-                                "ignoring file path '{}' outside the project root",
-                                filepath_buf.to_string_lossy()
-                            );
-                        }
+    /*
+    // This is the main loop for language servers, and other things that need regular file updates.
+    loop {
+        match rx.recv() {
+            Ok(event) => {
+                println!("caught event {:?}", event);
+                if let notify::DebouncedEvent::Write(filepath_buf) = event {
+                    // Convert this PathBuf into a rust Path, relativised to the current project directory.
+                    if let Ok(path_relativised) = filepath_buf.strip_prefix(&*db.project_root())
+                    {
+                        // Convert this relativised rust Path into a feather Path.
+                        let path = db.intern_path_data(PathData(
+                            path_relativised
+                                .iter()
+                                .map(|component| {
+                                    db.intern_string_data(
+                                        component.to_string_lossy().to_string(),
+                                    )
+                                })
+                                .collect(),
+                        ));
+                        // Tell the database that the file got changed.
+                        println!("file '{}' changed", filepath_buf.to_string_lossy());
+                        db.did_change_file(path);
+                    } else {
+                        println!(
+                            "ignoring file path '{}' outside the project root",
+                            filepath_buf.to_string_lossy()
+                        );
                     }
                 }
-                Err(e) => println!("watch error: {:?}", e),
             }
+            Err(e) => println!("watch error: {:?}", e),
         }
-    }*/
+    }
+    */
 }

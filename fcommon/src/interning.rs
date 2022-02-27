@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{fmt::Debug, path::PathBuf};
 
 /// A span of code in a source file.
 /// Represented by a range of UTF-8 characters.
@@ -6,8 +6,11 @@ pub type Span = std::ops::Range<usize>;
 
 use salsa::{InternId, InternKey};
 /// Provides utilities for interning various data types.
+///
+/// The [`Debug`] constraint is used to give databases a simple [`Debug`] implementation
+/// for use in tracing messages.
 #[salsa::query_group(InternStorage)]
-pub trait Intern {
+pub trait Intern: Debug {
     #[salsa::interned]
     fn intern_string_data(&self, data: String) -> Str;
 

@@ -42,6 +42,7 @@ pub struct ExprParseResult<I = DefaultInfos> {
     pub infos: I,
 }
 
+#[tracing::instrument(level = "debug")]
 fn parse_sexpr(db: &dyn SexprParser, source: Source) -> Dr<Arc<SexprNode>> {
     db.source(source)
         .as_deref()
@@ -49,6 +50,7 @@ fn parse_sexpr(db: &dyn SexprParser, source: Source) -> Dr<Arc<SexprNode>> {
         .map(Arc::new)
 }
 
+#[tracing::instrument(level = "debug")]
 fn expr_from_feather_source(db: &dyn SexprParser, source: Source) -> Dr<Arc<ExprParseResult>> {
     db.parse_sexpr(source)
         .as_deref()
