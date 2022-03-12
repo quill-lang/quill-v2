@@ -3,16 +3,11 @@
 mod value;
 pub use value::*;
 
-use std::{
-    collections::{HashMap, HashSet},
-    hash::Hash,
-};
+use std::collections::HashMap;
 
-use fcommon::{Dr, Label, LabelType, Path, Report, ReportKind, Source};
-use fnodes::{
-    basic_nodes::SourceSpan, expr::*, NodeId, NodeIdGenerator, NodeInfoContainer, SexprParser,
-};
-use tracing::{debug, info};
+use fcommon::{Dr, Label, LabelType, Report, ReportKind, Source, Span};
+use fnodes::{expr::*, NodeId, SexprParser};
+use tracing::info;
 
 #[salsa::query_group(ValueInferenceStorage)]
 pub trait ValueInferenceEngine: SexprParser {
@@ -56,17 +51,74 @@ impl Unification {
     }
 
     /// Record the type of a single node.
-    fn with_expr_type(mut self, node_id: NodeId, ty: PartialValue) -> Self {
+    fn with_expr_type(mut self, node_id: NodeId, mut ty: PartialValue) -> Self {
+        self.canonicalise(&mut ty);
         self.expr_types.insert(node_id, ty);
         self
     }
 
+    /// Record the type of a single inference variable.
+    /// If this causes an occurs check to fail, which can happen with circularly defined types,
+    /// an error will be emitted.
+    fn with_var_type(
+        mut self,
+        source: Source,
+        span: Span,
+        var: Var,
+        mut ty: PartialValue,
+    ) -> Dr<Self> {
+        // Run an occurs check on `ty` to see if the variable occurs in its replacement.
+        if matches!(ty, PartialValue::Var(_)) {
+            // Skip the occurs check, it's trivial anyway.
+        } else if self.occurs_in(&var, &ty) {
+            // TODO: Add node information, showing which nodes had this bad type.
+            return Dr::ok_with(
+                self,
+                Report::new(ReportKind::Error, source, span.start)
+                    .with_message("self-referential type found")
+                    .with_label(
+                        Label::new(source, span, LabelType::Error)
+                            .with_message(format!("found type {:?} ~ {:?}", var, ty)),
+                    ),
+            );
+        }
+        self.canonicalise(&mut ty);
+        self.var_types.insert(var, ty);
+        Dr::ok(self)
+    }
+
+    /// Returns true if the variable occurs in the given value.
+    fn occurs_in(&self, var: &Var, val: &PartialValue) -> bool {
+        match val {
+            PartialValue::Let(_) => todo!(),
+            PartialValue::Lambda(_) => todo!(),
+            PartialValue::Apply(_) => todo!(),
+            PartialValue::Var(var2) => var == var2,
+            PartialValue::FormFunc(FormFunc { parameter, result }) => {
+                self.occurs_in(var, parameter) || self.occurs_in(var, result)
+            }
+            _ => false,
+        }
+    }
+
     /// Assuming that there are no duplicates, return the union of the two unifications.
     // TODO: This assumption isn't actually necessarily true...?
-    fn with(mut self, other: Self) -> Self {
-        self.expr_types.extend(other.expr_types);
-        self.var_types.extend(other.var_types);
-        self
+    fn with(self, other: Self, source: Source, span: Span) -> Dr<Self> {
+        other
+            .var_types
+            .into_iter()
+            .fold(Dr::ok(self), |this, (var, val)| {
+                this.bind(|this| this.with_var_type(source, span.clone(), var, val))
+            })
+            .map(|this| {
+                other
+                    .expr_types
+                    .into_iter()
+                    .fold(this, |this, (node_id, mut val)| {
+                        this.canonicalise(&mut val);
+                        this.with_expr_type(node_id, val)
+                    })
+            })
     }
 
     /// An idempotent operation reducing an value to a standard form.
@@ -95,9 +147,11 @@ impl Unification {
     /// If an error was found, the `report` function is called, which should generate a suitable report.
     /// The arguments are the canonicalised versions of `expected` and `found`.
     fn unify<R>(
-        mut self,
+        self,
         mut expected: PartialValue,
         mut found: PartialValue,
+        source: Source,
+        span: Span,
         report: R,
     ) -> Dr<Self>
     where
@@ -108,29 +162,32 @@ impl Unification {
         self.canonicalise(&mut found);
 
         // The report should only be called once, but it's easier to implement without this compile time restriction.
-        let mut report_box = Some(report);
-        if let Some(report) =
-            self.unify_recursive(&expected, &found, &expected, &found, &mut report_box)
-        {
-            // We can still try to continue type inference, so we'll just return an error and choose not to unify anything.
-            Dr::ok_with(self, report)
-        } else {
-            // Unification succeeded.
-            Dr::ok(self)
-        }
+        // So we put it in an Option, and take it out when we need it.
+        self.unify_recursive(
+            source,
+            span,
+            &expected,
+            &found,
+            &expected,
+            &found,
+            &mut Some(report),
+        )
     }
 
     /// Do not call this manually.
     /// Given canonicalised types, unify them.
     /// If the unification could not occur, the report is emitted using `base_expected` and `base_found`.
+    #[allow(clippy::too_many_arguments)]
     fn unify_recursive<R>(
-        &mut self,
+        self,
+        source: Source,
+        span: Span,
         base_expected: &PartialValue,
         base_found: &PartialValue,
         expected: &PartialValue,
         found: &PartialValue,
         report_box: &mut Option<R>,
-    ) -> Option<Report>
+    ) -> Dr<Self>
     where
         R: FnOnce(&PartialValue, &PartialValue) -> Report,
     {
@@ -147,14 +204,18 @@ impl Unification {
         {
             // Unify the parameters and then the results.
             self.unify_recursive(
+                source,
+                span.clone(),
                 base_expected,
                 base_found,
                 expected_parameter,
                 found_parameter,
                 report_box,
             )
-            .or_else(|| {
-                self.unify_recursive(
+            .bind(|this| {
+                this.unify_recursive(
+                    source,
+                    span,
                     base_expected,
                     base_found,
                     expected_result,
@@ -165,18 +226,17 @@ impl Unification {
         } else if let PartialValue::Var(found_var) = found {
             // Since we've canonicalised `found`, self.var_types.get(&found_var) is either None or Some(found_var).
             // We will replace this entry with `expected`.
-            self.var_types.insert(*found_var, expected.clone());
-            None
+            self.with_var_type(source, span, *found_var, expected.clone())
         } else if let PartialValue::Var(expected_var) = expected {
             // This is analogous to above.
-            self.var_types.insert(*expected_var, found.clone());
-            None
+            self.with_var_type(source, span, *expected_var, found.clone())
         } else {
             // We couldn't unify the two types.
-            Some(report_box.take().expect("tried to create two reports")(
-                base_expected,
-                base_found,
-            ))
+            // We can still try to continue type inference, so we'll just return an error and choose not to unify anything.
+            Dr::ok_with(
+                self,
+                report_box.take().expect("tried to create two reports")(base_expected, base_found),
+            )
         }
     }
 
@@ -211,16 +271,16 @@ fn traverse(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<Unifica
             // Traverse the expression to assign to a new variable first.
             traverse(to_assign, ctx, locals).bind(|to_assign_unif| {
                 // Add the result of this inference to the list of locals.
-                let internal_locals = std::iter::once(to_assign_unif.expr_type(&to_assign))
+                let internal_locals = std::iter::once(to_assign_unif.expr_type(to_assign))
                     .chain(locals.iter().cloned())
                     .collect::<Vec<_>>();
                 // Traverse the body.
-                traverse(body, ctx, &internal_locals).map(|inner_unif| {
+                traverse(body, ctx, &internal_locals).bind(|inner_unif| {
                     // The type of a let expression is the type of its body.
-                    let result_ty = inner_unif.expr_type(&body);
+                    let result_ty = inner_unif.expr_type(body);
                     inner_unif
-                        .with(to_assign_unif)
-                        .with_expr_type(expr.id(), result_ty)
+                        .with(to_assign_unif, ctx.source, expr.span())
+                        .map(|unif| unif.with_expr_type(expr.id(), result_ty))
                 })
             })
         }
@@ -266,24 +326,33 @@ fn traverse(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<Unifica
                     parameter: Box::new(locals[argument.0 as usize].clone()),
                     result: Box::new(PartialValue::Var(result_ty)),
                 });
-                unif.unify(function_type, found_type, |expected, found| {
-                    Report::new(ReportKind::Error, ctx.source, expr.span().start)
-                        .with_message("type mismatch when calling function")
-                        .with_label(
-                            Label::new(ctx.source, function.span(), LabelType::Error)
-                                .with_message(format!("the function had type {:?}", expected))
-                                .with_order(0),
-                        )
-                        .with_label(
-                            if let PartialValue::FormFunc(FormFunc { parameter, .. }) = found {
+                unif.unify(
+                    function_type,
+                    found_type,
+                    ctx.source,
+                    expr.span(),
+                    |expected, found| {
+                        Report::new(ReportKind::Error, ctx.source, expr.span().start)
+                            .with_message("type mismatch when calling function")
+                            .with_label(
                                 Label::new(ctx.source, function.span(), LabelType::Error)
-                                    .with_message(format!("the argument had type {:?}", parameter))
-                                    .with_order(10)
-                            } else {
-                                panic!()
-                            },
-                        )
-                })
+                                    .with_message(format!("the function had type {:?}", expected))
+                                    .with_order(0),
+                            )
+                            .with_label(
+                                if let PartialValue::FormFunc(FormFunc { parameter, .. }) = found {
+                                    Label::new(ctx.source, function.span(), LabelType::Error)
+                                        .with_message(format!(
+                                            "the argument had type {:?}",
+                                            parameter
+                                        ))
+                                        .with_order(10)
+                                } else {
+                                    panic!()
+                                },
+                            )
+                    },
+                )
                 .map(|unif| unif.with_expr_type(expr.id(), PartialValue::Var(result_ty)))
             })
         }
