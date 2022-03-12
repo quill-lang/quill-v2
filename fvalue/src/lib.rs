@@ -6,7 +6,7 @@ pub use value::*;
 use std::collections::{HashMap, HashSet};
 
 use fcommon::{Dr, Label, LabelType, Report, ReportKind, Source, Span};
-use fnodes::{expr::*, NodeId, NodeInfoContainer, SexprParser};
+use fnodes::{expr::*, Definition, NodeId, NodeInfoContainer, SexprParser};
 use tracing::info;
 
 #[salsa::query_group(ValueInferenceStorage)]
@@ -16,31 +16,42 @@ pub trait ValueInferenceEngine: SexprParser {
 
 #[tracing::instrument(level = "trace")]
 pub fn infer_values(db: &dyn ValueInferenceEngine, source: Source) -> Dr<()> {
-    db.expr_from_feather_source(source).bind(|res| {
-        // To each expression we associate a type.
-        // TODO: use tys from node info in `res`
-        // TODO: variable ID generator should be initialised with non-clashing IDs from the expression, since it may have its own IDs already
-        info!("{:#?}", res.expr);
-        let mut ctx = TyCtx {
-            db,
-            source,
-            var_gen: Default::default(),
-        };
-        let unification = traverse(&res.expr, &mut ctx, &[]);
-        let errored = unification.errored();
-        unification.bind(|unif| {
-            // Store the deduced type of each expression.
-            let mut types = NodeInfoContainer::<ExprContents, PartialValue>::new();
-            let result = fill_types(source, &res.expr, &unif, &mut types);
-            info!("{:#?}", types);
-            // Don't produce error messages for unknown types if we already have type inference errors.
-            // We still want to produce the side effect of filling `types` though.
-            if errored {
-                Dr::ok(())
-            } else {
-                result
-            }
-        })
+    db.module_from_feather_source(source).bind(|res| {
+        res.module
+            .contents
+            .defs
+            .iter()
+            .map(|def| infer_values_def(db, source, def))
+            .collect::<Dr<_>>()
+            .map(|_| ())
+    })
+}
+
+#[tracing::instrument(level = "trace")]
+fn infer_values_def(db: &dyn ValueInferenceEngine, source: Source, def: &Definition) -> Dr<()> {
+    // To each expression we associate a type.
+    // TODO: use tys from node info in `res`
+    // TODO: variable ID generator should be initialised with non-clashing IDs from the expression, since it may have its own IDs already
+    info!("{:#?}", def);
+    let mut ctx = TyCtx {
+        db,
+        source,
+        var_gen: Default::default(),
+    };
+    let unification = traverse(&def.contents.expr, &mut ctx, &[]);
+    let errored = unification.errored();
+    unification.bind(|unif| {
+        // Store the deduced type of each expression.
+        let mut types = NodeInfoContainer::<ExprContents, PartialValue>::new();
+        let result = fill_types(source, &def.contents.expr, &unif, &mut types);
+        info!("{:#?}", types);
+        // Don't produce error messages for unknown types if we already have type inference errors.
+        // We still want to produce the side effect of filling `types` though.
+        if errored {
+            Dr::ok(())
+        } else {
+            result
+        }
     })
 }
 

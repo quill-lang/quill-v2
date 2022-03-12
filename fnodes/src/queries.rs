@@ -4,15 +4,15 @@ use fcommon::{Dr, FileReader, Source, Str};
 
 use crate::{
     basic_nodes::SourceSpan,
-    expr::{Expr, ExprContents, ExprTy},
-    parse_sexpr_from_string, ListParsableWrapper, NodeIdGenerator, NodeInfoContainer, SexprNode,
-    SexprParsable, SexprParseContext,
+    expr::{ExprContents, ExprTy},
+    parse_sexpr_from_string, ListParsableWrapper, Module, NodeIdGenerator, NodeInfoContainer,
+    SexprNode, SexprParsable, SexprParseContext,
 };
 
 #[salsa::query_group(SexprParserStorage)]
 pub trait SexprParser: FileReader {
     fn parse_sexpr(&self, source: Source) -> Dr<Arc<SexprNode>>;
-    fn expr_from_feather_source(&self, source: Source) -> Dr<Arc<ExprParseResult>>;
+    fn module_from_feather_source(&self, source: Source) -> Dr<Arc<ModuleParseResult>>;
 }
 
 /// A set of infos that may be useful to any feather compiler component.
@@ -32,12 +32,12 @@ impl DefaultInfos {
     }
 }
 
-/// Represents the result of an expression parse operation.
+/// Represents the result of a module parse operation.
 /// `I` is expected to be a type containing node infos.
 #[derive(Debug, PartialEq, Eq)]
-pub struct ExprParseResult<I = DefaultInfos> {
-    pub expr: Expr,
-    /// The node ID generator associated with the nodes in the returned expression.
+pub struct ModuleParseResult<I = DefaultInfos> {
+    pub module: Module,
+    /// The node ID generator associated with the nodes in the returned module.
     pub node_id_gen: NodeIdGenerator,
     pub infos: I,
 }
@@ -51,20 +51,20 @@ fn parse_sexpr(db: &dyn SexprParser, source: Source) -> Dr<Arc<SexprNode>> {
 }
 
 #[tracing::instrument(level = "debug")]
-fn expr_from_feather_source(db: &dyn SexprParser, source: Source) -> Dr<Arc<ExprParseResult>> {
+fn module_from_feather_source(db: &dyn SexprParser, source: Source) -> Dr<Arc<ModuleParseResult>> {
     db.parse_sexpr(source)
         .as_deref()
         .bind(|s_expr| {
             let mut default_infos = DefaultInfos::default();
             let mut ctx = SexprParseContext::default();
             default_infos.register(&mut ctx);
-            let result: Dr<_> = ListParsableWrapper::<Expr>::parse(&mut ctx, db, s_expr.clone())
+            let result: Dr<_> = ListParsableWrapper::<Module>::parse(&mut ctx, db, s_expr.clone())
                 .map(|x| x.0)
                 .map_err(|x| x.into_report(source))
                 .into();
             let ctx_result = ctx.finish();
-            result.map(|expr| ExprParseResult {
-                expr,
+            result.map(|module| ModuleParseResult {
+                module,
                 node_id_gen: ctx_result.node_id_gen,
                 infos: default_infos,
             })

@@ -35,6 +35,8 @@ pub enum ParseErrorReason {
     /// We expected a specific keyword at the start of a list S-expression,
     /// but the list was empty.
     ExpectedKeywordFoundEmpty { expected: &'static str },
+    /// We expected some entries in this list, but none were found.
+    Empty,
     /// We expected a specific keyword at the start of a list S-expression,
     /// but the first entry in the list did not match the expected keyword.
     WrongKeyword {
@@ -65,6 +67,7 @@ impl ParseError {
                 "expected keyword '{}' at the start of this list, but the list was empty",
                 expected
             ),
+            ParseErrorReason::Empty => "expected elements in this list".to_string(),
             ParseErrorReason::WrongKeyword { expected, found } => format!(
                 "expected keyword '{}', but found keyword '{}'",
                 expected, found

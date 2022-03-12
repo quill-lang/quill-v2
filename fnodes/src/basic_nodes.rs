@@ -142,3 +142,22 @@ impl SexprAtomParsable for DeBruijnIndex {
         u32::parse_atom(db, text).map(Self)
     }
 }
+
+/// A documentation string.
+/// Even though this isn't a single identifier, it's still represented as a [Name].
+#[derive(Debug, PartialEq, Eq)]
+pub struct Documentation(pub Name);
+
+impl SexprListParsable for Documentation {
+    const KEYWORD: Option<&'static str> = Some("doc");
+
+    fn parse_list(
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
+        span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        let [value] = force_arity(span, args)?;
+        Ok(Self(Name::parse(ctx, db, value)?))
+    }
+}

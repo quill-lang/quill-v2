@@ -11,7 +11,7 @@ use std::{
 
 use fcommon::{Span, Str};
 
-use crate::{deserialise::*, SexprParser};
+use crate::{deserialise::*, DefinitionContents, ModuleContents, SexprParser};
 use crate::{expr::ExprContents, s_expr::*};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -277,6 +277,16 @@ pub struct SexprParseContext<'a> {
     name_infos: Vec<&'a mut dyn AbstractNodeInfoContainer<Str>>,
     /// A list of all of the keywords for name infos that were ignored (see [`Self::process_name_info`]).
     name_ignored_keywords: HashSet<String>,
+
+    /// Containers to be filled with module node info.
+    module_infos: Vec<&'a mut dyn AbstractNodeInfoContainer<ModuleContents>>,
+    /// A list of all of the keywords for module infos that were ignored (see [`Self::process_module_info`]).
+    module_ignored_keywords: HashSet<String>,
+
+    /// Containers to be filled with definition node info.
+    def_infos: Vec<&'a mut dyn AbstractNodeInfoContainer<DefinitionContents>>,
+    /// A list of all of the keywords for definition infos that were ignored (see [`Self::process_def_info`]).
+    def_ignored_keywords: HashSet<String>,
 }
 
 macro_rules! generate_process_functions {
@@ -356,6 +366,20 @@ impl<'a> SexprParseContext<'a> {
         process_name_info,
         name_infos,
         name_ignored_keywords
+    );
+    generate_process_functions!(
+        ModuleContents,
+        register_module_info,
+        process_module_info,
+        module_infos,
+        module_ignored_keywords
+    );
+    generate_process_functions!(
+        DefinitionContents,
+        register_def_info,
+        process_def_info,
+        def_infos,
+        def_ignored_keywords
     );
 
     /// Relinquish the borrows of the node info containers.

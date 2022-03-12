@@ -1412,9 +1412,9 @@ Modules are each stored as their own S-expressions, and are not contained within
 \begin{tabular}{r l p{7cm}}
     \lstinline!Visibility! \( ::= \) & \lstinline!pub | priv! \\
     \lstinline!DefInfo! \( ::= \) & \lstinline!(at Span) | (ty Expr) | (vis Visibility) | (doc !\( \mathbb S \)\lstinline!)! \\
-    \lstinline!Def! \( ::= \) & \lstinline!(def DefInfo* Name Expr)! \\
+    \lstinline!Def! \( ::= \) & \lstinline!(def Name (DefInfo*) Expr)! \\
     \lstinline!ModuleInfo! \( ::= \) & \lstinline!(file QualifiedName) | (doc !\( \mathbb S \)\lstinline!)! \\
-    \lstinline!Module! \( ::= \) & \lstinline!(module ModuleInfo* Def*)!
+    \lstinline!Module! \( ::= \) & \lstinline!(module (ModuleInfo*) Def*)!
 \end{tabular}
 
 If present, a \lstinline{doc} tag represents documentation for the definition or module in question.
