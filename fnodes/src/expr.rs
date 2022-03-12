@@ -101,7 +101,7 @@ gen_nullary!(FormBool "fbool");
 gen_nullary!(FormUnit "funit");
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct Inst(QualifiedName);
+pub struct Inst(pub QualifiedName);
 
 impl SexprListParsable for Inst {
     const KEYWORD: Option<&'static str> = Some("inst");

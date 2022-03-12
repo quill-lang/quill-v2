@@ -5,13 +5,70 @@ pub use value::*;
 
 use std::collections::{HashMap, HashSet};
 
-use fcommon::{Dr, Label, LabelType, Report, ReportKind, Source, Span};
+use fcommon::{Dr, Label, LabelType, Path, PathData, Report, ReportKind, Source, Span, Str};
 use fnodes::{expr::*, Definition, NodeId, NodeInfoContainer, SexprParser};
-use tracing::info;
+use tracing::{debug, info};
 
 #[salsa::query_group(ValueInferenceStorage)]
 pub trait ValueInferenceEngine: SexprParser {
+    /// Compute the definitions that each definition in this source file depends on.
+    /// If the file could not be parsed for whatever reason, the result will be `None`.
+    fn def_deps(&self, source: Source) -> Option<HashMap<Str, HashSet<Path>>>;
+    /// Compute values and types where possible.
+    /// If a variable's type could not be deduced, or an error was encountered during type/value inference,
+    /// an error will be returned.
     fn infer_values(&self, source: Source) -> Dr<()>;
+}
+
+#[tracing::instrument(level = "trace")]
+pub fn def_deps(
+    db: &dyn ValueInferenceEngine,
+    source: Source,
+) -> Option<HashMap<Str, HashSet<Path>>> {
+    if let (Some(res), _) = db.module_from_feather_source(source).destructure() {
+        Some(
+            res.module
+                .contents
+                .defs
+                .iter()
+                .map(|def| {
+                    (def.contents.name.contents, {
+                        let mut result = HashSet::new();
+                        find_expr_def_deps(db, &def.contents.expr, &mut result);
+                        debug!(
+                            "def {} depends on [{}]",
+                            db.lookup_intern_string_data(def.contents.name.contents),
+                            result
+                                .iter()
+                                .map(|path| db.path_to_string(*path))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                        result
+                    })
+                })
+                .collect(),
+        )
+    } else {
+        None
+    }
+}
+
+/// Work out which definitions this expression references.
+/// For each `inst` expression, add it to the list of deps.
+fn find_expr_def_deps(db: &dyn ValueInferenceEngine, expr: &Expr, deps: &mut HashSet<Path>) {
+    match &expr.contents {
+        ExprContents::Inst(inst) => {
+            deps.insert(db.intern_path_data(PathData(
+                inst.0 .0.iter().map(|name| name.contents).collect(),
+            )));
+        }
+        _ => {
+            for sub_expr in expr.contents.sub_expressions() {
+                find_expr_def_deps(db, sub_expr, deps);
+            }
+        }
+    }
 }
 
 #[tracing::instrument(level = "trace")]

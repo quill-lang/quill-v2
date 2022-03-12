@@ -96,5 +96,9 @@ pub trait InternExt: Intern {
     fn path_to_path_buf(&self, path: Path) -> PathBuf {
         self.path_data_to_path_buf(&self.lookup_intern_path_data(path))
     }
+
+    fn path_to_string(&self, path: Path) -> String {
+        self.path_to_path_buf(path).to_string_lossy().to_string()
+    }
 }
 impl<T> InternExt for T where T: Intern {}
