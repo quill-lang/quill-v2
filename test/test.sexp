@@ -1,5 +1,5 @@
 (
     let
-        (lambda 1 (local 0))
-        (ap (local 0) 0)
+        (iu64 7)
+        (ap (lambda 1 (local 0)) 0)
 )

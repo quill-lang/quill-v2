@@ -3,10 +3,10 @@
 mod value;
 pub use value::*;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use fcommon::{Dr, Label, LabelType, Report, ReportKind, Source, Span};
-use fnodes::{expr::*, NodeId, SexprParser};
+use fnodes::{expr::*, NodeId, NodeInfoContainer, SexprParser};
 use tracing::info;
 
 #[salsa::query_group(ValueInferenceStorage)]
@@ -26,7 +26,13 @@ pub fn infer_values(db: &dyn ValueInferenceEngine, source: Source) -> Dr<()> {
             source,
             var_gen: Default::default(),
         };
-        traverse(&res.expr, &mut ctx, &[]).map(|unif| info!("{:#?}", unif))
+        traverse(&res.expr, &mut ctx, &[]).bind(|unif| {
+            // Store the deduced type of each expression.
+            let mut types = NodeInfoContainer::<ExprContents, PartialValue>::new();
+            let result = fill_types(source, &res.expr, &unif, &mut types);
+            info!("{:#?}", types);
+            result
+        })
     })
 }
 
@@ -84,6 +90,8 @@ impl Unification {
         }
         self.canonicalise(&mut ty);
         self.var_types.insert(var, ty);
+        // TODO: We may want to canonicalise all the expr types we found that depend on this var,
+        // although it's fine if that just happens ad hoc.
         Dr::ok(self)
     }
 
@@ -98,6 +106,26 @@ impl Unification {
                 self.occurs_in(var, parameter) || self.occurs_in(var, result)
             }
             _ => false,
+        }
+    }
+
+    /// Returns the names of any inference variables that occur in the given value.
+    fn variables_occuring_in(&self, val: &PartialValue) -> HashSet<Var> {
+        match val {
+            PartialValue::Let(_) => todo!(),
+            PartialValue::Lambda(_) => todo!(),
+            PartialValue::Apply(_) => todo!(),
+            PartialValue::Var(var) => {
+                let mut result = HashSet::new();
+                result.insert(*var);
+                result
+            }
+            PartialValue::FormFunc(FormFunc { parameter, result }) => self
+                .variables_occuring_in(parameter)
+                .into_iter()
+                .chain(self.variables_occuring_in(result))
+                .collect(),
+            _ => HashSet::new(),
         }
     }
 
@@ -241,7 +269,9 @@ impl Unification {
     }
 
     fn expr_type(&self, expr: &Expr) -> PartialValue {
-        self.expr_types[&expr.id()].clone()
+        let mut result = self.expr_types[&expr.id()].clone();
+        self.canonicalise(&mut result);
+        result
     }
 }
 
@@ -359,4 +389,47 @@ fn traverse(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<Unifica
         ExprContents::Var(_) => todo!(),
         ExprContents::FormFunc(_) => todo!(),
     }
+}
+
+fn fill_types(
+    source: Source,
+    expr: &Expr,
+    unif: &Unification,
+    types: &mut NodeInfoContainer<ExprContents, PartialValue>,
+) -> Dr<()> {
+    let ty = unif.expr_type(expr);
+    let vars_occuring = unif.variables_occuring_in(&ty);
+    let result = if !vars_occuring.is_empty() {
+        Dr::ok_with(
+            (),
+            Report::new(ReportKind::Error, source, expr.span().start)
+                .with_message("could not deduce type")
+                .with_label(
+                    Label::new(source, expr.span(), LabelType::Error).with_message(format!(
+                        "deduced type {:?}, which contains unknown inference variables {:?}",
+                        ty, vars_occuring
+                    )),
+                ),
+        )
+    } else {
+        types.insert(expr, ty);
+        Dr::ok(())
+    };
+
+    result.bind(|()| {
+        // For each sub-expression, fill the types container.
+        match &expr.contents {
+            ExprContents::Let(Let { to_assign, body }) => {
+                fill_types(source, to_assign, unif, types)
+                    .bind(|()| fill_types(source, body, unif, types))
+            }
+            ExprContents::Lambda(Lambda { body, .. }) => fill_types(source, body, unif, types),
+            ExprContents::Apply(Apply { function, .. }) => {
+                fill_types(source, function, unif, types)
+            }
+            ExprContents::Var(_) => todo!(),
+            ExprContents::FormFunc(_) => todo!(),
+            _ => Dr::ok(()),
+        }
+    })
 }
