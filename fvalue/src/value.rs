@@ -55,6 +55,28 @@ impl PartialValue {
             _ => {}
         }
     }
+
+    pub fn sub_expressions(&self) -> Vec<&PartialValue> {
+        match self {
+            PartialValue::Let(Let { to_assign, body }) => vec![&*to_assign, &*body],
+            PartialValue::Lambda(Lambda { body, .. }) => vec![&*body],
+            PartialValue::Apply(Apply { function, .. }) => vec![&*function],
+            PartialValue::FormFunc(FormFunc { parameter, result }) => vec![&*parameter, &*result],
+            _ => Vec::new(),
+        }
+    }
+
+    pub fn sub_expressions_mut(&mut self) -> Vec<&mut PartialValue> {
+        match self {
+            PartialValue::Let(Let { to_assign, body }) => vec![&mut *to_assign, &mut *body],
+            PartialValue::Lambda(Lambda { body, .. }) => vec![&mut *body],
+            PartialValue::Apply(Apply { function, .. }) => vec![&mut *function],
+            PartialValue::FormFunc(FormFunc { parameter, result }) => {
+                vec![&mut *parameter, &mut *result]
+            }
+            _ => Vec::new(),
+        }
+    }
 }
 
 /// A utility for printing partial values to screen.

@@ -375,6 +375,30 @@ gen_variants! {
     FormFunc
 }
 
+impl ExprContents {
+    pub fn sub_expressions(&self) -> Vec<&Expr> {
+        match self {
+            ExprContents::Let(Let { to_assign, body }) => vec![&*to_assign, &*body],
+            ExprContents::Lambda(Lambda { body, .. }) => vec![&*body],
+            ExprContents::Apply(Apply { function, .. }) => vec![&*function],
+            ExprContents::FormFunc(FormFunc { parameter, result }) => vec![&*parameter, &*result],
+            _ => Vec::new(),
+        }
+    }
+
+    pub fn sub_expressions_mut(&mut self) -> Vec<&mut Expr> {
+        match self {
+            ExprContents::Let(Let { to_assign, body }) => vec![&mut *to_assign, &mut *body],
+            ExprContents::Lambda(Lambda { body, .. }) => vec![&mut *body],
+            ExprContents::Apply(Apply { function, .. }) => vec![&mut *function],
+            ExprContents::FormFunc(FormFunc { parameter, result }) => {
+                vec![&mut *parameter, &mut *result]
+            }
+            _ => Vec::new(),
+        }
+    }
+}
+
 pub type Expr = Node<ExprContents>;
 
 impl SexprListParsable for Expr {

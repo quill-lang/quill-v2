@@ -110,34 +110,27 @@ impl Unification {
     /// Returns true if the variable occurs in the given value.
     fn occurs_in(&self, var: &Var, val: &PartialValue) -> bool {
         match val {
-            PartialValue::Let(_) => todo!(),
-            PartialValue::Lambda(_) => todo!(),
-            PartialValue::Apply(_) => todo!(),
             PartialValue::Var(var2) => var == var2,
-            PartialValue::FormFunc(FormFunc { parameter, result }) => {
-                self.occurs_in(var, parameter) || self.occurs_in(var, result)
-            }
-            _ => false,
+            _ => val
+                .sub_expressions()
+                .iter()
+                .any(|expr| self.occurs_in(var, expr)),
         }
     }
 
     /// Returns the names of any inference variables that occur in the given value.
     fn variables_occuring_in(&self, val: &PartialValue) -> HashSet<Var> {
         match val {
-            PartialValue::Let(_) => todo!(),
-            PartialValue::Lambda(_) => todo!(),
-            PartialValue::Apply(_) => todo!(),
             PartialValue::Var(var) => {
                 let mut result = HashSet::new();
                 result.insert(*var);
                 result
             }
-            PartialValue::FormFunc(FormFunc { parameter, result }) => self
-                .variables_occuring_in(parameter)
-                .into_iter()
-                .chain(self.variables_occuring_in(result))
+            _ => val
+                .sub_expressions()
+                .iter()
+                .flat_map(|expr| self.variables_occuring_in(expr))
                 .collect(),
-            _ => HashSet::new(),
         }
     }
 
@@ -161,12 +154,9 @@ impl Unification {
             })
     }
 
-    /// An idempotent operation reducing an value to a standard form.
+    /// An idempotent operation reducing a value to a standard form.
     fn canonicalise(&self, val: &mut PartialValue) {
         match val {
-            PartialValue::Let(_) => todo!(),
-            PartialValue::Lambda(_) => todo!(),
-            PartialValue::Apply(_) => todo!(),
             PartialValue::Var(var) => match self.var_types.get(var) {
                 Some(PartialValue::Var(var2)) => *var = *var2,
                 Some(value) => {
@@ -175,11 +165,11 @@ impl Unification {
                 }
                 None => {}
             },
-            PartialValue::FormFunc(FormFunc { parameter, result }) => {
-                self.canonicalise(&mut *parameter);
-                self.canonicalise(&mut *result);
+            _ => {
+                for expr in val.sub_expressions_mut() {
+                    self.canonicalise(expr);
+                }
             }
-            _ => {}
         }
     }
 
@@ -287,9 +277,13 @@ impl Unification {
     }
 }
 
+/// Traverses the expression syntax tree.
+/// This function essentially codifies the type behaviour of each expression type.
+///
 /// `locals` is the list of the types associated with each local.
 /// The de Bruijn index `n` refers to the `n`th entry in this slice.
 fn traverse(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<Unification> {
+    // TODO: Raise errors if a de Bruijn index was too high instead of panicking.
     match &expr.contents {
         ExprContents::IntroLocal(IntroLocal(n)) => Dr::ok(Unification::new_with_expr_type(
             expr.id(),
@@ -435,18 +429,11 @@ fn fill_types(
 
     result.bind(|()| {
         // For each sub-expression, fill the types container.
-        match &expr.contents {
-            ExprContents::Let(Let { to_assign, body }) => {
-                fill_types(source, to_assign, unif, types)
-                    .bind(|()| fill_types(source, body, unif, types))
-            }
-            ExprContents::Lambda(Lambda { body, .. }) => fill_types(source, body, unif, types),
-            ExprContents::Apply(Apply { function, .. }) => {
-                fill_types(source, function, unif, types)
-            }
-            ExprContents::Var(_) => todo!(),
-            ExprContents::FormFunc(_) => todo!(),
-            _ => Dr::ok(()),
-        }
+        expr.contents
+            .sub_expressions()
+            .iter()
+            .fold(Dr::ok(()), |result, sub_expr| {
+                result.bind(|()| fill_types(source, sub_expr, unif, types))
+            })
     })
 }

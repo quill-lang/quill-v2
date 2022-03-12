@@ -1,5 +1,5 @@
 (
     let
         (iunit)
-        (ap (local 0) 0)
+        (ap (lambda 1 (local 0)) 0)
 )
