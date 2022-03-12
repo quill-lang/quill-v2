@@ -26,12 +26,20 @@ pub fn infer_values(db: &dyn ValueInferenceEngine, source: Source) -> Dr<()> {
             source,
             var_gen: Default::default(),
         };
-        traverse(&res.expr, &mut ctx, &[]).bind(|unif| {
+        let unification = traverse(&res.expr, &mut ctx, &[]);
+        let errored = unification.errored();
+        unification.bind(|unif| {
             // Store the deduced type of each expression.
             let mut types = NodeInfoContainer::<ExprContents, PartialValue>::new();
             let result = fill_types(source, &res.expr, &unif, &mut types);
             info!("{:#?}", types);
-            result
+            // Don't produce error messages for unknown types if we already have type inference errors.
+            // We still want to produce the side effect of filling `types` though.
+            if errored {
+                Dr::ok(())
+            } else {
+                result
+            }
         })
     })
 }
@@ -78,13 +86,17 @@ impl Unification {
             // Skip the occurs check, it's trivial anyway.
         } else if self.occurs_in(&var, &ty) {
             // TODO: Add node information, showing which nodes had this bad type.
+            let mut print = PartialValuePrinter::new();
             return Dr::ok_with(
                 self,
                 Report::new(ReportKind::Error, source, span.start)
                     .with_message("self-referential type found")
                     .with_label(
-                        Label::new(source, span, LabelType::Error)
-                            .with_message(format!("found type {:?} ~ {:?}", var, ty)),
+                        Label::new(source, span, LabelType::Error).with_message(format!(
+                            "found type {} ~ {}",
+                            print.print(&PartialValue::Var(var)),
+                            print.print(&ty)
+                        )),
                     ),
             );
         }
@@ -362,19 +374,23 @@ fn traverse(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<Unifica
                     ctx.source,
                     expr.span(),
                     |expected, found| {
+                        let mut print = PartialValuePrinter::new();
                         Report::new(ReportKind::Error, ctx.source, expr.span().start)
                             .with_message("type mismatch when calling function")
                             .with_label(
                                 Label::new(ctx.source, function.span(), LabelType::Error)
-                                    .with_message(format!("the function had type {:?}", expected))
+                                    .with_message(format!(
+                                        "the function had type {}",
+                                        print.print(expected)
+                                    ))
                                     .with_order(0),
                             )
                             .with_label(
                                 if let PartialValue::FormFunc(FormFunc { parameter, .. }) = found {
                                     Label::new(ctx.source, function.span(), LabelType::Error)
                                         .with_message(format!(
-                                            "the argument had type {:?}",
-                                            parameter
+                                            "the argument had type {}",
+                                            print.print(parameter)
                                         ))
                                         .with_order(10)
                                 } else {
@@ -398,17 +414,18 @@ fn fill_types(
     types: &mut NodeInfoContainer<ExprContents, PartialValue>,
 ) -> Dr<()> {
     let ty = unif.expr_type(expr);
+
     let vars_occuring = unif.variables_occuring_in(&ty);
+
     let result = if !vars_occuring.is_empty() {
+        let mut print = PartialValuePrinter::new();
         Dr::ok_with(
             (),
             Report::new(ReportKind::Error, source, expr.span().start)
                 .with_message("could not deduce type")
                 .with_label(
-                    Label::new(source, expr.span(), LabelType::Error).with_message(format!(
-                        "deduced type {:?}, which contains unknown inference variables {:?}",
-                        ty, vars_occuring
-                    )),
+                    Label::new(source, expr.span(), LabelType::Error)
+                        .with_message(format!("deduced type {}", print.print(&ty))),
                 ),
         )
     } else {

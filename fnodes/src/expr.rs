@@ -211,7 +211,7 @@ impl SexprListParsable for Apply {
 
 /// An inference variable.
 /// May have theoretically any type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Var(u32);
 
 impl SexprListParsable for Var {

@@ -439,6 +439,14 @@ impl<T> Dr<T> {
         self.value.is_none()
     }
 
+    /// Returns true if there was an error report.
+    /// If `failed` is true, then `errored` is true.
+    pub fn errored(&self) -> bool {
+        self.reports
+            .iter()
+            .any(|report| report.kind == ReportKind::Error)
+    }
+
     /// Splits up this diagnostic result into its value and its error messages.
     /// It is your responsibility to put these error messages back inside another diagnostic result.
     /// Failure to do so will result in errors not being displayed, or invalid programs erroneously
