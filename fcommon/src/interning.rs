@@ -2,6 +2,7 @@ use std::{fmt::Debug, path::PathBuf};
 
 /// A span of code in a source file.
 /// Represented by a range of UTF-8 characters.
+/// TODO: Put this inside a 1-tuple so that we can `Copy` it.
 pub type Span = std::ops::Range<usize>;
 
 use salsa::{InternId, InternKey};
@@ -99,6 +100,19 @@ pub trait InternExt: Intern {
 
     fn path_to_string(&self, path: Path) -> String {
         self.path_to_path_buf(path).to_string_lossy().to_string()
+    }
+
+    /// Split the last element off a path and return the resulting components.
+    /// If a path was `[a, b, c]`, this function returns `([a, b], c)`.
+    /// Typically this is used for extracting the name of the source file and the item inside that module from a qualified name.
+    ///
+    /// # Panics
+    /// If this path does not have any elements, this will panic.
+    fn split_path_last(&self, path: Path) -> (Path, Str) {
+        let path_data = self.lookup_intern_path_data(path);
+        let (last_element, source_file) = path_data.0.split_last().unwrap();
+        let source_file_name = self.intern_path_data(PathData(source_file.into()));
+        (source_file_name, *last_element)
     }
 }
 impl<T> InternExt for T where T: Intern {}

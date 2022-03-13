@@ -3,7 +3,7 @@ use std::sync::Arc;
 use fcommon::{Dr, FileReader, Source, Str};
 
 use crate::{
-    basic_nodes::SourceSpan,
+    basic_nodes::{QualifiedName, SourceSpan},
     expr::{ExprContents, ExprTy},
     parse_sexpr_from_string, ListParsableWrapper, Module, NodeIdGenerator, NodeInfoContainer,
     SexprNode, SexprParsable, SexprParseContext,
@@ -71,3 +71,12 @@ fn module_from_feather_source(db: &dyn SexprParser, source: Source) -> Dr<Arc<Mo
         })
         .map(Arc::new)
 }
+
+pub trait SexprParserExt: SexprParser {
+    fn qualified_name_to_path(&self, qn: &QualifiedName) -> fcommon::Path {
+        self.intern_path_data(fcommon::PathData(
+            qn.0.iter().map(|name| name.contents).collect(),
+        ))
+    }
+}
+impl<T> SexprParserExt for T where T: SexprParser {}

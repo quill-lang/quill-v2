@@ -3,17 +3,33 @@
 mod value;
 pub use value::*;
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    slice::SliceIndex,
+};
 
-use fcommon::{Dr, Label, LabelType, Path, PathData, Report, ReportKind, Source, Span, Str};
-use fnodes::{expr::*, Definition, NodeId, NodeInfoContainer, SexprParser};
+use fcommon::{
+    Dr, InternExt, Label, LabelType, Path, PathData, Report, ReportKind, Source, Span, Str,
+};
+use fnodes::{expr::*, Definition, NodeId, NodeInfoContainer, SexprParser, SexprParserExt};
 use tracing::{debug, info};
 
 #[salsa::query_group(ValueInferenceStorage)]
-pub trait ValueInferenceEngine: SexprParser {
+pub trait ValueInferenceEngine: SexprParserExt {
     /// Compute the definitions that each definition in this source file depends on.
-    /// If the file could not be parsed for whatever reason, the result will be `None`.
-    fn def_deps(&self, source: Source) -> Option<HashMap<Str, HashSet<Path>>>;
+    fn def_deps(&self, source: Source) -> Dr<HashMap<Str, HashSet<Path>>>;
+    /// Compute the definitions that each definition in this module depends on,
+    /// that were defined inside this module.
+    /// TODO: Use some kind of sorted map in order to improve the caching ability of `salsa`.
+    fn local_def_deps(&self, source: Source) -> Dr<HashMap<Str, HashSet<Str>>>;
+    /// Computes an order in which to infer types, such that we never run into circular dependencies.
+    /// In particular, if definitions A and B reference each other, at least one of them must have an externally
+    /// declared type; they cannot both have an inferred types.
+    ///
+    /// Note that it is allowed to use external instances of symbols only if they have declared types; that is,
+    /// functions with inferred types are not considered part of a module's external API.
+    /// This means we don't need to compute a project-wide inference order, which simplifies some things.
+    fn compute_inference_order(&self, source: Source) -> Dr<Vec<Str>>;
     /// Compute values and types where possible.
     /// If a variable's type could not be deduced, or an error was encountered during type/value inference,
     /// an error will be returned.
@@ -21,37 +37,30 @@ pub trait ValueInferenceEngine: SexprParser {
 }
 
 #[tracing::instrument(level = "trace")]
-pub fn def_deps(
-    db: &dyn ValueInferenceEngine,
-    source: Source,
-) -> Option<HashMap<Str, HashSet<Path>>> {
-    if let (Some(res), _) = db.module_from_feather_source(source).destructure() {
-        Some(
-            res.module
-                .contents
-                .defs
-                .iter()
-                .map(|def| {
-                    (def.contents.name.contents, {
-                        let mut result = HashSet::new();
-                        find_expr_def_deps(db, &def.contents.expr, &mut result);
-                        debug!(
-                            "def {} depends on [{}]",
-                            db.lookup_intern_string_data(def.contents.name.contents),
-                            result
-                                .iter()
-                                .map(|path| db.path_to_string(*path))
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        );
+fn def_deps(db: &dyn ValueInferenceEngine, source: Source) -> Dr<HashMap<Str, HashSet<Path>>> {
+    db.module_from_feather_source(source).map(|res| {
+        res.module
+            .contents
+            .defs
+            .iter()
+            .map(|def| {
+                (def.contents.name.contents, {
+                    let mut result = HashSet::new();
+                    find_expr_def_deps(db, &def.contents.expr, &mut result);
+                    debug!(
+                        "def {} depends on [{}]",
+                        db.lookup_intern_string_data(def.contents.name.contents),
                         result
-                    })
+                            .iter()
+                            .map(|path| db.path_to_string(*path))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                    result
                 })
-                .collect(),
-        )
-    } else {
-        None
-    }
+            })
+            .collect()
+    })
 }
 
 /// Work out which definitions this expression references.
@@ -59,9 +68,7 @@ pub fn def_deps(
 fn find_expr_def_deps(db: &dyn ValueInferenceEngine, expr: &Expr, deps: &mut HashSet<Path>) {
     match &expr.contents {
         ExprContents::Inst(inst) => {
-            deps.insert(db.intern_path_data(PathData(
-                inst.0 .0.iter().map(|name| name.contents).collect(),
-            )));
+            deps.insert(db.qualified_name_to_path(&inst.0));
         }
         _ => {
             for sub_expr in expr.contents.sub_expressions() {
@@ -72,28 +79,131 @@ fn find_expr_def_deps(db: &dyn ValueInferenceEngine, expr: &Expr, deps: &mut Has
 }
 
 #[tracing::instrument(level = "trace")]
-pub fn infer_values(db: &dyn ValueInferenceEngine, source: Source) -> Dr<()> {
-    db.module_from_feather_source(source).bind(|res| {
-        res.module
-            .contents
-            .defs
-            .iter()
-            .map(|def| infer_values_def(db, source, def))
-            .collect::<Dr<_>>()
-            .map(|_| ())
+fn local_def_deps(db: &dyn ValueInferenceEngine, source: Source) -> Dr<HashMap<Str, HashSet<Str>>> {
+    db.def_deps(source).map(|map| {
+        map.into_iter()
+            .map(|(k, v)| {
+                (
+                    k,
+                    v.into_iter()
+                        .filter_map(|path| {
+                            // If this path represents a definition in this source file, keep it.
+                            let (source_file_name, def_name) = db.split_path_last(path);
+                            if source_file_name == source.path {
+                                Some(def_name)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect(),
+                )
+            })
+            .collect()
     })
 }
 
 #[tracing::instrument(level = "trace")]
-fn infer_values_def(db: &dyn ValueInferenceEngine, source: Source, def: &Definition) -> Dr<()> {
+fn compute_inference_order(db: &dyn ValueInferenceEngine, source: Source) -> Dr<Vec<Str>> {
+    db.local_def_deps(source).bind(|mut deps| {
+        debug!("deps are: {:#?}", deps);
+
+        // Execute Kahn's topological sort algorithm to determine an inference order.
+        // We say that if A has B as a dependency, there is an edge from B to A.
+        // So `deps` is a map of incoming edges.
+        // First, invert the `deps` map to find outgoing edges.
+        let mut used_in = HashMap::<Str, HashSet<Str>>::new();
+        for (def, def_deps) in &deps {
+            for dep in def_deps {
+                used_in.entry(*dep).or_default().insert(*def);
+            }
+        }
+
+        debug!("used_in: {:#?}", used_in);
+
+        let mut no_dependencies = deps
+            .iter()
+            .filter_map(|(k, v)| if v.is_empty() { Some(*k) } else { None })
+            .collect::<Vec<_>>();
+
+        // Remove any definitions without dependencies from the set of dependencies,
+        // so that we don't see it later when checking for cycles.
+        for e in &no_dependencies {
+            deps.remove(e);
+        }
+
+        let mut result = Vec::new();
+        while let Some(def) = no_dependencies.pop() {
+            result.push(def);
+            // For each function this one was used in...
+            if let Some(used_in) = used_in.get(&def) {
+                for dep in used_in {
+                    // Remove this function from its dependency set.
+                    let dependency_set = deps.get_mut(dep).unwrap();
+                    dependency_set.remove(&def);
+                    // Check if it has any more dependencies.
+                    if dependency_set.is_empty() {
+                        deps.remove(dep);
+                        no_dependencies.push(*dep);
+                    }
+                }
+            }
+        }
+
+        if !deps.is_empty() {
+            // There was a cycle in the graph.
+            todo!("report cycles: {:#?}", deps)
+        }
+
+        Dr::ok(result)
+    })
+}
+
+#[tracing::instrument(level = "trace")]
+fn infer_values(db: &dyn ValueInferenceEngine, source: Source) -> Dr<()> {
+    db.compute_inference_order(source).bind(|order| {
+        // We need to call `db.module_from_feather_source` a second time, even though we already did that in `compute_inference_order`.
+        // Of course, due to `salsa`, we don't actually do the parse twice, but we need to be careful not to doubly-include diagnostics.
+        let res = db
+            .module_from_feather_source(source)
+            .destructure()
+            .0
+            .unwrap();
+
+        let mut result_types = Dr::ok(NodeInfoContainer::new());
+        for def in order {
+            result_types = result_types.bind(|types_container| {
+                infer_values_def(
+                    db,
+                    source,
+                    res.module.definition(def).unwrap(),
+                    &types_container,
+                )
+                .map(|types| types_container.union(types))
+            });
+        }
+        result_types.map(|final_types| info!("final_types: {:#?}", final_types))
+    })
+}
+
+/// Infers types of each sub-expression in a given definition.
+/// `known_local_types` is the set of types that we currently know about.
+/// In particular, any locally-defined definitions (in this module) have known types listed in this map.
+#[tracing::instrument(level = "trace")]
+fn infer_values_def(
+    db: &dyn ValueInferenceEngine,
+    source: Source,
+    def: &Definition,
+    known_local_types: &NodeInfoContainer<ExprContents, PartialValue>,
+) -> Dr<NodeInfoContainer<ExprContents, PartialValue>> {
     // To each expression we associate a type.
     // TODO: use tys from node info in `res`
     // TODO: variable ID generator should be initialised with non-clashing IDs from the expression, since it may have its own IDs already
-    info!("{:#?}", def);
+    debug!("def was: {:#?}", def);
     let mut ctx = TyCtx {
         db,
         source,
         var_gen: Default::default(),
+        known_local_types,
     };
     let unification = traverse(&def.contents.expr, &mut ctx, &[]);
     let errored = unification.errored();
@@ -101,13 +211,13 @@ fn infer_values_def(db: &dyn ValueInferenceEngine, source: Source, def: &Definit
         // Store the deduced type of each expression.
         let mut types = NodeInfoContainer::<ExprContents, PartialValue>::new();
         let result = fill_types(source, &def.contents.expr, &unif, &mut types);
-        info!("{:#?}", types);
+        debug!("types were: {:#?}", types);
         // Don't produce error messages for unknown types if we already have type inference errors.
         // We still want to produce the side effect of filling `types` though.
         if errored {
-            Dr::ok(())
+            Dr::ok(types)
         } else {
-            result
+            result.map(|()| types)
         }
     })
 }
@@ -116,6 +226,7 @@ struct TyCtx<'a> {
     db: &'a dyn ValueInferenceEngine,
     source: Source,
     var_gen: VarGenerator,
+    known_local_types: &'a NodeInfoContainer<ExprContents, PartialValue>,
 }
 
 /// Represents the types of known expressions and type variables at some stage in type inference.
@@ -370,7 +481,35 @@ fn traverse(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<Unifica
         ExprContents::FormU64(_) => todo!(),
         ExprContents::FormBool(_) => todo!(),
         ExprContents::FormUnit(_) => todo!(),
-        ExprContents::Inst(_) => todo!(),
+        ExprContents::Inst(Inst(qualified_name)) => {
+            let (source_file, def_name) = ctx
+                .db
+                .split_path_last(ctx.db.qualified_name_to_path(qualified_name));
+            if source_file == ctx.source.path {
+                // This is a local definition.
+                // So its type should be present in `ctx.known_local_types`.
+                let ty = ctx
+                    .known_local_types
+                    .get(
+                        &ctx.db
+                            .module_from_feather_source(ctx.source)
+                            .destructure()
+                            .0
+                            .unwrap()
+                            .module
+                            .definition(def_name)
+                            .unwrap()
+                            .contents
+                            .expr,
+                    )
+                    .unwrap();
+                Dr::ok(Unification::new_with_expr_type(expr.id(), ty.clone()))
+            } else {
+                // This is a definition we've imported from somewhere else.
+                // So we need to look into the database for its type.
+                todo!()
+            }
+        }
         ExprContents::Let(Let { to_assign, body }) => {
             // Traverse the expression to assign to a new variable first.
             traverse(to_assign, ctx, locals).bind(|to_assign_unif| {

@@ -135,6 +135,12 @@ impl<C, T> NodeInfoContainer<C, T> {
     pub fn iter(&self) -> std::collections::hash_map::Iter<NodeId, T> {
         self.map.iter()
     }
+
+    /// Constructs a node info container that contains the information from both input containers.
+    pub fn union(mut self, other: Self) -> Self {
+        self.map.extend(other.map);
+        self
+    }
 }
 
 /// A node info container that doesn't care about the type its info data,

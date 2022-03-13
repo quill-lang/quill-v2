@@ -1,4 +1,4 @@
-use fcommon::Span;
+use fcommon::{Span, Str};
 
 use crate::*;
 use crate::{basic_nodes::Name, expr::Expr};
@@ -52,7 +52,25 @@ impl SexprListParsable for Module {
                 .push(ListParsableWrapper::parse(ctx, db, arg)?.0)
         }
 
+        // TODO: Check for duplicate definition names.
+
         Ok(module)
+    }
+}
+
+impl Module {
+    pub fn definition(&self, name: Str) -> Option<&Definition> {
+        self.contents
+            .defs
+            .iter()
+            .find(|def| def.contents.name.contents == name)
+    }
+
+    pub fn definition_mut(&mut self, name: Str) -> Option<&mut Definition> {
+        self.contents
+            .defs
+            .iter_mut()
+            .find(|def| def.contents.name.contents == name)
     }
 }
 
