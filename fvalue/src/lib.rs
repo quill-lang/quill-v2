@@ -476,6 +476,9 @@ fn traverse(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<Unifica
         ExprContents::FormU64(_) => todo!(),
         ExprContents::FormBool(_) => todo!(),
         ExprContents::FormUnit(_) => todo!(),
+        ExprContents::IntroProduct(_) => todo!(),
+        ExprContents::FormProduct(_) => todo!(),
+        ExprContents::RecursorProduct(_) => todo!(),
         ExprContents::Inst(Inst(qualified_name)) => {
             let (source_file, def_name) = ctx
                 .db

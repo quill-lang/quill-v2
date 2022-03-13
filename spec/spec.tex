@@ -1354,11 +1354,11 @@ A composite type comprises \textit{components}.
 A component is called a \textit{field} in a product type, and a \textit{variant} in a coproduct type.
 
 \begin{tabular}{r l p{7cm}}
-  \lstinline!ComponentInfo! \( ::= \) & \lstinline!(name !\( \mathbb S \)\lstinline!) | (doc !\( \mathbb S \)\lstinline!)! \\
-  \lstinline!Component! \( ::= \) & \lstinline!(comp ComponentInfo* Expr)!
+  \lstinline!ComponentInfo! \( ::= \) & \lstinline!(doc !\( \mathbb S \)\lstinline!)! \\
+  \lstinline!Component! \( ::= \) & \lstinline!(comp !\( \mathbb S \)\lstinline! Expr ComponentInfo*)!
 \end{tabular}
 
-The \lstinline{Expr} in a component evaluates to the type of the component.
+The \lstinline{Expr} in a component evaluates to the type of the component, and the \( \mathbb S \) denotes its name.
 Types that differ only in their component information are considered to be equal.
 
 We can create Feather expressions to execute the \( \times \)-\rform, \( \times \)-\rintro, and \( \times \)-\relim{} rules.

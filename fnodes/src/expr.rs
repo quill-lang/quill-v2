@@ -1,6 +1,6 @@
 use fcommon::Span;
 
-use crate::basic_nodes::{DeBruijnIndex, QualifiedName};
+use crate::basic_nodes::{DeBruijnIndex, Name, QualifiedName};
 use crate::deserialise::SexprParsable;
 use crate::*;
 
@@ -99,6 +99,136 @@ gen_nullary!(IntroUnit "iunit");
 gen_nullary!(FormU64 "fu64");
 gen_nullary!(FormBool "fbool");
 gen_nullary!(FormUnit "funit");
+
+// TODO: Check for duplicates in each component-related thing.
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ComponentContents {
+    pub name: Name,
+    pub ty: Expr,
+}
+
+pub type Component = Node<ComponentContents>;
+
+impl SexprListParsable for Component {
+    const KEYWORD: Option<&'static str> = Some("comp");
+
+    fn parse_list(
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
+        span: Span,
+        mut args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        if args.len() < 2 {
+            return Err(ParseError {
+                span,
+                reason: ParseErrorReason::WrongArity {
+                    expected_arity: 2,
+                    found_arity: args.len(),
+                },
+            });
+        }
+        let name = Name::parse(ctx, db, args.remove(0))?;
+        let ty = ListParsableWrapper::<Expr>::parse(ctx, db, args.remove(0))?.0;
+        let component = Node::new(ctx.node_id_gen.gen(), span, ComponentContents { name, ty });
+        for info in args {
+            ctx.process_component_info(db, &component, info)?;
+        }
+        Ok(component)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct IntroComponent {
+    name: Name,
+    expr: Expr,
+}
+
+impl SexprListParsable for IntroComponent {
+    const KEYWORD: Option<&'static str> = None;
+
+    fn parse_list(
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
+        span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        let [name, expr] = force_arity(span, args)?;
+        Ok(Self {
+            name: Name::parse(ctx, db, name)?,
+            expr: ListParsableWrapper::parse(ctx, db, expr)?.0,
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct IntroProduct {
+    fields: Vec<IntroComponent>,
+}
+
+impl SexprListParsable for IntroProduct {
+    const KEYWORD: Option<&'static str> = Some("iprod");
+
+    fn parse_list(
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
+        _span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        Ok(Self {
+            fields: args
+                .into_iter()
+                .map(|arg| ListParsableWrapper::parse(ctx, db, arg).map(|x| x.0))
+                .collect::<Result<_, _>>()?,
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct FormProduct {
+    fields: Vec<Component>,
+}
+
+impl SexprListParsable for FormProduct {
+    const KEYWORD: Option<&'static str> = Some("fprod");
+
+    fn parse_list(
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
+        _span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        Ok(Self {
+            fields: args
+                .into_iter()
+                .map(|arg| ListParsableWrapper::parse(ctx, db, arg).map(|x| x.0))
+                .collect::<Result<_, _>>()?,
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct RecursorProduct {
+    func: Box<Expr>,
+    expr: Box<Expr>,
+}
+
+impl SexprListParsable for RecursorProduct {
+    const KEYWORD: Option<&'static str> = Some("rprod");
+
+    fn parse_list(
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
+        span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        let [func, expr] = force_arity(span, args)?;
+        Ok(Self {
+            func: Box::new(ListParsableWrapper::parse(ctx, db, func)?.0),
+            expr: Box::new(ListParsableWrapper::parse(ctx, db, expr)?.0),
+        })
+    }
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Inst(pub QualifiedName);
@@ -365,6 +495,10 @@ gen_variants! {
     FormU64
     FormBool
     FormUnit
+
+    IntroProduct
+    FormProduct
+    RecursorProduct
 
     Inst
     Let

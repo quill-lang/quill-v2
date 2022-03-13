@@ -11,7 +11,9 @@ use std::{
 
 use fcommon::{Span, Str};
 
-use crate::{deserialise::*, DefinitionContents, ModuleContents, SexprParser};
+use crate::{
+    deserialise::*, expr::ComponentContents, DefinitionContents, ModuleContents, SexprParser,
+};
 use crate::{expr::ExprContents, s_expr::*};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -279,6 +281,11 @@ pub struct SexprParseContext<'a> {
     /// A list of all of the keywords for expression infos that were ignored (see [`Self::process_expr_info`]).
     expr_ignored_keywords: HashSet<String>,
 
+    /// Containers to be filled with component node info.
+    component_infos: Vec<&'a mut dyn AbstractNodeInfoContainer<ComponentContents>>,
+    /// A list of all of the keywords for component infos that were ignored (see [`Self::process_component_info`]).
+    component_ignored_keywords: HashSet<String>,
+
     /// Containers to be filled with name node info.
     name_infos: Vec<&'a mut dyn AbstractNodeInfoContainer<Str>>,
     /// A list of all of the keywords for name infos that were ignored (see [`Self::process_name_info`]).
@@ -365,6 +372,13 @@ impl<'a> SexprParseContext<'a> {
         process_expr_info,
         expr_infos,
         expr_ignored_keywords
+    );
+    generate_process_functions!(
+        ComponentContents,
+        register_component_info,
+        process_component_info,
+        component_infos,
+        component_ignored_keywords
     );
     generate_process_functions!(
         Str,
