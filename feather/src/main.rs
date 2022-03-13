@@ -1,7 +1,6 @@
 use std::{path::PathBuf, sync::Arc};
 
 use fcommon::{FileReader, Intern, PathData, Source, SourceType};
-use fnodes::SexprParser;
 use fvalue::ValueInferenceEngine;
 use salsa::Durability;
 use tracing::info;

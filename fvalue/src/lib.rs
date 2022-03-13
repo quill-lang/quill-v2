@@ -3,15 +3,10 @@
 mod value;
 pub use value::*;
 
-use std::{
-    collections::{HashMap, HashSet},
-    slice::SliceIndex,
-};
+use std::collections::{HashMap, HashSet};
 
-use fcommon::{
-    Dr, InternExt, Label, LabelType, Path, PathData, Report, ReportKind, Source, Span, Str,
-};
-use fnodes::{expr::*, Definition, NodeId, NodeInfoContainer, SexprParser, SexprParserExt};
+use fcommon::{Dr, Label, LabelType, Path, Report, ReportKind, Source, Span, Str};
+use fnodes::{expr::*, Definition, NodeId, NodeInfoContainer, SexprParserExt};
 use tracing::{debug, info};
 
 #[salsa::query_group(ValueInferenceStorage)]
