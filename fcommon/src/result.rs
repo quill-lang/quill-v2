@@ -200,6 +200,7 @@ impl From<&Label> for ariadne::Label<(Source, Span)> {
 pub enum LabelType {
     Error,
     Warning,
+    Note,
 }
 
 /// Each label type is associated with a particular colour.
@@ -209,6 +210,7 @@ impl From<LabelType> for ariadne::Color {
         match ty {
             LabelType::Error => Self::Red,
             LabelType::Warning => Self::Yellow,
+            LabelType::Note => Self::Cyan,
         }
     }
 }

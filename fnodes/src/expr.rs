@@ -102,13 +102,13 @@ gen_nullary!(FormUnit "funit");
 
 // TODO: Check for duplicates in each component-related thing.
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct ComponentContents {
-    pub name: Name,
-    pub ty: Expr,
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct ComponentContents<N = Name, E = Expr> {
+    pub name: N,
+    pub ty: E,
 }
 
-pub type Component = Node<ComponentContents>;
+pub type Component<N = Name, E = Expr> = Node<ComponentContents<N, E>>;
 
 impl SexprListParsable for Component {
     const KEYWORD: Option<&'static str> = Some("comp");
@@ -138,10 +138,10 @@ impl SexprListParsable for Component {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct IntroComponent {
-    name: Name,
-    expr: Expr,
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct IntroComponent<N = Name, E = Expr> {
+    pub name: N,
+    pub expr: E,
 }
 
 impl SexprListParsable for IntroComponent {
@@ -161,9 +161,9 @@ impl SexprListParsable for IntroComponent {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct IntroProduct {
-    fields: Vec<IntroComponent>,
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct IntroProduct<N = Name, E = Expr> {
+    pub fields: Vec<IntroComponent<N, E>>,
 }
 
 impl SexprListParsable for IntroProduct {
@@ -184,9 +184,9 @@ impl SexprListParsable for IntroProduct {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct FormProduct {
-    fields: Vec<Component>,
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct FormProduct<C = Component> {
+    pub fields: Vec<C>,
 }
 
 impl SexprListParsable for FormProduct {
@@ -207,10 +207,11 @@ impl SexprListParsable for FormProduct {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct RecursorProduct {
-    func: Box<Expr>,
-    expr: Box<Expr>,
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct RecursorProduct<E = Expr> {
+    pub num_fields: u64,
+    pub func: Box<E>,
+    pub expr: Box<E>,
 }
 
 impl SexprListParsable for RecursorProduct {
@@ -222,8 +223,9 @@ impl SexprListParsable for RecursorProduct {
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
-        let [func, expr] = force_arity(span, args)?;
+        let [num_fields, func, expr] = force_arity(span, args)?;
         Ok(Self {
+            num_fields: AtomParsableWrapper::parse(ctx, db, num_fields)?.0,
             func: Box::new(ListParsableWrapper::parse(ctx, db, func)?.0),
             expr: Box::new(ListParsableWrapper::parse(ctx, db, expr)?.0),
         })
@@ -405,6 +407,10 @@ impl SexprListParsable for FormFunc {
 
 macro_rules! gen_variants {
     ($n: ident $label: tt: $( $t: ident )*) => {
+        /// # Adding variants
+        /// When adding a new variant to [`ExprContents`], make sure to update:
+        /// - [`ExprContents::sub_expressions`]
+        /// - [`ExprContents::sub_expressions_mut`]
         #[derive(Debug, PartialEq, Eq)]
         pub enum $n {
             $( $t($t) ),*
@@ -512,6 +518,15 @@ gen_variants! {
 impl ExprContents {
     pub fn sub_expressions(&self) -> Vec<&Expr> {
         match self {
+            ExprContents::IntroProduct(IntroProduct { fields }) => {
+                fields.iter().map(|comp| &comp.expr).collect()
+            }
+            ExprContents::FormProduct(FormProduct { fields }) => {
+                fields.iter().map(|comp| &comp.contents.ty).collect()
+            }
+            ExprContents::RecursorProduct(RecursorProduct { func, expr, .. }) => {
+                vec![func, expr]
+            }
             ExprContents::Let(Let { to_assign, body }) => vec![&*to_assign, &*body],
             ExprContents::Lambda(Lambda { body, .. }) => vec![&*body],
             ExprContents::Apply(Apply { function, .. }) => vec![&*function],
@@ -522,6 +537,16 @@ impl ExprContents {
 
     pub fn sub_expressions_mut(&mut self) -> Vec<&mut Expr> {
         match self {
+            ExprContents::IntroProduct(IntroProduct { fields }) => {
+                fields.iter_mut().map(|comp| &mut comp.expr).collect()
+            }
+            ExprContents::FormProduct(FormProduct { fields }) => fields
+                .iter_mut()
+                .map(|comp| &mut comp.contents.ty)
+                .collect(),
+            ExprContents::RecursorProduct(RecursorProduct { func, expr, .. }) => {
+                vec![func, expr]
+            }
             ExprContents::Let(Let { to_assign, body }) => vec![&mut *to_assign, &mut *body],
             ExprContents::Lambda(Lambda { body, .. }) => vec![&mut *body],
             ExprContents::Apply(Apply { function, .. }) => vec![&mut *function],

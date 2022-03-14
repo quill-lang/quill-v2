@@ -1,12 +1,19 @@
 use std::collections::HashMap;
 
-use fcommon::Path;
+use fcommon::{Path, Str};
 use fnodes::expr::*;
+
+use crate::ValueInferenceEngine;
 
 /// A realisation of an object which may contain inference variables, and may be simplifiable.
 /// Importantly, it contains no provenance about where it came from in the expression - all we care
 /// about is its value.
 /// It therefore contains no feather nodes, and is cloneable.
+///
+/// # Adding variants
+/// When adding a new variant to [`PartialValue`], make sure to update:
+/// - [`PartialValue::sub_expressions`]
+/// - [`PartialValue::sub_expressions_mut`]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PartialValue {
     IntroLocal(IntroLocal),
@@ -20,6 +27,12 @@ pub enum PartialValue {
     FormBool,
     FormUnit,
 
+    IntroProduct(IntroProduct<Str, PartialValue>),
+    /// Here, the components may not have names - this is simply for the purpose of inference.
+    /// Once type inference is done, we will know all fields' names.
+    FormProduct(FormProduct<ComponentContents<Option<Str>, PartialValue>>),
+    RecursorProduct(RecursorProduct<PartialValue>),
+
     Inst(Path),
     Let(Let<PartialValue>),
     Lambda(Lambda<PartialValue>),
@@ -32,6 +45,15 @@ pub enum PartialValue {
 impl PartialValue {
     pub fn sub_expressions(&self) -> Vec<&PartialValue> {
         match self {
+            PartialValue::IntroProduct(IntroProduct { fields }) => {
+                fields.iter().map(|comp| &comp.expr).collect()
+            }
+            PartialValue::FormProduct(FormProduct { fields }) => {
+                fields.iter().map(|comp| &comp.ty).collect()
+            }
+            PartialValue::RecursorProduct(RecursorProduct { func, expr, .. }) => {
+                vec![func, expr]
+            }
             PartialValue::Let(Let { to_assign, body }) => vec![&*to_assign, &*body],
             PartialValue::Lambda(Lambda { body, .. }) => vec![&*body],
             PartialValue::Apply(Apply { function, .. }) => vec![&*function],
@@ -42,6 +64,15 @@ impl PartialValue {
 
     pub fn sub_expressions_mut(&mut self) -> Vec<&mut PartialValue> {
         match self {
+            PartialValue::IntroProduct(IntroProduct { fields }) => {
+                fields.iter_mut().map(|comp| &mut comp.expr).collect()
+            }
+            PartialValue::FormProduct(FormProduct { fields }) => {
+                fields.iter_mut().map(|comp| &mut comp.ty).collect()
+            }
+            PartialValue::RecursorProduct(RecursorProduct { func, expr, .. }) => {
+                vec![func, expr]
+            }
             PartialValue::Let(Let { to_assign, body }) => vec![&mut *to_assign, &mut *body],
             PartialValue::Lambda(Lambda { body, .. }) => vec![&mut *body],
             PartialValue::Apply(Apply { function, .. }) => vec![&mut *function],
@@ -71,8 +102,8 @@ impl PartialValue {
 
 /// A utility for printing partial values to screen.
 /// Works like the Display trait, but works better for printing type variable names.
-#[derive(Default)]
-pub struct PartialValuePrinter {
+pub struct PartialValuePrinter<'a> {
+    db: &'a dyn ValueInferenceEngine,
     /// Maps inference variables to the names we use to render them.
     inference_variable_names: HashMap<Var, String>,
     /// When we see a new inference variable that we've not named yet, what name should we give it?
@@ -80,9 +111,13 @@ pub struct PartialValuePrinter {
     type_variable_name: u32,
 }
 
-impl PartialValuePrinter {
-    pub fn new() -> Self {
-        Self::default()
+impl<'a> PartialValuePrinter<'a> {
+    pub fn new(db: &'a dyn ValueInferenceEngine) -> Self {
+        Self {
+            db,
+            inference_variable_names: Default::default(),
+            type_variable_name: Default::default(),
+        }
     }
 
     pub fn print(&mut self, val: &PartialValue) -> String {
@@ -92,9 +127,29 @@ impl PartialValuePrinter {
             PartialValue::IntroFalse => todo!(),
             PartialValue::IntroTrue => todo!(),
             PartialValue::IntroUnit => todo!(),
-            PartialValue::FormU64 => todo!(),
+            PartialValue::FormU64 => "U64".to_string(),
             PartialValue::FormBool => todo!(),
             PartialValue::FormUnit => "Unit".to_string(),
+            PartialValue::IntroProduct(_) => todo!(),
+            PartialValue::FormProduct(FormProduct { fields }) => {
+                let fields = fields
+                    .iter()
+                    .map(|comp| {
+                        if let Some(name) = comp.name {
+                            format!(
+                                "{}: {}",
+                                self.db.lookup_intern_string_data(name),
+                                self.print(&comp.ty)
+                            )
+                        } else {
+                            self.print(&comp.ty)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{{{}}}", fields)
+            }
+            PartialValue::RecursorProduct(_) => todo!(),
             PartialValue::Inst(_) => todo!(),
             PartialValue::Let(_) => todo!(),
             PartialValue::Lambda(_) => todo!(),

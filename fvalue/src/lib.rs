@@ -3,20 +3,19 @@
 mod value;
 pub use value::*;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use fcommon::{Dr, Label, LabelType, Path, Report, ReportKind, Source, Span, Str};
 use fnodes::{expr::*, Definition, NodeId, NodeInfoContainer, SexprParserExt};
-use tracing::{debug, info};
+use tracing::{debug, info, trace};
 
 #[salsa::query_group(ValueInferenceStorage)]
 pub trait ValueInferenceEngine: SexprParserExt {
     /// Compute the definitions that each definition in this source file depends on.
-    fn def_deps(&self, source: Source) -> Dr<HashMap<Str, HashSet<Path>>>;
+    fn def_deps(&self, source: Source) -> Dr<BTreeMap<Str, BTreeSet<Path>>>;
     /// Compute the definitions that each definition in this module depends on,
     /// that were defined inside this module.
-    /// TODO: Use some kind of sorted map in order to improve the caching ability of `salsa`.
-    fn local_def_deps(&self, source: Source) -> Dr<HashMap<Str, HashSet<Str>>>;
+    fn local_def_deps(&self, source: Source) -> Dr<BTreeMap<Str, BTreeSet<Str>>>;
     /// Computes an order in which to infer types, such that we never run into circular dependencies.
     /// In particular, if definitions A and B reference each other, at least one of them must have an externally
     /// declared type; they cannot both have an inferred types.
@@ -32,7 +31,7 @@ pub trait ValueInferenceEngine: SexprParserExt {
 }
 
 #[tracing::instrument(level = "trace")]
-fn def_deps(db: &dyn ValueInferenceEngine, source: Source) -> Dr<HashMap<Str, HashSet<Path>>> {
+fn def_deps(db: &dyn ValueInferenceEngine, source: Source) -> Dr<BTreeMap<Str, BTreeSet<Path>>> {
     db.module_from_feather_source(source).map(|res| {
         res.module
             .contents
@@ -40,7 +39,7 @@ fn def_deps(db: &dyn ValueInferenceEngine, source: Source) -> Dr<HashMap<Str, Ha
             .iter()
             .map(|def| {
                 (def.contents.name.contents, {
-                    let mut result = HashSet::new();
+                    let mut result = BTreeSet::new();
                     find_expr_def_deps(db, &def.contents.expr, &mut result);
                     debug!(
                         "def {} depends on [{}]",
@@ -60,7 +59,7 @@ fn def_deps(db: &dyn ValueInferenceEngine, source: Source) -> Dr<HashMap<Str, Ha
 
 /// Work out which definitions this expression references.
 /// For each `inst` expression, add it to the list of deps.
-fn find_expr_def_deps(db: &dyn ValueInferenceEngine, expr: &Expr, deps: &mut HashSet<Path>) {
+fn find_expr_def_deps(db: &dyn ValueInferenceEngine, expr: &Expr, deps: &mut BTreeSet<Path>) {
     match &expr.contents {
         ExprContents::Inst(inst) => {
             deps.insert(db.qualified_name_to_path(&inst.0));
@@ -74,7 +73,10 @@ fn find_expr_def_deps(db: &dyn ValueInferenceEngine, expr: &Expr, deps: &mut Has
 }
 
 #[tracing::instrument(level = "trace")]
-fn local_def_deps(db: &dyn ValueInferenceEngine, source: Source) -> Dr<HashMap<Str, HashSet<Str>>> {
+fn local_def_deps(
+    db: &dyn ValueInferenceEngine,
+    source: Source,
+) -> Dr<BTreeMap<Str, BTreeSet<Str>>> {
     db.def_deps(source).map(|map| {
         map.into_iter()
             .map(|(k, v)| {
@@ -106,7 +108,7 @@ fn compute_inference_order(db: &dyn ValueInferenceEngine, source: Source) -> Dr<
         // We say that if A has B as a dependency, there is an edge from B to A.
         // So `deps` is a map of incoming edges.
         // First, invert the `deps` map to find outgoing edges.
-        let mut used_in = HashMap::<Str, HashSet<Str>>::new();
+        let mut used_in = BTreeMap::<Str, BTreeSet<Str>>::new();
         for (def, def_deps) in &deps {
             for dep in def_deps {
                 used_in.entry(*dep).or_default().insert(*def);
@@ -173,6 +175,7 @@ fn infer_values(db: &dyn ValueInferenceEngine, source: Source) -> Dr<()> {
                     res.module.definition(def).unwrap(),
                     &types_container,
                 )
+                .deny()
                 .map(|types| types_container.union(types))
             });
         }
@@ -199,13 +202,14 @@ fn infer_values_def(
         source,
         var_gen: Default::default(),
         known_local_types,
+        print: PartialValuePrinter::new(db),
     };
     let unification = traverse(&def.contents.expr, &mut ctx, &[]);
     let errored = unification.errored();
     unification.bind(|unif| {
         // Store the deduced type of each expression.
         let mut types = NodeInfoContainer::<ExprContents, PartialValue>::new();
-        let result = fill_types(source, &def.contents.expr, &unif, &mut types);
+        let result = fill_types(&mut ctx, &def.contents.expr, &unif, &mut types);
         debug!("types were: {:#?}", types);
         // Don't produce error messages for unknown types if we already have type inference errors.
         // We still want to produce the side effect of filling `types` though.
@@ -217,11 +221,13 @@ fn infer_values_def(
     })
 }
 
+/// Do not mutate any values in `TyCtx` except for `print`, which may be used mutably.
 struct TyCtx<'a> {
     db: &'a dyn ValueInferenceEngine,
     source: Source,
     var_gen: VarGenerator,
     known_local_types: &'a NodeInfoContainer<ExprContents, PartialValue>,
+    print: PartialValuePrinter<'a>,
 }
 
 /// Represents the types of known expressions and type variables at some stage in type inference.
@@ -250,32 +256,38 @@ impl Unification {
     /// an error will be emitted.
     fn with_var_type(
         mut self,
-        source: Source,
+        ctx: &mut TyCtx,
         span: Span,
         var: Var,
         mut ty: PartialValue,
     ) -> Dr<Self> {
+        trace!("inferring {:?} -> {:?}", var, ty);
         // Run an occurs check on `ty` to see if the variable occurs in its replacement.
         if matches!(ty, PartialValue::Var(_)) {
             // Skip the occurs check, it's trivial anyway.
         } else if self.occurs_in(&var, &ty) {
             // TODO: Add node information, showing which nodes had this bad type.
-            let mut print = PartialValuePrinter::new();
             return Dr::ok_with(
                 self,
-                Report::new(ReportKind::Error, source, span.start)
+                Report::new(ReportKind::Error, ctx.source, span.start)
                     .with_message("self-referential type found")
-                    .with_label(
-                        Label::new(source, span, LabelType::Error).with_message(format!(
+                    .with_label(Label::new(ctx.source, span, LabelType::Error).with_message(
+                        format!(
                             "found type {} ~ {}",
-                            print.print(&PartialValue::Var(var)),
-                            print.print(&ty)
-                        )),
-                    ),
+                            ctx.print.print(&PartialValue::Var(var)),
+                            ctx.print.print(&ty)
+                        ),
+                    )),
             );
         }
         self.canonicalise(&mut ty);
-        self.var_types.insert(var, ty);
+        if let Some(previous_inference) = self.var_types.insert(var, ty) {
+            panic!(
+                "tried to set already-defined variable {:?} (was {:?})",
+                var, previous_inference
+            );
+        }
+
         // TODO: We may want to canonicalise all the expr types we found that depend on this var,
         // although it's fine if that just happens ad hoc.
         Dr::ok(self)
@@ -310,12 +322,12 @@ impl Unification {
 
     /// Assuming that there are no duplicates, return the union of the two unifications.
     // TODO: This assumption isn't actually necessarily true...?
-    fn with(self, other: Self, source: Source, span: Span) -> Dr<Self> {
+    fn with(self, other: Self, ctx: &mut TyCtx, span: Span) -> Dr<Self> {
         other
             .var_types
             .into_iter()
             .fold(Dr::ok(self), |this, (var, val)| {
-                this.bind(|this| this.with_var_type(source, span.clone(), var, val))
+                this.bind(|this| this.with_var_type(ctx, span.clone(), var, val))
             })
             .map(|this| {
                 other
@@ -354,21 +366,23 @@ impl Unification {
         self,
         mut expected: PartialValue,
         mut found: PartialValue,
-        source: Source,
+        ctx: &mut TyCtx,
         span: Span,
         report: R,
     ) -> Dr<Self>
     where
-        R: FnOnce(&PartialValue, &PartialValue) -> Report,
+        R: FnOnce(&mut TyCtx, &PartialValue, &PartialValue) -> Report,
     {
         // Recall everything we currently know about the two values we're dealing with.
         self.canonicalise(&mut expected);
         self.canonicalise(&mut found);
 
+        trace!("unifying {:?}, {:?}", expected, found);
+
         // The report should only be called once, but it's easier to implement without this compile time restriction.
         // So we put it in an Option, and take it out when we need it.
         self.unify_recursive(
-            source,
+            ctx,
             span,
             &expected,
             &found,
@@ -384,7 +398,7 @@ impl Unification {
     #[allow(clippy::too_many_arguments)]
     fn unify_recursive<R>(
         self,
-        source: Source,
+        ctx: &mut TyCtx,
         span: Span,
         base_expected: &PartialValue,
         base_found: &PartialValue,
@@ -393,7 +407,7 @@ impl Unification {
         report_box: &mut Option<R>,
     ) -> Dr<Self>
     where
-        R: FnOnce(&PartialValue, &PartialValue) -> Report,
+        R: FnOnce(&mut TyCtx, &PartialValue, &PartialValue) -> Report,
     {
         if let (
             PartialValue::FormFunc(FormFunc {
@@ -408,7 +422,7 @@ impl Unification {
         {
             // Unify the parameters and then the results.
             self.unify_recursive(
-                source,
+                ctx,
                 span.clone(),
                 base_expected,
                 base_found,
@@ -417,29 +431,121 @@ impl Unification {
                 report_box,
             )
             .bind(|this| {
+                // At this point, the canonical form of the result may have changed.
+                // So we need to recanonicalise it.
+                let mut expected_result = *expected_result.clone();
+                let mut found_result = *found_result.clone();
+                this.canonicalise(&mut expected_result);
+                this.canonicalise(&mut found_result);
                 this.unify_recursive(
-                    source,
+                    ctx,
                     span,
                     base_expected,
                     base_found,
-                    expected_result,
-                    found_result,
+                    &expected_result,
+                    &found_result,
                     report_box,
                 )
             })
+        } else if let (
+            PartialValue::FormProduct(FormProduct {
+                fields: expected_fields,
+            }),
+            PartialValue::FormProduct(FormProduct {
+                fields: found_fields,
+            }),
+        ) = (expected, found)
+        {
+            // TODO: Enhance this check to work out if there were missing or mistyped fields.
+            if expected_fields.len() != found_fields.len() {
+                Dr::ok_with(
+                    self,
+                    report_box.take().expect("tried to create two reports")(ctx,
+                        base_expected,
+                        base_found,
+                    )
+                    .with_label(
+                        Label::new(ctx.source, span, LabelType::Note)
+                            .with_order(1000)
+                            .with_message(
+                                format!(
+                                    "product types {} and {} had differing amounts of fields, so could not be compared",
+                                    ctx.print.print(expected),
+                                    ctx.print.print(found)
+                                )
+                            )
+                    ),
+                )
+            } else {
+                expected_fields.iter().zip(found_fields).fold(
+                    Dr::ok(self),
+                    |unif, (expected, found)| {
+                        unif.bind(|unif| {
+                            let match_names = if let (Some(expected_name), Some(found_name)) =
+                                (expected.name, found.name)
+                            {
+                                // If both fields are named, the names must match.
+                                if expected_name == found_name {
+                                    Dr::ok(())
+                                } else {
+                                    Dr::ok_with(
+                                        (),
+                                        report_box.take().expect("tried to create two reports")(
+                                            ctx,
+                                            base_expected,
+                                            base_found,
+                                        )
+                                        .with_label(
+                                            Label::new(ctx.source, span.clone(), LabelType::Note)
+                                                .with_message(format!(
+                                                    "field names {} and {} did not match",
+                                                    ctx.db.lookup_intern_string_data(expected_name),
+                                                    ctx.db.lookup_intern_string_data(found_name)
+                                                )),
+                                        ),
+                                    )
+                                }
+                            } else {
+                                Dr::ok(())
+                            };
+                            match_names.bind(|()| {
+                                // At this point, the canonical form of the result may have changed.
+                                // So we need to recanonicalise it.
+                                let mut expected_ty = expected.ty.clone();
+                                let mut found_ty = found.ty.clone();
+                                unif.canonicalise(&mut expected_ty);
+                                unif.canonicalise(&mut found_ty);
+                                unif.unify_recursive(
+                                    ctx,
+                                    span.clone(),
+                                    base_expected,
+                                    base_found,
+                                    &expected_ty,
+                                    &found_ty,
+                                    report_box,
+                                )
+                            })
+                        })
+                    },
+                )
+            }
         } else if let PartialValue::Var(found_var) = found {
             // Since we've canonicalised `found`, self.var_types.get(&found_var) is either None or Some(found_var).
             // We will replace this entry with `expected`.
-            self.with_var_type(source, span, *found_var, expected.clone())
+            self.with_var_type(ctx, span, *found_var, expected.clone())
         } else if let PartialValue::Var(expected_var) = expected {
             // This is analogous to above.
-            self.with_var_type(source, span, *expected_var, found.clone())
+            self.with_var_type(ctx, span, *expected_var, found.clone())
         } else {
             // We couldn't unify the two types.
             // We can still try to continue type inference, so we'll just return an error and choose not to unify anything.
             Dr::ok_with(
                 self,
-                report_box.take().expect("tried to create two reports")(base_expected, base_found),
+                report_box.take().expect("tried to create two reports")(
+                    ctx,
+                    base_expected,
+                    base_found,
+                ),
             )
         }
     }
@@ -476,9 +582,95 @@ fn traverse(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<Unifica
         ExprContents::FormU64(_) => todo!(),
         ExprContents::FormBool(_) => todo!(),
         ExprContents::FormUnit(_) => todo!(),
-        ExprContents::IntroProduct(_) => todo!(),
+        ExprContents::IntroProduct(IntroProduct { fields }) => {
+            // Traverse each field.
+            fields
+                .iter()
+                .fold(Dr::ok(Unification::default()), |unif, field| {
+                    unif.bind(|unif| {
+                        traverse(&field.expr, ctx, locals)
+                            .bind(|unif2| unif.with(unif2, ctx, expr.span()))
+                    })
+                })
+                .map(|unif| {
+                    let expr_ty = PartialValue::FormProduct(FormProduct {
+                        fields: fields
+                            .iter()
+                            .map(|component| ComponentContents {
+                                name: Some(component.name.contents),
+                                ty: unif.expr_type(&component.expr),
+                            })
+                            .collect(),
+                    });
+                    unif.with_expr_type(expr.id(), expr_ty)
+                })
+        }
         ExprContents::FormProduct(_) => todo!(),
-        ExprContents::RecursorProduct(_) => todo!(),
+        ExprContents::RecursorProduct(RecursorProduct {
+            num_fields,
+            func,
+            expr: product,
+        }) => {
+            // Traverse the expression and the function.
+            traverse(product, ctx, locals).bind(|unif| {
+                traverse(func, ctx, locals)
+                    .bind(|product_unif| product_unif.with(unif, ctx, expr.span()))
+                    .bind(|unif| {
+                        // Construct new inference variables for the field types of the product.
+                        let field_types = (0..*num_fields)
+                            .map(|_| ctx.var_gen.gen())
+                            .collect::<Vec<_>>();
+                        let expected_product_type = PartialValue::FormProduct(FormProduct {
+                            fields: field_types
+                                .iter()
+                                .map(|var| ComponentContents {
+                                    name: None,
+                                    ty: PartialValue::Var(*var),
+                                })
+                                .collect(),
+                        });
+                        // Unify `product` with this new product type.
+                        let product_type = unif.expr_type(product);
+                        unif.unify(
+                            expected_product_type,
+                            product_type,
+                            ctx,
+                            expr.span(),
+                            |ctx, expected, found| {
+                                todo!("tried to invoke `rprod` on a non-product type")
+                            },
+                        )
+                        .bind(|unif| {
+                            // Construct a new inference variable for the result type.
+                            let result_ty = ctx.var_gen.gen();
+                            // Construct the expected function type.
+                            let expected_function_type = field_types.iter().rev().fold(
+                                PartialValue::Var(result_ty),
+                                |func, param| {
+                                    PartialValue::FormFunc(FormFunc {
+                                        parameter: Box::new(PartialValue::Var(*param)),
+                                        result: Box::new(func),
+                                    })
+                                },
+                            );
+                            let function_type = unif.expr_type(func);
+                            // Unify the expected function type with the actual function type.
+                            unif.unify(
+                                expected_function_type,
+                                function_type,
+                                ctx,
+                                expr.span(),
+                                |ctx, expected, found| {
+                                    todo!("function in `rprod` was of wrong type")
+                                },
+                            )
+                            .map(|unif| {
+                                unif.with_expr_type(expr.id(), PartialValue::Var(result_ty))
+                            })
+                        })
+                    })
+            })
+        }
         ExprContents::Inst(Inst(qualified_name)) => {
             let (source_file, def_name) = ctx
                 .db
@@ -520,7 +712,7 @@ fn traverse(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<Unifica
                     // The type of a let expression is the type of its body.
                     let result_ty = inner_unif.expr_type(body);
                     inner_unif
-                        .with(to_assign_unif, ctx.source, expr.span())
+                        .with(to_assign_unif, ctx, expr.span())
                         .map(|unif| unif.with_expr_type(expr.id(), result_ty))
                 })
             })
@@ -570,17 +762,16 @@ fn traverse(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<Unifica
                 unif.unify(
                     function_type,
                     found_type,
-                    ctx.source,
+                    ctx,
                     expr.span(),
-                    |expected, found| {
-                        let mut print = PartialValuePrinter::new();
+                    |ctx, expected, found| {
                         Report::new(ReportKind::Error, ctx.source, expr.span().start)
                             .with_message("type mismatch when calling function")
                             .with_label(
                                 Label::new(ctx.source, function.span(), LabelType::Error)
                                     .with_message(format!(
                                         "the function had type {}",
-                                        print.print(expected)
+                                        ctx.print.print(expected)
                                     ))
                                     .with_order(0),
                             )
@@ -589,7 +780,7 @@ fn traverse(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<Unifica
                                     Label::new(ctx.source, function.span(), LabelType::Error)
                                         .with_message(format!(
                                             "the argument had type {}",
-                                            print.print(parameter)
+                                            ctx.print.print(parameter)
                                         ))
                                         .with_order(10)
                                 } else {
@@ -607,7 +798,7 @@ fn traverse(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<Unifica
 }
 
 fn fill_types(
-    source: Source,
+    ctx: &mut TyCtx,
     expr: &Expr,
     unif: &Unification,
     types: &mut NodeInfoContainer<ExprContents, PartialValue>,
@@ -617,14 +808,13 @@ fn fill_types(
     let vars_occuring = unif.variables_occuring_in(&ty);
 
     let result = if !vars_occuring.is_empty() {
-        let mut print = PartialValuePrinter::new();
         Dr::ok_with(
             (),
-            Report::new(ReportKind::Error, source, expr.span().start)
+            Report::new(ReportKind::Error, ctx.source, expr.span().start)
                 .with_message("could not deduce type")
                 .with_label(
-                    Label::new(source, expr.span(), LabelType::Error)
-                        .with_message(format!("deduced type {}", print.print(&ty))),
+                    Label::new(ctx.source, expr.span(), LabelType::Error)
+                        .with_message(format!("deduced type {}", ctx.print.print(&ty))),
                 ),
         )
     } else {
@@ -638,7 +828,7 @@ fn fill_types(
             .sub_expressions()
             .iter()
             .fold(Dr::ok(()), |result, sub_expr| {
-                result.bind(|()| fill_types(source, sub_expr, unif, types))
+                result.bind(|()| fill_types(ctx, sub_expr, unif, types))
             })
     })
 }
