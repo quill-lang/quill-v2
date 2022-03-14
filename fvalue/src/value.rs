@@ -30,7 +30,7 @@ pub enum PartialValue {
     IntroProduct(IntroProduct<Str, PartialValue>),
     /// Here, the components may not have names - this is simply for the purpose of inference.
     /// Once type inference is done, we will know all fields' names.
-    FormProduct(FormProduct<ComponentContents<Option<Str>, PartialValue>>),
+    FormProduct(FormProduct<ComponentContents<NameOrVar, PartialValue>>),
     RecursorProduct(RecursorProduct<PartialValue>),
 
     Inst(Path),
@@ -40,6 +40,41 @@ pub enum PartialValue {
     Var(Var),
 
     FormFunc(FormFunc<PartialValue>),
+}
+
+/// A name variable.
+/// May represent any name.
+/// This is unified in the same way as inference variables.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct NameVar(u32);
+
+/// A name variable which may represent any name, or a concrete name.
+/// This is unified in the same way as inference variables.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum NameOrVar {
+    Name(Str),
+    Var(NameVar),
+}
+
+/// Generates unique name variable names.
+pub struct NameVarGenerator {
+    next_var: NameVar,
+}
+
+impl Default for NameVarGenerator {
+    fn default() -> Self {
+        Self {
+            next_var: NameVar(0),
+        }
+    }
+}
+
+impl NameVarGenerator {
+    pub fn gen(&mut self) -> NameVar {
+        let result = self.next_var;
+        self.next_var.0 += 1;
+        result
+    }
 }
 
 impl PartialValue {
@@ -135,7 +170,7 @@ impl<'a> PartialValuePrinter<'a> {
                 let fields = fields
                     .iter()
                     .map(|comp| {
-                        if let Some(name) = comp.name {
+                        if let NameOrVar::Name(name) = comp.name {
                             format!(
                                 "{}: {}",
                                 self.db.lookup_intern_string_data(name),

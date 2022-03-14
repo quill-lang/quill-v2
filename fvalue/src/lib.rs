@@ -201,6 +201,7 @@ fn infer_values_def(
         db,
         source,
         var_gen: Default::default(),
+        name_var_gen: Default::default(),
         known_local_types,
         print: PartialValuePrinter::new(db),
     };
@@ -226,59 +227,66 @@ struct TyCtx<'a> {
     db: &'a dyn ValueInferenceEngine,
     source: Source,
     var_gen: VarGenerator,
+    name_var_gen: NameVarGenerator,
     known_local_types: &'a NodeInfoContainer<ExprContents, PartialValue>,
     print: PartialValuePrinter<'a>,
 }
 
 /// Represents the types of known expressions and type variables at some stage in type inference.
+/// Any methods that return a [`Vec<Label>`] are diagnostic methods; if they return a non-empty list,
+/// the labels should be attached to a [`Report`] and encased in a [`Dr`].
 #[derive(Debug, Default)]
 struct Unification {
     expr_types: HashMap<NodeId, PartialValue>,
     /// A map converting a variable into a canonical representation.
     var_types: HashMap<Var, PartialValue>,
+    /// A map storing the unifications between name variables.
+    names: HashMap<NameVar, NameOrVar>,
 }
 
 impl Unification {
     /// Construct a blank unification that contains only the information for a single expression.
     fn new_with_expr_type(node_id: NodeId, ty: PartialValue) -> Self {
-        Self::default().with_expr_type(node_id, ty)
+        let mut result = Self::default();
+        result.insert_expr_type(node_id, ty);
+        result
     }
 
     /// Record the type of a single node.
-    fn with_expr_type(mut self, node_id: NodeId, mut ty: PartialValue) -> Self {
+    fn insert_expr_type(&mut self, node_id: NodeId, mut ty: PartialValue) {
         self.canonicalise(&mut ty);
         self.expr_types.insert(node_id, ty);
+    }
+
+    /// Record the type of a single node.
+    fn with_expr_type(mut self, node_id: NodeId, ty: PartialValue) -> Self {
+        self.insert_expr_type(node_id, ty);
         self
     }
 
     /// Record the type of a single inference variable.
     /// If this causes an occurs check to fail, which can happen with circularly defined types,
     /// an error will be emitted.
-    fn with_var_type(
-        mut self,
+    fn insert_var_type(
+        &mut self,
         ctx: &mut TyCtx,
         span: Span,
         var: Var,
         mut ty: PartialValue,
-    ) -> Dr<Self> {
+    ) -> Vec<Label> {
         trace!("inferring {:?} -> {:?}", var, ty);
         // Run an occurs check on `ty` to see if the variable occurs in its replacement.
         if matches!(ty, PartialValue::Var(_)) {
             // Skip the occurs check, it's trivial anyway.
         } else if self.occurs_in(&var, &ty) {
             // TODO: Add node information, showing which nodes had this bad type.
-            return Dr::ok_with(
-                self,
-                Report::new(ReportKind::Error, ctx.source, span.start)
-                    .with_message("self-referential type found")
-                    .with_label(Label::new(ctx.source, span, LabelType::Error).with_message(
-                        format!(
-                            "found type {} ~ {}",
-                            ctx.print.print(&PartialValue::Var(var)),
-                            ctx.print.print(&ty)
-                        ),
-                    )),
-            );
+            return vec![
+                Label::new(ctx.source, span, LabelType::Error).with_message(format!(
+                    "found self-referential type {} ~ {}",
+                    ctx.print.print(&PartialValue::Var(var)),
+                    ctx.print.print(&ty)
+                )),
+            ];
         }
         self.canonicalise(&mut ty);
         if let Some(previous_inference) = self.var_types.insert(var, ty) {
@@ -290,7 +298,7 @@ impl Unification {
 
         // TODO: We may want to canonicalise all the expr types we found that depend on this var,
         // although it's fine if that just happens ad hoc.
-        Dr::ok(self)
+        Vec::new()
     }
 
     /// Returns true if the variable occurs in the given value.
@@ -320,30 +328,60 @@ impl Unification {
         }
     }
 
+    /// Returns any name variables that occur in the given value.
+    fn name_variables_occuring_in(&self, val: &PartialValue) -> HashSet<NameVar> {
+        match val {
+            PartialValue::FormProduct(FormProduct { fields }) => fields
+                .iter()
+                .flat_map(|comp| {
+                    if let NameOrVar::Var(v) = comp.name {
+                        Some(v)
+                    } else {
+                        None
+                    }
+                    .into_iter()
+                    .chain(self.name_variables_occuring_in(&comp.ty))
+                })
+                .collect(),
+            _ => val
+                .sub_expressions()
+                .iter()
+                .flat_map(|expr| self.name_variables_occuring_in(expr))
+                .collect(),
+        }
+    }
+
+    /// Record the value of a name variable.
+    fn insert_name(&mut self, name: NameVar, value: NameOrVar) {
+        self.names.insert(name, self.canonicalise_name(value));
+    }
+
     /// Assuming that there are no duplicates, return the union of the two unifications.
     // TODO: This assumption isn't actually necessarily true...?
-    fn with(self, other: Self, ctx: &mut TyCtx, span: Span) -> Dr<Self> {
-        other
-            .var_types
-            .into_iter()
-            .fold(Dr::ok(self), |this, (var, val)| {
-                this.bind(|this| this.with_var_type(ctx, span.clone(), var, val))
-            })
-            .map(|this| {
-                other
-                    .expr_types
-                    .into_iter()
-                    .fold(this, |this, (node_id, mut val)| {
-                        this.canonicalise(&mut val);
-                        this.with_expr_type(node_id, val)
-                    })
-            })
+    fn with(mut self, other: Self, ctx: &mut TyCtx, span: Span) -> Dr<Self> {
+        let mut labels = Vec::new();
+        for (var, ty) in other.var_types {
+            labels.extend(self.insert_var_type(ctx, span.clone(), var, ty));
+        }
+        for (node_id, mut val) in other.expr_types {
+            self.canonicalise(&mut val);
+            self.insert_expr_type(node_id, val);
+        }
+        for (name, value) in other.names {
+            self.insert_name(name, value);
+        }
+        if labels.is_empty() {
+            Dr::ok(self)
+        } else {
+            todo!()
+        }
     }
 
     /// An idempotent operation reducing a value to a standard form.
     fn canonicalise(&self, val: &mut PartialValue) {
         match val {
             PartialValue::Var(var) => match self.var_types.get(var) {
+                // TODO: Is this operation really idempotent?
                 Some(PartialValue::Var(var2)) => *var = *var2,
                 Some(value) => {
                     *val = value.clone();
@@ -351,6 +389,12 @@ impl Unification {
                 }
                 None => {}
             },
+            PartialValue::FormProduct(FormProduct { fields }) => {
+                for field in fields {
+                    field.name = self.canonicalise_name(field.name);
+                    self.canonicalise(&mut field.ty);
+                }
+            }
             _ => {
                 for expr in val.sub_expressions_mut() {
                     self.canonicalise(expr);
@@ -359,11 +403,23 @@ impl Unification {
         }
     }
 
+    /// An idempotent operation that tries to find the value of a name.
+    fn canonicalise_name(&self, name: NameOrVar) -> NameOrVar {
+        match name {
+            NameOrVar::Var(var) => match self.names.get(&var) {
+                Some(&NameOrVar::Name(name2)) => NameOrVar::Name(name2),
+                Some(&NameOrVar::Var(other)) => self.canonicalise_name(NameOrVar::Var(other)),
+                _ => name,
+            },
+            _ => name,
+        }
+    }
+
     /// Unify the two partial values.
     /// If an error was found, the `report` function is called, which should generate a suitable report.
     /// The arguments are the canonicalised versions of `expected` and `found`.
     fn unify<R>(
-        self,
+        mut self,
         mut expected: PartialValue,
         mut found: PartialValue,
         ctx: &mut TyCtx,
@@ -381,34 +437,25 @@ impl Unification {
 
         // The report should only be called once, but it's easier to implement without this compile time restriction.
         // So we put it in an Option, and take it out when we need it.
-        self.unify_recursive(
-            ctx,
-            span,
-            &expected,
-            &found,
-            &expected,
-            &found,
-            &mut Some(report),
-        )
+        let labels = self.unify_recursive(ctx, span, &expected, &found);
+        if labels.is_empty() {
+            Dr::ok(self)
+        } else {
+            Dr::ok_with(self, report(ctx, &expected, &found))
+        }
     }
 
     /// Do not call this manually.
     /// Given canonicalised types, unify them.
     /// If the unification could not occur, the report is emitted using `base_expected` and `base_found`.
-    #[allow(clippy::too_many_arguments)]
-    fn unify_recursive<R>(
-        self,
+    /// Returns a list of labels which detail type errors. If no labels were emitted, this operation succeeded.
+    fn unify_recursive(
+        &mut self,
         ctx: &mut TyCtx,
         span: Span,
-        base_expected: &PartialValue,
-        base_found: &PartialValue,
         expected: &PartialValue,
         found: &PartialValue,
-        report_box: &mut Option<R>,
-    ) -> Dr<Self>
-    where
-        R: FnOnce(&mut TyCtx, &PartialValue, &PartialValue) -> Report,
-    {
+    ) -> Vec<Label> {
         if let (
             PartialValue::FormFunc(FormFunc {
                 parameter: expected_parameter,
@@ -421,32 +468,18 @@ impl Unification {
         ) = (expected, found)
         {
             // Unify the parameters and then the results.
-            self.unify_recursive(
-                ctx,
-                span.clone(),
-                base_expected,
-                base_found,
-                expected_parameter,
-                found_parameter,
-                report_box,
-            )
-            .bind(|this| {
-                // At this point, the canonical form of the result may have changed.
-                // So we need to recanonicalise it.
-                let mut expected_result = *expected_result.clone();
-                let mut found_result = *found_result.clone();
-                this.canonicalise(&mut expected_result);
-                this.canonicalise(&mut found_result);
-                this.unify_recursive(
-                    ctx,
-                    span,
-                    base_expected,
-                    base_found,
-                    &expected_result,
-                    &found_result,
-                    report_box,
-                )
-            })
+            let mut labels =
+                self.unify_recursive(ctx, span.clone(), expected_parameter, found_parameter);
+
+            // At this point, the canonical form of the result may have changed.
+            // So we need to recanonicalise it.
+            let mut expected_result = *expected_result.clone();
+            let mut found_result = *found_result.clone();
+            self.canonicalise(&mut expected_result);
+            self.canonicalise(&mut found_result);
+            labels.extend(self.unify_recursive(ctx, span, &expected_result, &found_result));
+
+            labels
         } else if let (
             PartialValue::FormProduct(FormProduct {
                 fields: expected_fields,
@@ -458,95 +491,88 @@ impl Unification {
         {
             // TODO: Enhance this check to work out if there were missing or mistyped fields.
             if expected_fields.len() != found_fields.len() {
-                Dr::ok_with(
-                    self,
-                    report_box.take().expect("tried to create two reports")(ctx,
-                        base_expected,
-                        base_found,
-                    )
-                    .with_label(
-                        Label::new(ctx.source, span, LabelType::Note)
-                            .with_order(1000)
-                            .with_message(
-                                format!(
-                                    "product types {} and {} had differing amounts of fields, so could not be compared",
-                                    ctx.print.print(expected),
-                                    ctx.print.print(found)
-                                )
+                vec![Label::new(ctx.source, span, LabelType::Note)
+                        .with_order(1000)
+                        .with_message(
+                            format!(
+                                "product types {} and {} had differing amounts of fields, so could not be compared",
+                                ctx.print.print(expected),
+                                ctx.print.print(found)
                             )
-                    ),
-                )
+                        )]
             } else {
-                expected_fields.iter().zip(found_fields).fold(
-                    Dr::ok(self),
-                    |unif, (expected, found)| {
-                        unif.bind(|unif| {
-                            let match_names = if let (Some(expected_name), Some(found_name)) =
-                                (expected.name, found.name)
-                            {
-                                // If both fields are named, the names must match.
-                                if expected_name == found_name {
-                                    Dr::ok(())
-                                } else {
-                                    Dr::ok_with(
-                                        (),
-                                        report_box.take().expect("tried to create two reports")(
-                                            ctx,
-                                            base_expected,
-                                            base_found,
-                                        )
-                                        .with_label(
-                                            Label::new(ctx.source, span.clone(), LabelType::Note)
-                                                .with_message(format!(
-                                                    "field names {} and {} did not match",
-                                                    ctx.db.lookup_intern_string_data(expected_name),
-                                                    ctx.db.lookup_intern_string_data(found_name)
-                                                )),
-                                        ),
-                                    )
-                                }
-                            } else {
-                                Dr::ok(())
-                            };
-                            match_names.bind(|()| {
-                                // At this point, the canonical form of the result may have changed.
-                                // So we need to recanonicalise it.
-                                let mut expected_ty = expected.ty.clone();
-                                let mut found_ty = found.ty.clone();
-                                unif.canonicalise(&mut expected_ty);
-                                unif.canonicalise(&mut found_ty);
-                                unif.unify_recursive(
-                                    ctx,
-                                    span.clone(),
-                                    base_expected,
-                                    base_found,
-                                    &expected_ty,
-                                    &found_ty,
-                                    report_box,
-                                )
-                            })
-                        })
-                    },
-                )
+                let mut labels = Vec::new();
+                for (expected, found) in expected_fields.iter().zip(found_fields) {
+                    let more_labels =
+                        self.unify_names(ctx, span.clone(), expected.name, found.name);
+                    if more_labels.is_empty() {
+                        // At this point, the canonical form of the result may have changed.
+                        // So we need to recanonicalise it.
+                        let mut expected_ty = expected.ty.clone();
+                        let mut found_ty = found.ty.clone();
+                        self.canonicalise(&mut expected_ty);
+                        self.canonicalise(&mut found_ty);
+                        labels.extend(self.unify_recursive(
+                            ctx,
+                            span.clone(),
+                            &expected_ty,
+                            &found_ty,
+                        ));
+                    } else {
+                        // Don't bother trying to do more type deduction if the field is misnamed.
+                        labels.extend(more_labels);
+                    }
+                }
+                labels
             }
         } else if let PartialValue::Var(found_var) = found {
             // Since we've canonicalised `found`, self.var_types.get(&found_var) is either None or Some(found_var).
             // We will replace this entry with `expected`.
-            self.with_var_type(ctx, span, *found_var, expected.clone())
+            self.insert_var_type(ctx, span, *found_var, expected.clone())
         } else if let PartialValue::Var(expected_var) = expected {
             // This is analogous to above.
-            self.with_var_type(ctx, span, *expected_var, found.clone())
+            self.insert_var_type(ctx, span, *expected_var, found.clone())
         } else {
             // We couldn't unify the two types.
-            // We can still try to continue type inference, so we'll just return an error and choose not to unify anything.
-            Dr::ok_with(
-                self,
-                report_box.take().expect("tried to create two reports")(
-                    ctx,
-                    base_expected,
-                    base_found,
-                ),
-            )
+            vec![
+                Label::new(ctx.source, span, LabelType::Error).with_message(format!(
+                    "types {} and {} could not be unified",
+                    ctx.print.print(expected),
+                    ctx.print.print(found),
+                )),
+            ]
+        }
+    }
+
+    /// Do not call this manually.
+    /// Given names, unify them.
+    fn unify_names(
+        &mut self,
+        ctx: &mut TyCtx,
+        span: Span,
+        expected: NameOrVar,
+        found: NameOrVar,
+    ) -> Vec<Label> {
+        match (expected, found) {
+            (NameOrVar::Name(expected_name), NameOrVar::Name(found_name)) => {
+                // If both fields are named, the names must match.
+                if expected_name == found_name {
+                    Vec::new()
+                } else {
+                    vec![
+                        Label::new(ctx.source, span, LabelType::Note).with_message(format!(
+                            "field names {} and {} did not match",
+                            ctx.db.lookup_intern_string_data(expected_name),
+                            ctx.db.lookup_intern_string_data(found_name)
+                        )),
+                    ]
+                }
+            }
+            (other, NameOrVar::Var(var)) | (NameOrVar::Var(var), other) => {
+                self.insert_name(var, other);
+                Vec::new()
+            }
+            _ => Vec::new(),
         }
     }
 
@@ -597,7 +623,7 @@ fn traverse(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<Unifica
                         fields: fields
                             .iter()
                             .map(|component| ComponentContents {
-                                name: Some(component.name.contents),
+                                name: NameOrVar::Name(component.name.contents),
                                 ty: unif.expr_type(&component.expr),
                             })
                             .collect(),
@@ -624,7 +650,7 @@ fn traverse(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<Unifica
                             fields: field_types
                                 .iter()
                                 .map(|var| ComponentContents {
-                                    name: None,
+                                    name: NameOrVar::Var(ctx.name_var_gen.gen()),
                                     ty: PartialValue::Var(*var),
                                 })
                                 .collect(),
@@ -806,12 +832,23 @@ fn fill_types(
     let ty = unif.expr_type(expr);
 
     let vars_occuring = unif.variables_occuring_in(&ty);
+    let name_vars_occuring = unif.name_variables_occuring_in(&ty);
 
     let result = if !vars_occuring.is_empty() {
         Dr::ok_with(
             (),
             Report::new(ReportKind::Error, ctx.source, expr.span().start)
                 .with_message("could not deduce type")
+                .with_label(
+                    Label::new(ctx.source, expr.span(), LabelType::Error)
+                        .with_message(format!("deduced type {}", ctx.print.print(&ty))),
+                ),
+        )
+    } else if !name_vars_occuring.is_empty() {
+        Dr::ok_with(
+            (),
+            Report::new(ReportKind::Error, ctx.source, expr.span().start)
+                .with_message("could not deduce all component names")
                 .with_label(
                     Label::new(ctx.source, expr.span(), LabelType::Error)
                         .with_message(format!("deduced type {}", ctx.print.print(&ty))),
