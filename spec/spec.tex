@@ -1363,18 +1363,32 @@ Types that differ only in their component information are considered to be equal
 
 We can create Feather expressions to execute the \( \times \)-\rform, \( \times \)-\rintro, and \( \times \)-\relim{} rules.
 The syntax \( A:\UU \)\lstinline! Component! should be interpreted to mean a component whose contained type is \( A \), and which may have extra component information.
-The prefix \lstinline{r} refers to the recursor \( \mathsf{rec} \), and the prefix \lstinline{e} refers to the elimination rule \( \mathsf{ind} \).
+The prefix \lstinline{e} refers to the elimination rule \( \mathsf{ind} \), and the prefix \lstinline{m} refers to a pattern match operation.
 % TODO: Update this
 \begin{lstlisting}[mathescape=true]
 (fprod $A_1:\UU$ Component $\dots$ $A_n:\UU$ Component)$ \;\longleftrightarrow\; \bigtimes_{j=1}^n A_j: \UU $
 (iprod $e_1:A_1$ Expr $\dots$ $e_n:A_n$ Expr)$ \;\longleftrightarrow\; (e_1,\dots, e_n): \bigtimes_{j=1}^n A_j $
-(rprod $n$ $g : A_1 \to \dots \to A_n \to C$ Expr $p:\bigtimes_{j=1}^n A_j$ Expr)
-    $\longleftrightarrow\; \rec{\bigtimes_{j=1}^n A_j}(C,g,p): C $
-(eprod $n$ $C : \bigtimes_{j=1}^n A_j \to \UU$ Expr $g : A_1 \to \dots \to A_n \to C$ Expr $p:\bigtimes_{j=1}^n A_j$ Expr)
-    $\longleftrightarrow\; \ind{\bigtimes_{j=1}^n A_j}(C,g,p): C $
+(mprod (Name*) $p:\bigtimes_{j=1}^n A_j$ Expr $e:C$ Expr)
+    $\longleftrightarrow\; \rec{\bigtimes_{j=1}^n A_j}(C,(\lam{x_1:A_1}\dots\lam{x_n:A_n} x_1\dots x_n . e),p): C $
+(eprod (Name*) $C : \bigtimes_{j=1}^n A_j \to \UU$ Expr
+  $g : A_1 \to \dots \to A_n \to C$ Expr $p:\bigtimes_{j=1}^n A_j$ Expr)
+    $\longleftrightarrow\; \ind{\bigtimes_{j=1}^n A_j}(C,g,p): C(p) $
 \end{lstlisting}
 Note that the recursor and induction function are used atomically here, not as functions.
 This helps us with ownership rules later.
+The \lstinline{(Name*)} parameter lists the names of each field in the product type.
+
+The \lstinline{mprod} rule, defined using the recursor, allows us to perform pattern-matching operations without introducing a \lstinline{lambda} abstraction at the Feather level, even if a \( \lambda \)-abstraction is used at the mathematical level.
+We cannot similarly define \lstinline{eprod} inline in this way; since its return type is determined by a function's result, it must be encased in a function.
+Consider a hypothetical rule
+\begin{lstlisting}[mathescape=true]
+(rprod (Name*) $g : A_1 \to \dots \to A_n \to C$ Expr $p:\bigtimes_{j=1}^n A_j$ Expr)
+    $\longleftrightarrow\; \rec{\bigtimes_{j=1}^n A_j}(C,g,p): C $
+\end{lstlisting}
+This can be encoded precisely by setting
+\[ x_1\dots x_n . e = g(x_1, \dots, x_n) \]
+in \lstinline{mprod}.
+This is equivalent by \( \to \)-\runiq, so the direct existence of the recursor as a Feather expression is unnecessary.
 We similarly define
 \begin{lstlisting}[mathescape=true]
 (fpair $A:\UU$ Component $B:A \to \UU$ Component)$ \;\longleftrightarrow\; \tsm{x:A} B(x) : \UU $
@@ -1382,7 +1396,7 @@ We similarly define
 (rpair $g: \tprd{x:A} B(x) \to C$ Expr $p:\tsm{x:A}B(x)$ Expr)
     $\longleftrightarrow\; \rec{\tsm{x:A} B(x)} (C,g,p): C $
 (epair $C:\tsm{x:A}B(x)\to\UU$ Expr $g: \tprd{x:A} B(x) \to C$ Expr $p:\tsm{x:A}B(x)$ Expr)
-    $\longleftrightarrow\; \ind{\tsm{x:A} B(x)} (C,g,p): C $
+    $\longleftrightarrow\; \ind{\tsm{x:A} B(x)} (C,g,p): C(p) $
 \end{lstlisting}
 The type annotation for \lstinline{ipair} is used to determine the function \( B \), since this is not uniquely determined by \( a \) and \( b \) alone.
 Finally, we define
@@ -1393,7 +1407,7 @@ Finally, we define
     $\longleftrightarrow\; \rec{\bigplus_{j=1}^n A_j}(C,g,p): C $
 (ecoprod $C:\bigplus_{j=1}^n A_j\to\UU$ Expr $g_1 : A_1 \to C$ Expr $\dots$ $g_n : A_n \to C$ Expr
   $p:\bigplus_{j=1}^n A_j$ Expr)
-    $\longleftrightarrow\; \ind{\bigplus_{j=1}^n A_j}(C,g,p): C $
+    $\longleftrightarrow\; \ind{\bigplus_{j=1}^n A_j}(C,g,p): C(p) $
 \end{lstlisting}
 No \( n \) is required in \lstinline{rcoprod} and \lstinline{ecoprod}, since the number of variants is implicit from the arity of the S-expression itself.
 Similarly to with the dependent pair type, the type annotation for \lstinline{icoprod} is used to determine the possible variants for the coproduct.

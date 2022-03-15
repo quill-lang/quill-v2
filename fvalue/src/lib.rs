@@ -201,7 +201,6 @@ fn infer_values_def(
         db,
         source,
         var_gen: Default::default(),
-        name_var_gen: Default::default(),
         known_local_types,
         print: PartialValuePrinter::new(db),
     };
@@ -227,7 +226,6 @@ struct TyCtx<'a> {
     db: &'a dyn ValueInferenceEngine,
     source: Source,
     var_gen: VarGenerator,
-    name_var_gen: NameVarGenerator,
     known_local_types: &'a NodeInfoContainer<ExprContents, PartialValue>,
     print: PartialValuePrinter<'a>,
 }
@@ -240,8 +238,6 @@ struct Unification {
     expr_types: HashMap<NodeId, PartialValue>,
     /// A map converting a variable into a canonical representation.
     var_types: HashMap<Var, PartialValue>,
-    /// A map storing the unifications between name variables.
-    names: HashMap<NameVar, NameOrVar>,
 }
 
 impl Unification {
@@ -328,34 +324,6 @@ impl Unification {
         }
     }
 
-    /// Returns any name variables that occur in the given value.
-    fn name_variables_occuring_in(&self, val: &PartialValue) -> HashSet<NameVar> {
-        match val {
-            PartialValue::FormProduct(FormProduct { fields }) => fields
-                .iter()
-                .flat_map(|comp| {
-                    if let NameOrVar::Var(v) = comp.name {
-                        Some(v)
-                    } else {
-                        None
-                    }
-                    .into_iter()
-                    .chain(self.name_variables_occuring_in(&comp.ty))
-                })
-                .collect(),
-            _ => val
-                .sub_expressions()
-                .iter()
-                .flat_map(|expr| self.name_variables_occuring_in(expr))
-                .collect(),
-        }
-    }
-
-    /// Record the value of a name variable.
-    fn insert_name(&mut self, name: NameVar, value: NameOrVar) {
-        self.names.insert(name, self.canonicalise_name(value));
-    }
-
     /// Assuming that there are no duplicates, return the union of the two unifications.
     // TODO: This assumption isn't actually necessarily true...?
     fn with(mut self, other: Self, ctx: &mut TyCtx, span: Span) -> Dr<Self> {
@@ -366,9 +334,6 @@ impl Unification {
         for (node_id, mut val) in other.expr_types {
             self.canonicalise(&mut val);
             self.insert_expr_type(node_id, val);
-        }
-        for (name, value) in other.names {
-            self.insert_name(name, value);
         }
         if labels.is_empty() {
             Dr::ok(self)
@@ -391,7 +356,6 @@ impl Unification {
             },
             PartialValue::FormProduct(FormProduct { fields }) => {
                 for field in fields {
-                    field.name = self.canonicalise_name(field.name);
                     self.canonicalise(&mut field.ty);
                 }
             }
@@ -400,18 +364,6 @@ impl Unification {
                     self.canonicalise(expr);
                 }
             }
-        }
-    }
-
-    /// An idempotent operation that tries to find the value of a name.
-    fn canonicalise_name(&self, name: NameOrVar) -> NameOrVar {
-        match name {
-            NameOrVar::Var(var) => match self.names.get(&var) {
-                Some(&NameOrVar::Name(name2)) => NameOrVar::Name(name2),
-                Some(&NameOrVar::Var(other)) => self.canonicalise_name(NameOrVar::Var(other)),
-                _ => name,
-            },
-            _ => name,
         }
     }
 
@@ -503,25 +455,13 @@ impl Unification {
             } else {
                 let mut labels = Vec::new();
                 for (expected, found) in expected_fields.iter().zip(found_fields) {
-                    let more_labels =
-                        self.unify_names(ctx, span.clone(), expected.name, found.name);
-                    if more_labels.is_empty() {
-                        // At this point, the canonical form of the result may have changed.
-                        // So we need to recanonicalise it.
-                        let mut expected_ty = expected.ty.clone();
-                        let mut found_ty = found.ty.clone();
-                        self.canonicalise(&mut expected_ty);
-                        self.canonicalise(&mut found_ty);
-                        labels.extend(self.unify_recursive(
-                            ctx,
-                            span.clone(),
-                            &expected_ty,
-                            &found_ty,
-                        ));
-                    } else {
-                        // Don't bother trying to do more type deduction if the field is misnamed.
-                        labels.extend(more_labels);
-                    }
+                    // At this point, the canonical form of the result may have changed.
+                    // So we need to recanonicalise it.
+                    let mut expected_ty = expected.ty.clone();
+                    let mut found_ty = found.ty.clone();
+                    self.canonicalise(&mut expected_ty);
+                    self.canonicalise(&mut found_ty);
+                    labels.extend(self.unify_recursive(ctx, span.clone(), &expected_ty, &found_ty));
                 }
                 labels
             }
@@ -541,38 +481,6 @@ impl Unification {
                     ctx.print.print(found),
                 )),
             ]
-        }
-    }
-
-    /// Do not call this manually.
-    /// Given names, unify them.
-    fn unify_names(
-        &mut self,
-        ctx: &mut TyCtx,
-        span: Span,
-        expected: NameOrVar,
-        found: NameOrVar,
-    ) -> Vec<Label> {
-        match (expected, found) {
-            (NameOrVar::Name(expected_name), NameOrVar::Name(found_name)) => {
-                // If both fields are named, the names must match.
-                if expected_name == found_name {
-                    Vec::new()
-                } else {
-                    vec![
-                        Label::new(ctx.source, span, LabelType::Note).with_message(format!(
-                            "field names {} and {} did not match",
-                            ctx.db.lookup_intern_string_data(expected_name),
-                            ctx.db.lookup_intern_string_data(found_name)
-                        )),
-                    ]
-                }
-            }
-            (other, NameOrVar::Var(var)) | (NameOrVar::Var(var), other) => {
-                self.insert_name(var, other);
-                Vec::new()
-            }
-            _ => Vec::new(),
         }
     }
 
@@ -623,7 +531,7 @@ fn traverse(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<Unifica
                         fields: fields
                             .iter()
                             .map(|component| ComponentContents {
-                                name: NameOrVar::Name(component.name.contents),
+                                name: component.name.contents,
                                 ty: unif.expr_type(&component.expr),
                             })
                             .collect(),
@@ -632,69 +540,55 @@ fn traverse(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<Unifica
                 })
         }
         ExprContents::FormProduct(_) => todo!(),
-        ExprContents::RecursorProduct(RecursorProduct {
-            num_fields,
-            func,
-            expr: product,
+        ExprContents::MatchProduct(MatchProduct {
+            fields,
+            product,
+            body,
         }) => {
-            // Traverse the expression and the function.
+            // Traverse the product type itself and then the body.
             traverse(product, ctx, locals).bind(|unif| {
-                traverse(func, ctx, locals)
-                    .bind(|product_unif| product_unif.with(unif, ctx, expr.span()))
-                    .bind(|unif| {
-                        // Construct new inference variables for the field types of the product.
-                        let field_types = (0..*num_fields)
-                            .map(|_| ctx.var_gen.gen())
-                            .collect::<Vec<_>>();
-                        let expected_product_type = PartialValue::FormProduct(FormProduct {
-                            fields: field_types
-                                .iter()
-                                .map(|var| ComponentContents {
-                                    name: NameOrVar::Var(ctx.name_var_gen.gen()),
-                                    ty: PartialValue::Var(*var),
-                                })
-                                .collect(),
-                        });
-                        // Unify `product` with this new product type.
-                        let product_type = unif.expr_type(product);
-                        unif.unify(
-                            expected_product_type,
-                            product_type,
-                            ctx,
-                            expr.span(),
-                            |ctx, expected, found| {
-                                todo!("tried to invoke `rprod` on a non-product type")
-                            },
-                        )
-                        .bind(|unif| {
-                            // Construct a new inference variable for the result type.
-                            let result_ty = ctx.var_gen.gen();
-                            // Construct the expected function type.
-                            let expected_function_type = field_types.iter().rev().fold(
-                                PartialValue::Var(result_ty),
-                                |func, param| {
-                                    PartialValue::FormFunc(FormFunc {
-                                        parameter: Box::new(PartialValue::Var(*param)),
-                                        result: Box::new(func),
-                                    })
-                                },
-                            );
-                            let function_type = unif.expr_type(func);
-                            // Unify the expected function type with the actual function type.
-                            unif.unify(
-                                expected_function_type,
-                                function_type,
-                                ctx,
-                                expr.span(),
-                                |ctx, expected, found| {
-                                    todo!("function in `rprod` was of wrong type")
-                                },
-                            )
-                            .map(|unif| {
-                                unif.with_expr_type(expr.id(), PartialValue::Var(result_ty))
-                            })
+                // Construct new inference variables for the field types of the product.
+                let field_types = fields.iter().map(|_| ctx.var_gen.gen()).collect::<Vec<_>>();
+                let expected_product_type = PartialValue::FormProduct(FormProduct {
+                    fields: fields
+                        .iter()
+                        .zip(&field_types)
+                        .map(|(name, var)| ComponentContents {
+                            name: name.contents,
+                            ty: PartialValue::Var(*var),
                         })
-                    })
+                        .collect(),
+                });
+
+                // Unify `product` with this new product type.
+                let product_type = unif.expr_type(product);
+                unif.unify(
+                    expected_product_type,
+                    product_type,
+                    ctx,
+                    expr.span(),
+                    |ctx, expected, found| todo!("tried to invoke `mprod` on a non-product type"),
+                )
+                .bind(|unif| {
+                    // Add the result of this inference to the list of locals.
+                    let internal_locals = field_types
+                        .iter()
+                        .rev()
+                        .map(|v| {
+                            let mut ty = PartialValue::Var(*v);
+                            unif.canonicalise(&mut ty);
+                            ty
+                        })
+                        .chain(locals.iter().cloned())
+                        .collect::<Vec<_>>();
+                    traverse(body, ctx, &internal_locals)
+                        .bind(|body_unif| body_unif.with(unif, ctx, expr.span()))
+                        .map(|unif| {
+                            // The type of a match expression is the type of its body.
+                            let result_ty = unif.expr_type(body);
+                            unif.with_expr_type(expr.id(), result_ty)
+                        })
+                })
             })
         }
         ExprContents::Inst(Inst(qualified_name)) => {
@@ -832,23 +726,12 @@ fn fill_types(
     let ty = unif.expr_type(expr);
 
     let vars_occuring = unif.variables_occuring_in(&ty);
-    let name_vars_occuring = unif.name_variables_occuring_in(&ty);
 
     let result = if !vars_occuring.is_empty() {
         Dr::ok_with(
             (),
             Report::new(ReportKind::Error, ctx.source, expr.span().start)
                 .with_message("could not deduce type")
-                .with_label(
-                    Label::new(ctx.source, expr.span(), LabelType::Error)
-                        .with_message(format!("deduced type {}", ctx.print.print(&ty))),
-                ),
-        )
-    } else if !name_vars_occuring.is_empty() {
-        Dr::ok_with(
-            (),
-            Report::new(ReportKind::Error, ctx.source, expr.span().start)
-                .with_message("could not deduce all component names")
                 .with_label(
                     Label::new(ctx.source, expr.span(), LabelType::Error)
                         .with_message(format!("deduced type {}", ctx.print.print(&ty))),

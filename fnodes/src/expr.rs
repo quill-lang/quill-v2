@@ -208,14 +208,14 @@ impl SexprListParsable for FormProduct {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct RecursorProduct<E = Expr> {
-    pub num_fields: u64,
-    pub func: Box<E>,
-    pub expr: Box<E>,
+pub struct MatchProduct<N = Name, E = Expr> {
+    pub fields: Vec<N>,
+    pub product: Box<E>,
+    pub body: Box<E>,
 }
 
-impl SexprListParsable for RecursorProduct {
-    const KEYWORD: Option<&'static str> = Some("rprod");
+impl SexprListParsable for MatchProduct {
+    const KEYWORD: Option<&'static str> = Some("mprod");
 
     fn parse_list(
         ctx: &mut SexprParseContext,
@@ -223,11 +223,11 @@ impl SexprListParsable for RecursorProduct {
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
-        let [num_fields, func, expr] = force_arity(span, args)?;
+        let [fields, product, body] = force_arity(span, args)?;
         Ok(Self {
-            num_fields: AtomParsableWrapper::parse(ctx, db, num_fields)?.0,
-            func: Box::new(ListParsableWrapper::parse(ctx, db, func)?.0),
-            expr: Box::new(ListParsableWrapper::parse(ctx, db, expr)?.0),
+            fields: ListParsableWrapper::parse(ctx, db, fields)?.0,
+            product: Box::new(ListParsableWrapper::parse(ctx, db, product)?.0),
+            body: Box::new(ListParsableWrapper::parse(ctx, db, body)?.0),
         })
     }
 }
@@ -504,7 +504,7 @@ gen_variants! {
 
     IntroProduct
     FormProduct
-    RecursorProduct
+    MatchProduct
 
     Inst
     Let
@@ -524,8 +524,8 @@ impl ExprContents {
             ExprContents::FormProduct(FormProduct { fields }) => {
                 fields.iter().map(|comp| &comp.contents.ty).collect()
             }
-            ExprContents::RecursorProduct(RecursorProduct { func, expr, .. }) => {
-                vec![func, expr]
+            ExprContents::MatchProduct(MatchProduct { product, body, .. }) => {
+                vec![product, body]
             }
             ExprContents::Let(Let { to_assign, body }) => vec![&*to_assign, &*body],
             ExprContents::Lambda(Lambda { body, .. }) => vec![&*body],
@@ -544,8 +544,8 @@ impl ExprContents {
                 .iter_mut()
                 .map(|comp| &mut comp.contents.ty)
                 .collect(),
-            ExprContents::RecursorProduct(RecursorProduct { func, expr, .. }) => {
-                vec![func, expr]
+            ExprContents::MatchProduct(MatchProduct { product, body, .. }) => {
+                vec![product, body]
             }
             ExprContents::Let(Let { to_assign, body }) => vec![&mut *to_assign, &mut *body],
             ExprContents::Lambda(Lambda { body, .. }) => vec![&mut *body],

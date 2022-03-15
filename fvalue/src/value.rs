@@ -30,8 +30,8 @@ pub enum PartialValue {
     IntroProduct(IntroProduct<Str, PartialValue>),
     /// Here, the components may not have names - this is simply for the purpose of inference.
     /// Once type inference is done, we will know all fields' names.
-    FormProduct(FormProduct<ComponentContents<NameOrVar, PartialValue>>),
-    RecursorProduct(RecursorProduct<PartialValue>),
+    FormProduct(FormProduct<ComponentContents<Str, PartialValue>>),
+    MatchProduct(MatchProduct<Str, PartialValue>),
 
     Inst(Path),
     Let(Let<PartialValue>),
@@ -40,41 +40,6 @@ pub enum PartialValue {
     Var(Var),
 
     FormFunc(FormFunc<PartialValue>),
-}
-
-/// A name variable.
-/// May represent any name.
-/// This is unified in the same way as inference variables.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct NameVar(u32);
-
-/// A name variable which may represent any name, or a concrete name.
-/// This is unified in the same way as inference variables.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum NameOrVar {
-    Name(Str),
-    Var(NameVar),
-}
-
-/// Generates unique name variable names.
-pub struct NameVarGenerator {
-    next_var: NameVar,
-}
-
-impl Default for NameVarGenerator {
-    fn default() -> Self {
-        Self {
-            next_var: NameVar(0),
-        }
-    }
-}
-
-impl NameVarGenerator {
-    pub fn gen(&mut self) -> NameVar {
-        let result = self.next_var;
-        self.next_var.0 += 1;
-        result
-    }
 }
 
 impl PartialValue {
@@ -86,8 +51,8 @@ impl PartialValue {
             PartialValue::FormProduct(FormProduct { fields }) => {
                 fields.iter().map(|comp| &comp.ty).collect()
             }
-            PartialValue::RecursorProduct(RecursorProduct { func, expr, .. }) => {
-                vec![func, expr]
+            PartialValue::MatchProduct(MatchProduct { product, body, .. }) => {
+                vec![product, body]
             }
             PartialValue::Let(Let { to_assign, body }) => vec![&*to_assign, &*body],
             PartialValue::Lambda(Lambda { body, .. }) => vec![&*body],
@@ -105,8 +70,8 @@ impl PartialValue {
             PartialValue::FormProduct(FormProduct { fields }) => {
                 fields.iter_mut().map(|comp| &mut comp.ty).collect()
             }
-            PartialValue::RecursorProduct(RecursorProduct { func, expr, .. }) => {
-                vec![func, expr]
+            PartialValue::MatchProduct(MatchProduct { product, body, .. }) => {
+                vec![product, body]
             }
             PartialValue::Let(Let { to_assign, body }) => vec![&mut *to_assign, &mut *body],
             PartialValue::Lambda(Lambda { body, .. }) => vec![&mut *body],
@@ -170,21 +135,17 @@ impl<'a> PartialValuePrinter<'a> {
                 let fields = fields
                     .iter()
                     .map(|comp| {
-                        if let NameOrVar::Name(name) = comp.name {
-                            format!(
-                                "{}: {}",
-                                self.db.lookup_intern_string_data(name),
-                                self.print(&comp.ty)
-                            )
-                        } else {
+                        format!(
+                            "{}: {}",
+                            self.db.lookup_intern_string_data(comp.name),
                             self.print(&comp.ty)
-                        }
+                        )
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("{{{}}}", fields)
             }
-            PartialValue::RecursorProduct(_) => todo!(),
+            PartialValue::MatchProduct(_) => todo!(),
             PartialValue::Inst(_) => todo!(),
             PartialValue::Let(_) => todo!(),
             PartialValue::Lambda(_) => todo!(),

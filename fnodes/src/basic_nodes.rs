@@ -79,6 +79,21 @@ impl SexprParsable for Name {
     }
 }
 
+impl SexprListParsable for Vec<Name> {
+    const KEYWORD: Option<&'static str> = None;
+
+    fn parse_list(
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
+        _span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        args.into_iter()
+            .map(|arg| Name::parse(ctx, db, arg))
+            .collect()
+    }
+}
+
 /// A qualified name that may have been written in code, rather than one simply stored internally
 /// that was never written in code (see [`fcommon::Path`] for that use case).
 #[derive(Debug, PartialEq, Eq)]

@@ -16,7 +16,7 @@
     (def fst ()
         (let
             (lambda 1
-                (rprod 2 (lambda 2 (local 1)) (local 0))
+                (mprod (fst snd) (local 0) (local 1))
             )
             (let
                 (inst (test test make_pair))
