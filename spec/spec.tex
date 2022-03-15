@@ -1355,7 +1355,7 @@ A component is called a \textit{field} in a product type, and a \textit{variant}
 
 \begin{tabular}{r l p{7cm}}
   \lstinline!ComponentInfo! \( ::= \) & \lstinline!(doc !\( \mathbb S \)\lstinline!)! \\
-  \lstinline!Component! \( ::= \) & \lstinline!(comp !\( \mathbb S \)\lstinline! Expr ComponentInfo*)!
+  \lstinline!Component! \( ::= \) & \lstinline!(!\( \mathbb S \)\lstinline! Expr ComponentInfo*)!
 \end{tabular}
 
 The \lstinline{Expr} in a component evaluates to the type of the component, and the \( \mathbb S \) denotes its name.
@@ -1365,6 +1365,7 @@ We can create Feather expressions to execute the \( \times \)-\rform, \( \times 
 The syntax \( A:\UU \)\lstinline! Component! should be interpreted to mean a component whose contained type is \( A \), and which may have extra component information.
 The prefix \lstinline{e} refers to the elimination rule \( \mathsf{ind} \), and the prefix \lstinline{m} refers to a pattern match operation.
 % TODO: Update this
+% TODO: Should we use A-normal form on things like `[f/i/m/e]prod` - forcing them to be bound variables?
 \begin{lstlisting}[mathescape=true]
 (fprod $A_1:\UU$ Component $\dots$ $A_n:\UU$ Component)$ \;\longleftrightarrow\; \bigtimes_{j=1}^n A_j: \UU $
 (iprod $e_1:A_1$ Expr $\dots$ $e_n:A_n$ Expr)$ \;\longleftrightarrow\; (e_1,\dots, e_n): \bigtimes_{j=1}^n A_j $
@@ -1379,6 +1380,7 @@ This helps us with ownership rules later.
 The \lstinline{(Name*)} parameter lists the names of each field in the product type.
 
 The \lstinline{mprod} rule, defined using the recursor, allows us to perform pattern-matching operations without introducing a \lstinline{lambda} abstraction at the Feather level, even if a \( \lambda \)-abstraction is used at the mathematical level.
+This is an \( n \)-binder only from the perspective of the body \( e \).
 We cannot similarly define \lstinline{eprod} inline in this way; since its return type is determined by a function's result, it must be encased in a function.
 Consider a hypothetical rule
 \begin{lstlisting}[mathescape=true]

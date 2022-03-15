@@ -111,7 +111,7 @@ pub struct ComponentContents<N = Name, E = Expr> {
 pub type Component<N = Name, E = Expr> = Node<ComponentContents<N, E>>;
 
 impl SexprListParsable for Component {
-    const KEYWORD: Option<&'static str> = Some("comp");
+    const KEYWORD: Option<&'static str> = None;
 
     fn parse_list(
         ctx: &mut SexprParseContext,
@@ -250,7 +250,7 @@ impl SexprListParsable for Inst {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct ExprTy(Expr);
+pub struct ExprTy(pub Expr);
 
 impl SexprListParsable for ExprTy {
     const KEYWORD: Option<&'static str> = Some("ty");
@@ -405,6 +405,8 @@ impl SexprListParsable for FormFunc {
     }
 }
 
+gen_nullary!(FormUniverse "funiverse");
+
 macro_rules! gen_variants {
     ($n: ident $label: tt: $( $t: ident )*) => {
         /// # Adding variants
@@ -513,6 +515,8 @@ gen_variants! {
     Var
 
     FormFunc
+
+    FormUniverse
 }
 
 impl ExprContents {

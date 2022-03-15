@@ -14,14 +14,20 @@
         (iprod (fst (iunit)) (snd (inst (test test ret4))))
     )
     (def fst ()
-        (let
+        (expr
             (lambda 1
                 (mprod (fst snd) (local 0) (local 1))
             )
-            (let
-                (inst (test test make_pair))
-                (ap (local 1) 0)
-            )
+            (ty (ffunc
+                (fprod (fst (funit)) (snd (fu64)))
+                (funit)
+            ))
+        )
+    )
+    (def use_fst ()
+        (let
+            (inst (test test make_pair))
+            (ap (inst (test test fst)) 0)
         )
     )
 )

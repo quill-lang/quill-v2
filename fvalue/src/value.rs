@@ -40,6 +40,8 @@ pub enum PartialValue {
     Var(Var),
 
     FormFunc(FormFunc<PartialValue>),
+
+    FormUniverse,
 }
 
 impl PartialValue {
@@ -156,6 +158,7 @@ impl<'a> PartialValuePrinter<'a> {
                 // Perhaps unify this with some generic node pretty printer?
                 format!("{} -> {}", self.print(parameter), self.print(result))
             }
+            PartialValue::FormUniverse => "Universe".to_string(),
         }
     }
 
