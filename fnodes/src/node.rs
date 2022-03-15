@@ -408,7 +408,10 @@ impl<'a> SexprParseContext<'a> {
         SexprParseContextResult {
             node_id_gen: self.node_id_gen,
             expr_ignored_keywords: self.expr_ignored_keywords,
+            component_ignored_keywords: self.component_ignored_keywords,
             name_ignored_keywords: self.name_ignored_keywords,
+            module_ignored_keywords: self.module_ignored_keywords,
+            def_ignored_keywords: self.def_ignored_keywords,
         }
     }
 }
@@ -418,6 +421,12 @@ pub struct SexprParseContextResult {
     pub node_id_gen: NodeIdGenerator,
     /// A list of all of the keywords for expression infos that were ignored.
     pub expr_ignored_keywords: HashSet<String>,
+    /// A list of all of the keywords for component infos that were ignored.
+    pub component_ignored_keywords: HashSet<String>,
     /// A list of all of the keywords for name infos that were ignored.
     pub name_ignored_keywords: HashSet<String>,
+    /// A list of all of the keywords for module infos that were ignored.
+    pub module_ignored_keywords: HashSet<String>,
+    /// A list of all of the keywords for definition infos that were ignored.
+    pub def_ignored_keywords: HashSet<String>,
 }

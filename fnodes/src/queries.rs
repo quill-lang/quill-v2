@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use fcommon::{Dr, FileReader, Source, Str};
+use fcommon::{Dr, FileReader, Label, LabelType, Report, ReportKind, Source, Str};
 
 use crate::{
     basic_nodes::{QualifiedName, SourceSpan},
@@ -63,10 +63,47 @@ fn module_from_feather_source(db: &dyn SexprParser, source: Source) -> Dr<Arc<Mo
                 .map_err(|x| x.into_report(source))
                 .into();
             let ctx_result = ctx.finish();
-            result.map(|module| ModuleParseResult {
-                module,
-                node_id_gen: ctx_result.node_id_gen,
-                infos: default_infos,
+            result.bind(|module| {
+                let result = ModuleParseResult {
+                    module,
+                    node_id_gen: ctx_result.node_id_gen,
+                    infos: default_infos,
+                };
+
+                let note = [
+                    ("expr", ctx_result.expr_ignored_keywords),
+                    ("comp", ctx_result.component_ignored_keywords),
+                    ("name", ctx_result.name_ignored_keywords),
+                    ("module", ctx_result.module_ignored_keywords),
+                    ("def", ctx_result.def_ignored_keywords),
+                ]
+                .into_iter()
+                .filter_map(|(name, kwds)| {
+                    if !kwds.is_empty() {
+                        Some(format!(
+                            "{} keywords: {}",
+                            name,
+                            kwds.iter().cloned().collect::<Vec<_>>().join(", ")
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+
+                if note.is_empty() {
+                    Dr::ok(result)
+                } else {
+                    let note = format!("ignored {}", note);
+                    Dr::ok_with(
+                        result,
+                        Report::new_in_file(ReportKind::Warning, source)
+                            .with_message("some S-expression infos were not parsed")
+                            .with_label(Label::new(source, 0..0, LabelType::Note))
+                            .with_note(note),
+                    )
+                }
             })
         })
         .map(Arc::new)
