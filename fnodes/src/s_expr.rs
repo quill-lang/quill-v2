@@ -1,6 +1,8 @@
 //! Feather nodes can be serialised into S-expressions.
 //! This module provides functionality for both serialisation and deserialisation.
 
+use std::collections::HashSet;
+
 use chumsky::prelude::*;
 use fcommon::{Dr, Label, LabelType, Report, ReportKind, Source, Span};
 
@@ -11,6 +13,7 @@ use crate::{ParseError, ParseErrorReason};
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SexprNode {
     pub contents: SexprNodeContents,
+    /// TODO: Only have the span in certain S-expression nodes, using type state.
     pub span: Span,
 }
 
@@ -156,6 +159,92 @@ pub fn find_keyword_from_list(node: &SexprNode) -> Result<String, ParseError> {
                 })
             }
         }
+    }
+}
+
+pub struct PrettyPrintSettings {
+    /// A list of keywords at the start of list S-expressions.
+    /// If such an S-expression begins with this keyword, it will receive no indent.
+    pub no_indent_for: HashSet<String>,
+}
+
+impl SexprNode {
+    /// Converts this in-memory S-expression representation into a string.
+    /// This is not the [`std::fmt::Display`] trait; we need to pass additional parameters to control
+    /// pretty-printing, for instance.
+    pub fn fmt(
+        &self,
+        f: &mut (dyn std::fmt::Write),
+        pretty_print: &PrettyPrintSettings,
+        indent_levels: usize,
+    ) -> Result<(), std::fmt::Error> {
+        fn indent(
+            f: &mut (dyn std::fmt::Write),
+            indent_levels: usize,
+        ) -> Result<(), std::fmt::Error> {
+            for _ in 0..(4 * indent_levels) {
+                write!(f, " ")?;
+            }
+            Ok(())
+        }
+
+        match &self.contents {
+            SexprNodeContents::Atom(atom) => {
+                // Unambiguously write this atom as a string.
+                if atom.chars().all(|ch| !ch.is_whitespace() && ch != '"') {
+                    write!(f, "{}", atom)
+                } else {
+                    // Escape any problematic characters.
+                    write!(f, "{:?}", atom)
+                }
+            }
+            SexprNodeContents::List(elements) => {
+                // Depending on pretty-printing settings, we should consider indentation.
+                write!(f, "(")?;
+                if let Some((first, elts)) = elements.split_first() {
+                    if let SexprNodeContents::Atom(first_atom) = &first.contents {
+                        if pretty_print.no_indent_for.contains(first_atom) {
+                            // Indent no elements.
+                            first.fmt(f, pretty_print, indent_levels + 1)?;
+                            for elt in elts {
+                                write!(f, " ")?;
+                                elt.fmt(f, pretty_print, indent_levels + 1)?;
+                            }
+                        } else {
+                            // Indent all but the first element.
+                            first.fmt(f, pretty_print, indent_levels + 1)?;
+                            for elt in elts {
+                                writeln!(f)?;
+                                indent(f, indent_levels + 1)?;
+                                elt.fmt(f, pretty_print, indent_levels + 1)?;
+                            }
+                            writeln!(f)?;
+                            indent(f, indent_levels)?;
+                        }
+                    } else {
+                        // Indent all elements.
+                        writeln!(f)?;
+                        indent(f, indent_levels + 1)?;
+                        first.fmt(f, pretty_print, indent_levels + 1)?;
+                        for elt in elts {
+                            writeln!(f)?;
+                            indent(f, indent_levels + 1)?;
+                            elt.fmt(f, pretty_print, indent_levels + 1)?;
+                        }
+                        writeln!(f)?;
+                        indent(f, indent_levels)?;
+                    }
+                }
+                write!(f, ")")
+            }
+        }
+    }
+
+    /// Uses [`Self::fmt`] to convert this node to a [`String`].
+    pub fn to_string(&self, pretty_print: &PrettyPrintSettings) -> String {
+        let mut s = String::new();
+        self.fmt(&mut s, pretty_print, 0).expect("formatting error");
+        s
     }
 }
 

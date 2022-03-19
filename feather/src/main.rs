@@ -1,6 +1,7 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{collections::HashSet, path::PathBuf, sync::Arc};
 
 use fcommon::{FileReader, Intern, PathData, Source, SourceType};
+use fnodes::{ListSexprWrapper, PrettyPrintSettings, SexprSerialiseContext, SexprSerialiseExt};
 use fvalue::ValueInferenceEngine;
 use salsa::Durability;
 use tracing::info;
@@ -35,7 +36,21 @@ fn main() {
     for report in result.reports() {
         report.render(&db);
     }
-    //println!("{:#?}", db.expr_from_feather_source(src));
+
+    if let Some(result) = result.value() {
+        let ctx = SexprSerialiseContext::default();
+        let node = ListSexprWrapper::serialise_into_node(&ctx, &db, &*result.module);
+        let pretty_print = PrettyPrintSettings {
+            no_indent_for: {
+                let mut map = HashSet::new();
+                for s in ["local", "iu64", "iunit", "fu64", "funit"] {
+                    map.insert(s.to_string());
+                }
+                map
+            },
+        };
+        println!("{}", node.to_string(&pretty_print));
+    }
 
     /*
     // This is the main loop for language servers, and other things that need regular file updates.

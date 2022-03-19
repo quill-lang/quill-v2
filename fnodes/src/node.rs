@@ -89,6 +89,18 @@ where
     }
 }
 
+impl<C, T> Clone for NodeInfoContainer<C, T>
+where
+    T: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            map: self.map.clone(),
+            phantom: PhantomData,
+        }
+    }
+}
+
 impl<C, T> NodeInfoContainer<C, T> {
     pub fn new() -> Self {
         NodeInfoContainer {

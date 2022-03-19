@@ -36,7 +36,7 @@ impl DefaultInfos {
 /// `I` is expected to be a type containing node infos.
 #[derive(Debug, PartialEq, Eq)]
 pub struct ModuleParseResult<I = DefaultInfos> {
-    pub module: Module,
+    pub module: Arc<Module>,
     /// The node ID generator associated with the nodes in the returned module.
     pub node_id_gen: NodeIdGenerator,
     pub infos: I,
@@ -60,6 +60,7 @@ fn module_from_feather_source(db: &dyn SexprParser, source: Source) -> Dr<Arc<Mo
             default_infos.register(&mut ctx);
             let result: Dr<_> = ListSexprWrapper::<Module>::parse(&mut ctx, db, s_expr.clone())
                 .map_err(|x| x.into_report(source))
+                .map(Arc::new)
                 .into();
             let ctx_result = ctx.finish();
             result.bind(|module| {

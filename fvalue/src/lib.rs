@@ -3,11 +3,17 @@
 mod value;
 pub use value::*;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    sync::Arc,
+};
 
 use fcommon::{Dr, Label, LabelType, Path, Report, ReportKind, Source, Span, Str};
-use fnodes::{expr::*, DefaultInfos, Definition, NodeId, NodeInfoContainer, SexprParserExt};
-use tracing::{debug, info, trace};
+use fnodes::{
+    basic_nodes::SourceSpan, expr::*, DefaultInfos, Definition, ModuleParseResult, NodeId,
+    NodeInfoContainer, SexprParserExt,
+};
+use tracing::{debug, trace};
 
 #[salsa::query_group(ValueInferenceStorage)]
 pub trait ValueInferenceEngine: SexprParserExt {
@@ -27,7 +33,17 @@ pub trait ValueInferenceEngine: SexprParserExt {
     /// Compute values and types where possible.
     /// If a variable's type could not be deduced, or an error was encountered during type/value inference,
     /// an error will be returned.
-    fn infer_values(&self, source: Source) -> Dr<()>;
+    fn infer_values(&self, source: Source) -> Dr<Arc<ModuleParseResult<TypedInfos>>>;
+}
+
+/// A set of infos that may be useful to any feather compiler component.
+/// This is an adapted version of the information contained in [`DefaultInfos`],
+/// by including the known, semantically correct, types of each value.
+#[derive(Default, Debug, PartialEq, Eq)]
+pub struct TypedInfos {
+    pub expr_at: NodeInfoContainer<ExprContents, SourceSpan>,
+    pub expr_ty: NodeInfoContainer<ExprContents, PartialValue>,
+    pub name_at: NodeInfoContainer<Str, SourceSpan>,
 }
 
 #[tracing::instrument(level = "trace")]
@@ -156,7 +172,10 @@ fn compute_inference_order(db: &dyn ValueInferenceEngine, source: Source) -> Dr<
 }
 
 #[tracing::instrument(level = "trace")]
-fn infer_values(db: &dyn ValueInferenceEngine, source: Source) -> Dr<()> {
+fn infer_values(
+    db: &dyn ValueInferenceEngine,
+    source: Source,
+) -> Dr<Arc<ModuleParseResult<TypedInfos>>> {
     db.compute_inference_order(source).bind(|order| {
         // We need to call `db.module_from_feather_source` a second time, even though we already did that in `compute_inference_order`.
         // Of course, due to `salsa`, we don't actually do the parse twice, but we need to be careful not to doubly-include diagnostics.
@@ -180,7 +199,17 @@ fn infer_values(db: &dyn ValueInferenceEngine, source: Source) -> Dr<()> {
                 .map(|types| types_container.union(types))
             });
         }
-        result_types.map(|final_types| info!("final_types: {:#?}", final_types))
+        result_types.map(|final_types| {
+            Arc::new(ModuleParseResult {
+                module: Arc::clone(&res.module),
+                node_id_gen: res.node_id_gen.clone(),
+                infos: TypedInfos {
+                    expr_at: res.infos.expr_at.clone(),
+                    expr_ty: final_types,
+                    name_at: res.infos.name_at.clone(),
+                },
+            })
+        })
     })
 }
 
