@@ -1,5 +1,6 @@
 pub mod basic_nodes;
 pub mod expr;
+pub mod expr3;
 mod module;
 mod node;
 mod queries;

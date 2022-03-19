@@ -167,6 +167,26 @@ pub trait ListSexpr: Sized {
     fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode>;
 }
 
+impl<T> ListSexpr for Box<T>
+where
+    T: ListSexpr,
+{
+    const KEYWORD: Option<&'static str> = T::KEYWORD;
+
+    fn parse_list(
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
+        span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        T::parse_list(ctx, db, span, args).map(Box::new)
+    }
+
+    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
+        (&**self).serialise(ctx, db)
+    }
+}
+
 /// See [`ListSexpr`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ListSexprWrapper<T> {
