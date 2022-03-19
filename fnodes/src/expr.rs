@@ -1,4 +1,4 @@
-use fcommon::Span;
+use fcommon::{Span, Str};
 
 use crate::basic_nodes::{DeBruijnIndex, Name, QualifiedName};
 use crate::serialise::SexprParsable;
@@ -99,14 +99,14 @@ gen_nullary!(FormUnit "funit");
 // TODO: Check for duplicates in each component-related thing.
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct ComponentContents<N = Name, E = Expr> {
+pub struct ComponentContents<N, E> {
     pub name: N,
     pub ty: E,
 }
 
-pub type Component<N = Name, E = Expr> = Node<ComponentContents<N, E>>;
+pub type Component<N, E> = Node<ComponentContents<N, E>>;
 
-impl ListSexpr for Component {
+impl ListSexpr for Component<Name, Expr> {
     const KEYWORD: Option<&'static str> = None;
 
     fn parse_list(
@@ -125,7 +125,7 @@ impl ListSexpr for Component {
             });
         }
         let name = Name::parse(ctx, db, args.remove(0))?;
-        let ty = ListSexprWrapper::<Expr>::parse(ctx, db, args.remove(0))?;
+        let ty = ListSexprWrapper::parse(ctx, db, args.remove(0))?;
         let component = Node::new(ctx.node_id_gen.gen(), span, ComponentContents { name, ty });
         for info in args {
             ctx.process_component_info(db, &component, info)?;
@@ -136,19 +136,53 @@ impl ListSexpr for Component {
     fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
         // TODO: component info
         vec![
-            AtomicSexprWrapper::serialise_into_node(ctx, db, &self.contents.name.contents),
+            self.contents.name.serialise(ctx, db),
             ListSexprWrapper::serialise_into_node(ctx, db, &self.contents.ty),
         ]
     }
 }
 
+impl<E> ListSexpr for ComponentContents<Str, E>
+where
+    E: ListSexpr,
+{
+    const KEYWORD: Option<&'static str> = None;
+
+    fn parse_list(
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
+        span: Span,
+        mut args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        if args.len() < 2 {
+            return Err(ParseError {
+                span,
+                reason: ParseErrorReason::WrongArity {
+                    expected_arity: 2,
+                    found_arity: args.len(),
+                },
+            });
+        }
+        let name = AtomicSexprWrapper::parse(ctx, db, args.remove(0))?;
+        let ty = ListSexprWrapper::parse(ctx, db, args.remove(0))?;
+        Ok(ComponentContents { name, ty })
+    }
+
+    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
+        vec![
+            AtomicSexprWrapper::serialise_into_node(ctx, db, &self.name),
+            ListSexprWrapper::serialise_into_node(ctx, db, &self.ty),
+        ]
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct IntroComponent<N = Name, E = Expr> {
+pub struct IntroComponent<N, E> {
     pub name: N,
     pub expr: E,
 }
 
-impl ListSexpr for IntroComponent {
+impl ListSexpr for IntroComponent<Name, Expr> {
     const KEYWORD: Option<&'static str> = None;
 
     fn parse_list(
@@ -173,11 +207,11 @@ impl ListSexpr for IntroComponent {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct IntroProduct<N = Name, E = Expr> {
+pub struct IntroProduct<N, E> {
     pub fields: Vec<IntroComponent<N, E>>,
 }
 
-impl ListSexpr for IntroProduct {
+impl ListSexpr for IntroProduct<Name, Expr> {
     const KEYWORD: Option<&'static str> = Some("iprod");
 
     fn parse_list(
@@ -203,11 +237,39 @@ impl ListSexpr for IntroProduct {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct FormProduct<C = Component> {
+pub struct FormProduct<C> {
     pub fields: Vec<C>,
 }
 
-impl ListSexpr for FormProduct {
+impl ListSexpr for FormProduct<Component<Name, Expr>> {
+    const KEYWORD: Option<&'static str> = Some("fprod");
+
+    fn parse_list(
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
+        _span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        Ok(Self {
+            fields: args
+                .into_iter()
+                .map(|arg| ListSexprWrapper::parse(ctx, db, arg))
+                .collect::<Result<_, _>>()?,
+        })
+    }
+
+    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
+        self.fields
+            .iter()
+            .map(|value| ListSexprWrapper::serialise_into_node(ctx, db, value))
+            .collect()
+    }
+}
+
+impl<E> ListSexpr for FormProduct<ComponentContents<Str, E>>
+where
+    E: ListSexpr,
+{
     const KEYWORD: Option<&'static str> = Some("fprod");
 
     fn parse_list(
@@ -233,13 +295,13 @@ impl ListSexpr for FormProduct {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct MatchProduct<N = Name, E = Expr> {
+pub struct MatchProduct<N, E> {
     pub fields: Vec<N>,
     pub product: Box<E>,
     pub body: Box<E>,
 }
 
-impl ListSexpr for MatchProduct {
+impl ListSexpr for MatchProduct<Name, Expr> {
     const KEYWORD: Option<&'static str> = Some("mprod");
 
     fn parse_list(
@@ -269,14 +331,17 @@ gen_unary!(Inst(ListSexprWrapper QualifiedName) "inst");
 gen_unary!(ExprTy(ListSexprWrapper Expr) "ty");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Let<E = Expr> {
+pub struct Let<E> {
     /// The value to assign to the new bound variable.
     pub to_assign: Box<E>,
     /// The main body of the expression to be executed after assigning the value.
     pub body: Box<E>,
 }
 
-impl ListSexpr for Let {
+impl<E> ListSexpr for Let<E>
+where
+    E: ListSexpr,
+{
     const KEYWORD: Option<&'static str> = Some("let");
 
     fn parse_list(
@@ -287,8 +352,8 @@ impl ListSexpr for Let {
     ) -> Result<Self, ParseError> {
         let [to_assign, body] = force_arity(span, args)?;
         Ok(Let {
-            to_assign: Box::new(ListSexprWrapper::<Expr>::parse(ctx, db, to_assign)?),
-            body: Box::new(ListSexprWrapper::<Expr>::parse(ctx, db, body)?),
+            to_assign: Box::new(ListSexprWrapper::parse(ctx, db, to_assign)?),
+            body: Box::new(ListSexprWrapper::parse(ctx, db, body)?),
         })
     }
 
@@ -301,14 +366,17 @@ impl ListSexpr for Let {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Lambda<E = Expr> {
+pub struct Lambda<E> {
     /// The amount of new variables to be bound in the body of the lambda.
     pub binding_count: u32,
     /// The body of the lambda, also called the lambda term.
     pub body: Box<E>,
 }
 
-impl ListSexpr for Lambda {
+impl<E> ListSexpr for Lambda<E>
+where
+    E: ListSexpr,
+{
     const KEYWORD: Option<&'static str> = Some("lambda");
 
     fn parse_list(
@@ -320,7 +388,7 @@ impl ListSexpr for Lambda {
         let [binding_count, body] = force_arity(span, args)?;
         Ok(Lambda {
             binding_count: AtomicSexprWrapper::<u32>::parse(ctx, db, binding_count)?,
-            body: Box::new(ListSexprWrapper::<Expr>::parse(ctx, db, body)?),
+            body: Box::new(ListSexprWrapper::parse(ctx, db, body)?),
         })
     }
 
@@ -333,14 +401,17 @@ impl ListSexpr for Lambda {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Apply<E = Expr> {
+pub struct Apply<E> {
     /// The function to be invoked.
     pub function: Box<E>,
     /// The argument to apply to the function.
     pub argument: DeBruijnIndex,
 }
 
-impl ListSexpr for Apply {
+impl<E> ListSexpr for Apply<E>
+where
+    E: ListSexpr,
+{
     const KEYWORD: Option<&'static str> = Some("ap");
 
     fn parse_list(
@@ -351,8 +422,8 @@ impl ListSexpr for Apply {
     ) -> Result<Self, ParseError> {
         let [function, argument] = force_arity(span, args)?;
         Ok(Apply {
-            function: Box::new(ListSexprWrapper::<Expr>::parse(ctx, db, function)?),
-            argument: AtomicSexprWrapper::<DeBruijnIndex>::parse(ctx, db, argument)?,
+            function: Box::new(ListSexprWrapper::parse(ctx, db, function)?),
+            argument: AtomicSexprWrapper::parse(ctx, db, argument)?,
         })
     }
 
@@ -408,14 +479,17 @@ impl VarGenerator {
 
 // TODO: Document this in the spec.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FormFunc<E = Expr> {
+pub struct FormFunc<E> {
     /// The type of the parameter.
     pub parameter: Box<E>,
     /// The type of the result.
     pub result: Box<E>,
 }
 
-impl ListSexpr for FormFunc {
+impl<E> ListSexpr for FormFunc<E>
+where
+    E: ListSexpr,
+{
     const KEYWORD: Option<&'static str> = Some("ffunc");
 
     fn parse_list(
@@ -426,8 +500,8 @@ impl ListSexpr for FormFunc {
     ) -> Result<Self, ParseError> {
         let [parameter, result] = force_arity(span, args)?;
         Ok(FormFunc {
-            parameter: Box::new(ListSexprWrapper::<Expr>::parse(ctx, db, parameter)?),
-            result: Box::new(ListSexprWrapper::<Expr>::parse(ctx, db, result)?),
+            parameter: Box::new(ListSexprWrapper::parse(ctx, db, parameter)?),
+            result: Box::new(ListSexprWrapper::parse(ctx, db, result)?),
         })
     }
 
@@ -442,37 +516,37 @@ impl ListSexpr for FormFunc {
 gen_nullary!(FormUniverse "funiverse");
 
 macro_rules! gen_variants {
-    ($( $t: ident )*) => {
+    ($( $name: ident: $type: ty, $path: path );*) => {
         /// # Adding variants
         /// When adding a new variant to [`ExprContents`], make sure to update:
         /// - [`ExprContents::sub_expressions`]
         /// - [`ExprContents::sub_expressions_mut`]
         #[derive(Debug, PartialEq, Eq)]
         pub enum ExprContents {
-            $( $t($t) ),*
+            $( $name($type) ),*
         }
 
         impl ExprContents {
             pub fn variant_keyword(&self) -> &'static str {
                 match self {
                     $(
-                        Self::$t(_) => $t::KEYWORD.unwrap()
+                        Self::$name(_) => <$path>::KEYWORD.unwrap()
                     ),*
                 }
             }
         }
 
         $(
-            impl TryFrom<ExprContents> for $t {
+            impl TryFrom<ExprContents> for $type {
                 type Error = &'static str;
                 fn try_from(value: ExprContents) -> Result<Self, Self::Error> {
-                    if let ExprContents::$t(x) = value { Ok(x) } else { Err(value.variant_keyword()) }
+                    if let ExprContents::$name(x) = value { Ok(x) } else { Err(value.variant_keyword()) }
                 }
             }
 
-            impl From<$t> for ExprContents {
-                fn from(value: $t) -> ExprContents {
-                    ExprContents::$t(value)
+            impl From<$type> for ExprContents {
+                fn from(value: $type) -> ExprContents {
+                    ExprContents::$name(value)
                 }
             }
         )*
@@ -507,7 +581,7 @@ macro_rules! gen_variants {
 
                 Ok(match Some(keyword) {
                     $(
-                        $t::KEYWORD => $t::parse_list(ctx, db, span, args)?.into(),
+                        <$path>::KEYWORD => <$path>::parse_list(ctx, db, span, args)?.into(),
                     )*
                     _ => {
                         return Err(ParseError {
@@ -525,10 +599,10 @@ macro_rules! gen_variants {
                 // TODO: expr infos
                 match self {
                     $(
-                        Self::$t(val) => {
+                        Self::$name(val) => {
                             let mut result = val.serialise(ctx, db);
                             result.insert(0, SexprNode {
-                                contents: SexprNodeContents::Atom($t::KEYWORD.unwrap().to_string()),
+                                contents: SexprNodeContents::Atom(<$path>::KEYWORD.unwrap().to_string()),
                                 span: 0..0
                             });
                             result
@@ -541,30 +615,30 @@ macro_rules! gen_variants {
 }
 
 gen_variants! {
-    IntroLocal
+    IntroLocal: IntroLocal, IntroLocal;
 
-    IntroU64
-    IntroFalse
-    IntroTrue
-    IntroUnit
+    IntroU64: IntroU64, IntroU64;
+    IntroFalse: IntroFalse, IntroFalse;
+    IntroTrue: IntroTrue, IntroTrue;
+    IntroUnit: IntroUnit, IntroUnit;
 
-    FormU64
-    FormBool
-    FormUnit
+    FormU64: FormU64, FormU64;
+    FormBool: FormBool, FormBool;
+    FormUnit: FormUnit, FormUnit;
 
-    IntroProduct
-    FormProduct
-    MatchProduct
+    IntroProduct: IntroProduct<Name, Expr>, IntroProduct::<Name, Expr>;
+    FormProduct: FormProduct<Component<Name, Expr>>, FormProduct::<Component<Name, Expr>>;
+    MatchProduct: MatchProduct<Name, Expr>, MatchProduct::<Name, Expr>;
 
-    Inst
-    Let
-    Lambda
-    Apply
-    Var
+    Inst: Inst, Inst;
+    Let: Let<Expr>, Let::<Expr>;
+    Lambda: Lambda<Expr>, Lambda::<Expr>;
+    Apply: Apply<Expr>, Apply::<Expr>;
+    Var: Var, Var;
 
-    FormFunc
+    FormFunc: FormFunc<Expr>, FormFunc::<Expr>;
 
-    FormUniverse
+    FormUniverse: FormUniverse, FormUniverse
 }
 
 impl ExprContents {
@@ -655,7 +729,19 @@ impl ListSexpr for Expr {
     }
 
     fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
-        // TODO: expr infos
-        self.contents.serialise(ctx, db)
+        let mut infos = ctx.process_expr_info(db, self, ctx);
+        if infos.is_empty() {
+            self.contents.serialise(ctx, db)
+        } else {
+            infos.insert(
+                0,
+                ListSexprWrapper::serialise_into_node(ctx, db, &self.contents),
+            );
+            infos.insert(
+                0,
+                AtomicSexprWrapper::serialise_into_node(ctx, db, &"expr".to_string()),
+            );
+            infos
+        }
     }
 }

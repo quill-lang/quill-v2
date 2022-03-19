@@ -42,7 +42,7 @@ pub trait ValueInferenceEngine: SexprParserExt {
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct TypedInfos {
     pub expr_at: NodeInfoContainer<ExprContents, SourceSpan>,
-    pub expr_ty: NodeInfoContainer<ExprContents, PartialValue>,
+    pub expr_ty: NodeInfoContainer<ExprContents, PartialExprTy>,
     pub name_at: NodeInfoContainer<Str, SourceSpan>,
 }
 
@@ -221,9 +221,9 @@ fn infer_values_def(
     db: &dyn ValueInferenceEngine,
     source: Source,
     def: &Definition,
-    known_local_types: &NodeInfoContainer<ExprContents, PartialValue>,
+    known_local_types: &NodeInfoContainer<ExprContents, PartialExprTy>,
     infos: &DefaultInfos,
-) -> Dr<NodeInfoContainer<ExprContents, PartialValue>> {
+) -> Dr<NodeInfoContainer<ExprContents, PartialExprTy>> {
     // To each expression we associate a type.
     // TODO: use tys from node info in `res`
     // TODO: variable ID generator should be initialised with non-clashing IDs from the expression, since it may have its own IDs already
@@ -240,7 +240,7 @@ fn infer_values_def(
     let errored = unification.errored();
     unification.bind(|unif| {
         // Store the deduced type of each expression.
-        let mut types = NodeInfoContainer::<ExprContents, PartialValue>::new();
+        let mut types = NodeInfoContainer::<ExprContents, PartialExprTy>::new();
         let result = fill_types(&mut ctx, &def.contents.expr, &unif, &mut types);
         debug!("types were: {:#?}", types);
         // Don't produce error messages for unknown types if we already have type inference errors.
@@ -258,7 +258,7 @@ struct TyCtx<'a> {
     db: &'a dyn ValueInferenceEngine,
     source: Source,
     var_gen: VarGenerator,
-    known_local_types: &'a NodeInfoContainer<ExprContents, PartialValue>,
+    known_local_types: &'a NodeInfoContainer<ExprContents, PartialExprTy>,
     print: PartialValuePrinter<'a>,
     infos: &'a DefaultInfos,
 }
@@ -735,7 +735,7 @@ fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<U
                             .expr,
                     )
                     .unwrap();
-                Dr::ok(Unification::new_with_expr_type(expr, ty.clone()))
+                Dr::ok(Unification::new_with_expr_type(expr, ty.0.clone()))
             } else {
                 // This is a definition we've imported from somewhere else.
                 // So we need to look into the database for its type.
@@ -851,7 +851,7 @@ fn fill_types(
     ctx: &mut TyCtx,
     expr: &Expr,
     unif: &Unification,
-    types: &mut NodeInfoContainer<ExprContents, PartialValue>,
+    types: &mut NodeInfoContainer<ExprContents, PartialExprTy>,
 ) -> Dr<()> {
     let ty = unif.expr_type(expr);
 
@@ -868,7 +868,7 @@ fn fill_types(
                 ),
         )
     } else {
-        types.insert(expr, ty);
+        types.insert(expr, PartialExprTy(ty));
         Dr::ok(())
     };
 

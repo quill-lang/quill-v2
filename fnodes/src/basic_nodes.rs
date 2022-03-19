@@ -29,6 +29,16 @@ impl ListSexpr for Span {
     }
 }
 
+impl AtomicSexpr for String {
+    fn parse_atom(_db: &dyn SexprParser, text: String) -> Result<Self, ParseErrorReason> {
+        Ok(text)
+    }
+
+    fn serialise(&self, _ctx: &SexprSerialiseContext, _db: &dyn SexprParser) -> String {
+        self.clone()
+    }
+}
+
 impl AtomicSexpr for Str {
     fn parse_atom(db: &dyn SexprParser, text: String) -> Result<Self, ParseErrorReason> {
         Ok(db.intern_string_data(text))

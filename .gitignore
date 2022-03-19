@@ -1,2 +1,5 @@
 **/build/
 **/target/
+
+# Type-checked S-expressions.
+**.tyck.sexp

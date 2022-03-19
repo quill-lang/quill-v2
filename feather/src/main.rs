@@ -1,6 +1,6 @@
 use std::{collections::HashSet, path::PathBuf, sync::Arc};
 
-use fcommon::{FileReader, Intern, PathData, Source, SourceType};
+use fcommon::{FileReader, Intern, InternExt, PathData, Source, SourceType};
 use fnodes::{ListSexprWrapper, PrettyPrintSettings, SexprSerialiseContext, SexprSerialiseExt};
 use fvalue::ValueInferenceEngine;
 use salsa::Durability;
@@ -12,6 +12,7 @@ mod db;
 fn main() {
     let log_level = tracing::Level::TRACE;
     let subscriber = FmtSubscriber::builder()
+        .with_writer(std::io::stderr)
         .with_max_level(log_level)
         .with_span_events(FmtSpan::CLOSE)
         .with_timer(tracing_subscriber::fmt::time::uptime())
@@ -38,7 +39,10 @@ fn main() {
     }
 
     if let Some(result) = result.value() {
-        let ctx = SexprSerialiseContext::default();
+        let mut ctx = SexprSerialiseContext::default();
+        ctx.register_expr_info(&result.infos.expr_at);
+        ctx.register_expr_info(&result.infos.expr_ty);
+        ctx.register_name_info(&result.infos.name_at);
         let node = ListSexprWrapper::serialise_into_node(&ctx, &db, &*result.module);
         let pretty_print = PrettyPrintSettings {
             no_indent_for: {
@@ -49,7 +53,11 @@ fn main() {
                 map
             },
         };
-        println!("{}", node.to_string(&pretty_print));
+        std::fs::write(
+            db.path_to_path_buf(path).with_extension("tyck.sexp"),
+            node.to_string(&pretty_print),
+        )
+        .unwrap();
     }
 
     /*

@@ -12,7 +12,10 @@ use std::{
 use fcommon::{Span, Str};
 
 use crate::{
-    expr::ComponentContents, serialise::*, DefinitionContents, ModuleContents, SexprParser,
+    basic_nodes::Name,
+    expr::{ComponentContents, Expr},
+    serialise::*,
+    DefinitionContents, ModuleContents, SexprParser,
 };
 use crate::{expr::ExprContents, s_expr::*};
 
@@ -314,7 +317,7 @@ pub struct SexprParseContext<'a> {
     expr_ignored_keywords: HashSet<String>,
 
     /// Containers to be filled with component node info.
-    component_infos: Vec<&'a mut dyn AbstractNodeInfoContainer<ComponentContents>>,
+    component_infos: Vec<&'a mut dyn AbstractNodeInfoContainer<ComponentContents<Name, Expr>>>,
     /// A list of all of the keywords for component infos that were ignored (see [`Self::process_component_info`]).
     component_ignored_keywords: HashSet<String>,
 
@@ -340,7 +343,7 @@ pub struct SexprSerialiseContext<'a> {
     /// Containers which contain expression node info.
     expr_infos: Vec<&'a dyn AbstractNodeInfoContainer<ExprContents>>,
     /// Containers which contain component node info.
-    component_infos: Vec<&'a dyn AbstractNodeInfoContainer<ComponentContents>>,
+    component_infos: Vec<&'a dyn AbstractNodeInfoContainer<ComponentContents<Name, Expr>>>,
     /// Containers which contain name node info.
     name_infos: Vec<&'a dyn AbstractNodeInfoContainer<Str>>,
     /// Containers which contain module node info.
@@ -413,6 +416,21 @@ macro_rules! generate_process_functions {
         }
 
         impl<'a> SexprSerialiseContext<'a> {
+            /// Passes in a reference to a node info container.
+            pub fn $register_fname<T>(&mut self, info: &'a NodeInfoContainer<$t, T>)
+            where
+                T: ListSexpr + 'static,
+            {
+                // Check to see if this keyword has already been used for an expression info.
+                for expr_info in &self.$infos {
+                    if info.keyword() == expr_info.keyword() {
+                        panic!("keyword {} used for two different infos", info.keyword())
+                    }
+                }
+
+                self.$infos.push(info);
+            }
+
             /// Call this with a node.
             /// All relevant node infos will be returned.
             pub(crate) fn $process_fname(
@@ -438,7 +456,7 @@ generate_process_functions!(
     expr_ignored_keywords
 );
 generate_process_functions!(
-    ComponentContents,
+    ComponentContents<Name, Expr>,
     register_component_info,
     process_component_info,
     component_infos,

@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use fcommon::{Path, Str};
-use fnodes::expr::*;
+use fnodes::{
+    expr::*, AtomicSexprWrapper, ListSexpr, ListSexprWrapper, SexprParsable, SexprSerialiseExt,
+};
 
 use crate::ValueInferenceEngine;
 
@@ -186,5 +188,103 @@ impl<'a> PartialValuePrinter<'a> {
         } else {
             format!("{}", name)
         }
+    }
+}
+
+impl ListSexpr for PartialValue {
+    const KEYWORD: Option<&'static str> = None;
+
+    fn parse_list(
+        ctx: &mut fnodes::SexprParseContext,
+        db: &dyn fnodes::SexprParser,
+        span: fcommon::Span,
+        args: Vec<fnodes::SexprNode>,
+    ) -> Result<Self, fnodes::ParseError> {
+        todo!()
+    }
+
+    fn serialise(
+        &self,
+        ctx: &fnodes::SexprSerialiseContext,
+        db: &dyn fnodes::SexprParser,
+    ) -> Vec<fnodes::SexprNode> {
+        match self {
+            PartialValue::FormUnit => {
+                let mut result = FormUnit.serialise(ctx, db);
+                result.insert(
+                    0,
+                    AtomicSexprWrapper::serialise_into_node(
+                        ctx,
+                        db,
+                        &FormUnit::KEYWORD.unwrap().to_string(),
+                    ),
+                );
+                result
+            }
+            PartialValue::FormU64 => {
+                let mut result = FormU64.serialise(ctx, db);
+                result.insert(
+                    0,
+                    AtomicSexprWrapper::serialise_into_node(
+                        ctx,
+                        db,
+                        &FormU64::KEYWORD.unwrap().to_string(),
+                    ),
+                );
+                result
+            }
+            PartialValue::FormProduct(val) => {
+                let mut result = val.serialise(ctx, db);
+                result.insert(
+                    0,
+                    AtomicSexprWrapper::serialise_into_node(
+                        ctx,
+                        db,
+                        &FormProduct::<ComponentContents<Str, PartialValue>>::KEYWORD
+                            .unwrap()
+                            .to_string(),
+                    ),
+                );
+                result
+            }
+            PartialValue::FormFunc(val) => {
+                let mut result = val.serialise(ctx, db);
+                result.insert(
+                    0,
+                    AtomicSexprWrapper::serialise_into_node(
+                        ctx,
+                        db,
+                        &FormFunc::<PartialValue>::KEYWORD.unwrap().to_string(),
+                    ),
+                );
+                result
+            }
+            _ => todo!("self was {:#?}", self),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct PartialExprTy(pub PartialValue);
+
+impl ListSexpr for PartialExprTy {
+    const KEYWORD: Option<&'static str> = Some("pty");
+
+    fn parse_list(
+        ctx: &mut fnodes::SexprParseContext,
+        db: &dyn fnodes::SexprParser,
+        span: fcommon::Span,
+        args: Vec<fnodes::SexprNode>,
+    ) -> Result<Self, fnodes::ParseError> {
+        let [value] = fnodes::force_arity(span, args)?;
+        ListSexprWrapper::parse(ctx, db, value).map(Self)
+    }
+
+    fn serialise(
+        &self,
+        ctx: &fnodes::SexprSerialiseContext,
+        db: &dyn fnodes::SexprParser,
+    ) -> Vec<fnodes::SexprNode> {
+        vec![ListSexprWrapper::serialise_into_node(ctx, db, &self.0)]
     }
 }
