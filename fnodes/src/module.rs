@@ -10,7 +10,7 @@ pub struct ModuleContents {
 
 pub type Module = Node<ModuleContents>;
 
-impl SexprListParsable for Module {
+impl ListSexpr for Module {
     const KEYWORD: Option<&'static str> = Some("module");
 
     fn parse_list(
@@ -49,12 +49,28 @@ impl SexprListParsable for Module {
             module
                 .contents
                 .defs
-                .push(ListParsableWrapper::parse(ctx, db, arg)?.0)
+                .push(ListSexprWrapper::parse(ctx, db, arg)?)
         }
 
         // TODO: Check for duplicate definition names.
 
         Ok(module)
+    }
+
+    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
+        // TODO: infos
+        let infos = SexprNodeContents::List(Vec::new());
+        std::iter::once(SexprNode {
+            contents: infos,
+            span: 0..0,
+        })
+        .chain(
+            self.contents
+                .defs
+                .iter()
+                .map(|def| ListSexprWrapper::serialise_into_node(ctx, db, def)),
+        )
+        .collect()
     }
 }
 
@@ -82,7 +98,7 @@ pub struct DefinitionContents {
 
 pub type Definition = Node<DefinitionContents>;
 
-impl SexprListParsable for Definition {
+impl ListSexpr for Definition {
     const KEYWORD: Option<&'static str> = Some("def");
 
     fn parse_list(
@@ -98,7 +114,7 @@ impl SexprListParsable for Definition {
             span.clone(),
             DefinitionContents {
                 name: Name::parse(ctx, db, name)?,
-                expr: ListParsableWrapper::parse(ctx, db, expr)?.0,
+                expr: ListSexprWrapper::parse(ctx, db, expr)?,
             },
         );
         match infos.contents {
@@ -115,5 +131,17 @@ impl SexprListParsable for Definition {
             }
         }
         Ok(def)
+    }
+
+    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
+        let infos = SexprNodeContents::List(Vec::new());
+        vec![
+            self.contents.name.serialise(ctx, db),
+            SexprNode {
+                contents: infos,
+                span: 0..0,
+            },
+            ListSexprWrapper::serialise_into_node(ctx, db, &self.contents.expr),
+        ]
     }
 }

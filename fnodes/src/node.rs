@@ -12,7 +12,7 @@ use std::{
 use fcommon::{Span, Str};
 
 use crate::{
-    deserialise::*, expr::ComponentContents, DefinitionContents, ModuleContents, SexprParser,
+    expr::ComponentContents, serialise::*, DefinitionContents, ModuleContents, SexprParser,
 };
 use crate::{expr::ExprContents, s_expr::*};
 
@@ -152,6 +152,7 @@ trait AbstractNodeInfoContainer<C> {
     /// Returns the keyword of the underlying [`SexprListParsable`].
     /// This takes `self` to make `AbstractNodeInfoContainer` object-safe.
     fn keyword(&self) -> &'static str;
+
     /// Parses a value node.
     ///
     /// Because of lifetime requirements, we must return a function that performs the parse.
@@ -173,6 +174,7 @@ trait AbstractNodeInfoContainer<C> {
             SexprNode,
         ) -> Result<Box<dyn Any>, ParseError>,
     >;
+
     /// Must accept the same type as is returned by [`Self::parse_node`].
     fn insert_value(
         &mut self,
@@ -180,12 +182,20 @@ trait AbstractNodeInfoContainer<C> {
         value_node_span: Span,
         value: Box<dyn Any>,
     ) -> Result<(), ParseError>;
+
+    /// If this container contained any info about the given node, serialise it.
+    fn serialise_value(
+        &self,
+        node: &Node<C>,
+        ctx: &SexprSerialiseContext,
+        db: &dyn SexprParser,
+    ) -> Option<SexprNode>;
 }
 
 impl<C, T> AbstractNodeInfoContainer<C> for NodeInfoContainer<C, T>
 where
     C: 'static,
-    T: SexprListParsable + Any + 'static,
+    T: ListSexpr + Any + 'static,
 {
     fn keyword(&self) -> &'static str {
         T::KEYWORD.expect("node infos must have a keyword")
@@ -203,8 +213,8 @@ where
         Box::new(
             |ctx: &mut SexprParseContext, db: &dyn SexprParser, value_node: SexprNode| {
                 //let value_node_span = value_node.span.clone();
-                ListParsableWrapper::<T>::parse(ctx, db, value_node)
-                    .map(|x| Box::new(x.0) as Box<dyn Any>)
+                ListSexprWrapper::<T>::parse(ctx, db, value_node)
+                    .map(|x| Box::new(x) as Box<dyn Any>)
             },
         )
     }
@@ -233,6 +243,16 @@ where
         } else {
             Ok(())
         }
+    }
+
+    fn serialise_value(
+        &self,
+        node: &Node<C>,
+        ctx: &SexprSerialiseContext,
+        db: &dyn SexprParser,
+    ) -> Option<SexprNode> {
+        self.get(node)
+            .map(|x| ListSexprWrapper::serialise_into_node(ctx, db, x))
     }
 }
 
@@ -302,106 +322,139 @@ pub struct SexprParseContext<'a> {
     def_ignored_keywords: HashSet<String>,
 }
 
+/// Contains references to all node info containers that contain information that we will serialise.
+#[derive(Default)]
+pub struct SexprSerialiseContext<'a> {
+    /// Containers which contain expression node info.
+    expr_infos: Vec<&'a dyn AbstractNodeInfoContainer<ExprContents>>,
+    /// Containers which contain component node info.
+    component_infos: Vec<&'a dyn AbstractNodeInfoContainer<ComponentContents>>,
+    /// Containers which contain name node info.
+    name_infos: Vec<&'a dyn AbstractNodeInfoContainer<Str>>,
+    /// Containers which contain module node info.
+    module_infos: Vec<&'a dyn AbstractNodeInfoContainer<ModuleContents>>,
+    /// Containers which contain definition node info.
+    def_infos: Vec<&'a dyn AbstractNodeInfoContainer<DefinitionContents>>,
+}
+
 macro_rules! generate_process_functions {
     ($t:ty, $register_fname:ident, $process_fname:ident, $infos:ident, $kwds:ident) => {
-        /// Passes in a reference to a node info container.
-        pub fn $register_fname<T>(&mut self, info: &'a mut NodeInfoContainer<$t, T>)
-        where
-            T: SexprListParsable + 'static,
-        {
-            // Check to see if this keyword has already been used for an expression info.
-            for expr_info in &self.$infos {
-                if info.keyword() == expr_info.keyword() {
-                    panic!("keyword {} used for two different infos", info.keyword())
+        impl<'a> SexprParseContext<'a> {
+            /// Passes in a reference to a node info container.
+            pub fn $register_fname<T>(&mut self, info: &'a mut NodeInfoContainer<$t, T>)
+            where
+                T: ListSexpr + 'static,
+            {
+                // Check to see if this keyword has already been used for an expression info.
+                for expr_info in &self.$infos {
+                    if info.keyword() == expr_info.keyword() {
+                        panic!("keyword {} used for two different infos", info.keyword())
+                    }
                 }
+
+                self.$infos.push(info);
             }
 
-            self.$infos.push(info);
+            /// Call this with an info node to be parsed.
+            /// If its leading keyword matched any info registered with [`Self::register_expr_info`] (for example),
+            /// it will be processed.
+            /// Otherwise, it will be *ignored*, and the ignored keyword will be appended to the list of ignored
+            /// keywords.
+            pub(crate) fn $process_fname(
+                &mut self,
+                db: &dyn SexprParser,
+                node: &Node<$t>,
+                value_node: SexprNode,
+            ) -> Result<(), ParseError> {
+                let keyword = find_keyword_from_list(&value_node)?;
+
+                let value_node_span = value_node.span.clone();
+
+                // This is a bit of lifetime hacking to make it possible to dynamically
+                // insert arbitrary amounts of AbstractNodeInfoContainers.
+                // We find the correct info once in order to get the parse function, then
+                // we find it again mutably so that we can emplace the new parsed
+                // value into its backing map.
+
+                let info = self.$infos.iter().find(|info| info.keyword() == keyword);
+                let value = if let Some(info) = info {
+                    info.parse_node()(self, db, value_node)?
+                } else {
+                    // Ignore the info.
+                    self.$kwds.insert(keyword.clone());
+                    return Ok(());
+                };
+
+                let info = self
+                    .$infos
+                    .iter_mut()
+                    .find(|info| info.keyword() == keyword);
+                if let Some(info) = info {
+                    info.insert_value(node, value_node_span, value)
+                } else {
+                    panic!(
+                        "failed to find info for keyword '{}' a second time",
+                        keyword
+                    );
+                }
+            }
         }
 
-        /// Call this with an info node to be parsed.
-        /// If its leading keyword matched any info registered with [`Self::register_expr_info`] (for example),
-        /// it will be processed.
-        /// Otherwise, it will be *ignored*, and the ignored keyword will be appended to the list of ignored
-        /// keywords.
-        pub(crate) fn $process_fname(
-            &mut self,
-            db: &dyn SexprParser,
-            node: &Node<$t>,
-            value_node: SexprNode,
-        ) -> Result<(), ParseError> {
-            let keyword = find_keyword_from_list(&value_node)?;
-
-            let value_node_span = value_node.span.clone();
-
-            // This is a bit of lifetime hacking to make it possible to dynamically
-            // insert arbitrary amounts of AbstractNodeInfoContainers.
-            // We find the correct info once in order to get the parse function, then
-            // we find it again mutably so that we can emplace the new parsed
-            // value into its backing map.
-
-            let info = self.$infos.iter().find(|info| info.keyword() == keyword);
-            let value = if let Some(info) = info {
-                info.parse_node()(self, db, value_node)?
-            } else {
-                // Ignore the info.
-                self.$kwds.insert(keyword.clone());
-                return Ok(());
-            };
-
-            let info = self
-                .$infos
-                .iter_mut()
-                .find(|info| info.keyword() == keyword);
-            if let Some(info) = info {
-                info.insert_value(node, value_node_span, value)
-            } else {
-                panic!(
-                    "failed to find info for keyword '{}' a second time",
-                    keyword
-                );
+        impl<'a> SexprSerialiseContext<'a> {
+            /// Call this with a node.
+            /// All relevant node infos will be returned.
+            pub(crate) fn $process_fname(
+                &self,
+                db: &dyn SexprParser,
+                node: &Node<$t>,
+                ctx: &SexprSerialiseContext,
+            ) -> Vec<SexprNode> {
+                self.$infos
+                    .iter()
+                    .filter_map(|container| container.serialise_value(node, ctx, db))
+                    .collect()
             }
         }
     };
 }
 
-impl<'a> SexprParseContext<'a> {
-    generate_process_functions!(
-        ExprContents,
-        register_expr_info,
-        process_expr_info,
-        expr_infos,
-        expr_ignored_keywords
-    );
-    generate_process_functions!(
-        ComponentContents,
-        register_component_info,
-        process_component_info,
-        component_infos,
-        component_ignored_keywords
-    );
-    generate_process_functions!(
-        Str,
-        register_name_info,
-        process_name_info,
-        name_infos,
-        name_ignored_keywords
-    );
-    generate_process_functions!(
-        ModuleContents,
-        register_module_info,
-        process_module_info,
-        module_infos,
-        module_ignored_keywords
-    );
-    generate_process_functions!(
-        DefinitionContents,
-        register_def_info,
-        process_def_info,
-        def_infos,
-        def_ignored_keywords
-    );
+generate_process_functions!(
+    ExprContents,
+    register_expr_info,
+    process_expr_info,
+    expr_infos,
+    expr_ignored_keywords
+);
+generate_process_functions!(
+    ComponentContents,
+    register_component_info,
+    process_component_info,
+    component_infos,
+    component_ignored_keywords
+);
+generate_process_functions!(
+    Str,
+    register_name_info,
+    process_name_info,
+    name_infos,
+    name_ignored_keywords
+);
+generate_process_functions!(
+    ModuleContents,
+    register_module_info,
+    process_module_info,
+    module_infos,
+    module_ignored_keywords
+);
+generate_process_functions!(
+    DefinitionContents,
+    register_def_info,
+    process_def_info,
+    def_infos,
+    def_ignored_keywords
+);
 
+impl<'a> SexprParseContext<'a> {
     /// Relinquish the borrows of the node info containers.
     /// Returns the list of expr info keywords that were ignored and not processed.
     pub fn finish(self) -> SexprParseContextResult {

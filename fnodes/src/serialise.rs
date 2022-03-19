@@ -1,11 +1,11 @@
-//! Provides utilities for converting from S-expressions to Feather nodes.
+//! Provides utilities for converting between S-expressions and Feather nodes.
 //! Deserialisation does not require error recovery, since Feather code is typically
 //! not handwritten. It suffices to generate a nice error message for the first syntax error in a file.
 //! `?` syntax is useful for stopping after the first parse error.
 
-use std::num::ParseIntError;
+use std::{marker::PhantomData, num::ParseIntError};
 
-use crate::{s_expr::*, SexprParseContext, SexprParser};
+use crate::{s_expr::*, SexprParseContext, SexprParser, SexprSerialiseContext};
 use fcommon::{Label, LabelType, Report, ReportKind, Source, Span};
 
 /// An error type used when parsing S-expressions into Feather expressions.
@@ -97,37 +97,49 @@ impl ParseError {
 /// Normally you shouldn't implement this trait yourself, and should instead use
 /// [`SexprAtomParsable`] or [`SexprListParsable`].
 pub trait SexprParsable: Sized {
+    type Output;
     fn parse(
         ctx: &mut SexprParseContext,
         db: &dyn SexprParser,
         node: SexprNode,
-    ) -> Result<Self, ParseError>;
+    ) -> Result<Self::Output, ParseError>;
 }
 
-/// Provides the ability to deserialise an atomic S-expression (a string)
-/// into this type.
-/// The type [`AtomParsableWrapper`], parametrised with `Self`, will then automatically implement
-/// [`SexprParsable`].
-pub trait SexprAtomParsable: Sized {
+/// Trait implemented by types that can be serialised into an S-expression.
+/// If [`crate::SexprParsable`], [`crate::AtomicSexpr`], or [`crate::ListSexpr`] is implemented,
+/// values of this type should be invariant under serialisation and then deserialisation.
+pub trait SexprSerialisable {
+    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> SexprNode;
+}
+
+/// Provides the ability to convert between an atomic S-expression (a string) and this type.
+/// The type [`AtomicSexprWrapper`], parametrised with `Self`, will then automatically implement
+/// [`SexprParsable`] and [`SexprSerialisable`].
+pub trait AtomicSexpr: Sized {
     fn parse_atom(db: &dyn SexprParser, text: String) -> Result<Self, ParseErrorReason>;
+    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> String;
 }
 
-/// See [`SexprAtomParsable`].
+/// See [`AtomicSexpr`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct AtomParsableWrapper<T>(pub T);
-impl<P> SexprParsable for AtomParsableWrapper<P>
+pub struct AtomicSexprWrapper<T> {
+    _phantom: PhantomData<T>,
+}
+impl<P> SexprParsable for AtomicSexprWrapper<P>
 where
-    P: SexprAtomParsable,
+    P: AtomicSexpr,
 {
+    type Output = P;
+
     fn parse(
         _ctx: &mut SexprParseContext,
         db: &dyn SexprParser,
         SexprNode { span, contents }: SexprNode,
-    ) -> Result<Self, ParseError> {
+    ) -> Result<P, ParseError> {
         match contents {
-            SexprNodeContents::Atom(text) => P::parse_atom(db, text)
-                .map_err(|reason| ParseError { span, reason })
-                .map(AtomParsableWrapper),
+            SexprNodeContents::Atom(text) => {
+                P::parse_atom(db, text).map_err(|reason| ParseError { span, reason })
+            }
             SexprNodeContents::List(_) => Err(ParseError {
                 span,
                 reason: ParseErrorReason::ExpectedAtom,
@@ -136,10 +148,10 @@ where
     }
 }
 
-/// Provides the ability to deserialise a list S-expression into this type.
-/// The type [`ListParsableWrapper`], parametrised with `Self`, will then automatically implement
-/// [`SexprParsable`].
-pub trait SexprListParsable: Sized {
+/// Provides the ability to convert between a list S-expression and this type.
+/// The type [`ListSexprWrapper`], parametrised with `Self`, will then automatically implement
+/// [`SexprParsable`] and [`SexprSerialisable`].
+pub trait ListSexpr: Sized {
     /// If this is not None, the list S-expression must start with this keyword.
     /// The keyword will be removed from the list before passed into [`Self::parse_list`].
     const KEYWORD: Option<&'static str>;
@@ -151,20 +163,26 @@ pub trait SexprListParsable: Sized {
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError>;
+    /// The keyword should be prepended to the returned list by the caller if present.
+    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode>;
 }
 
-/// See [`SexprListParsable`].
+/// See [`ListSexpr`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ListParsableWrapper<T>(pub T);
-impl<P> SexprParsable for ListParsableWrapper<P>
+pub struct ListSexprWrapper<T> {
+    _phantom: PhantomData<T>,
+}
+impl<P> SexprParsable for ListSexprWrapper<P>
 where
-    P: SexprListParsable,
+    P: ListSexpr,
 {
+    type Output = P;
+
     fn parse(
         ctx: &mut SexprParseContext,
         db: &dyn SexprParser,
         SexprNode { span, contents }: SexprNode,
-    ) -> Result<Self, ParseError> {
+    ) -> Result<P, ParseError> {
         match contents {
             SexprNodeContents::Atom(_) => Err(ParseError {
                 span,
@@ -206,18 +224,81 @@ where
                         });
                     }
                 };
-                P::parse_list(ctx, db, span, list).map(ListParsableWrapper)
+                P::parse_list(ctx, db, span, list)
             }
+        }
+    }
+}
+
+pub trait SexprSerialiseExt {
+    type Input;
+    /// Serialise this expression into a node.
+    /// Typically this will be implemented automatically on [`AtomicSexprWrapper`] or [`ListSexprWrapper`]
+    /// if [`AtomicSexpr`] pr [`ListSexpr`] is implemented.
+    fn serialise_into_node(
+        ctx: &SexprSerialiseContext,
+        db: &dyn SexprParser,
+        value: &Self::Input,
+    ) -> SexprNode;
+}
+
+impl<T> SexprSerialiseExt for AtomicSexprWrapper<T>
+where
+    T: AtomicSexpr,
+{
+    type Input = T;
+
+    fn serialise_into_node(
+        ctx: &SexprSerialiseContext,
+        db: &dyn SexprParser,
+        value: &T,
+    ) -> SexprNode {
+        SexprNode {
+            contents: SexprNodeContents::Atom(value.serialise(ctx, db)),
+            span: 0..0,
+        }
+    }
+}
+
+impl<T> SexprSerialiseExt for ListSexprWrapper<T>
+where
+    T: ListSexpr,
+{
+    type Input = T;
+
+    fn serialise_into_node(
+        ctx: &SexprSerialiseContext,
+        db: &dyn SexprParser,
+        value: &T,
+    ) -> SexprNode {
+        SexprNode {
+            contents: SexprNodeContents::List({
+                let mut list = value.serialise(ctx, db);
+                if let Some(kwd) = T::KEYWORD {
+                    list.insert(
+                        0,
+                        SexprNode {
+                            contents: SexprNodeContents::Atom(kwd.to_string()),
+                            span: 0..0,
+                        },
+                    );
+                }
+                list
+            }),
+            span: 0..0,
         }
     }
 }
 
 macro_rules! gen_int_parsable {
     ($t:ty) => {
-        impl SexprAtomParsable for $t {
+        impl AtomicSexpr for $t {
             fn parse_atom(_db: &dyn SexprParser, text: String) -> Result<Self, ParseErrorReason> {
                 text.parse()
                     .map_err(|err| ParseErrorReason::ParseIntError { text, err })
+            }
+            fn serialise(&self, _ctx: &SexprSerialiseContext, _db: &dyn SexprParser) -> String {
+                self.to_string()
             }
         }
     };

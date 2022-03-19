@@ -5,7 +5,7 @@ use fcommon::{Dr, FileReader, Label, LabelType, Report, ReportKind, Source, Str}
 use crate::{
     basic_nodes::{QualifiedName, SourceSpan},
     expr::{ExprContents, ExprTy},
-    parse_sexpr_from_string, ListParsableWrapper, Module, NodeIdGenerator, NodeInfoContainer,
+    parse_sexpr_from_string, ListSexprWrapper, Module, NodeIdGenerator, NodeInfoContainer,
     SexprNode, SexprParsable, SexprParseContext,
 };
 
@@ -58,8 +58,7 @@ fn module_from_feather_source(db: &dyn SexprParser, source: Source) -> Dr<Arc<Mo
             let mut default_infos = DefaultInfos::default();
             let mut ctx = SexprParseContext::default();
             default_infos.register(&mut ctx);
-            let result: Dr<_> = ListParsableWrapper::<Module>::parse(&mut ctx, db, s_expr.clone())
-                .map(|x| x.0)
+            let result: Dr<_> = ListSexprWrapper::<Module>::parse(&mut ctx, db, s_expr.clone())
                 .map_err(|x| x.into_report(source))
                 .into();
             let ctx_result = ctx.finish();
