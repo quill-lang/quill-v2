@@ -13,12 +13,46 @@ pub trait PartialValueVariant {
     fn sub_values_mut(&mut self) -> Vec<&mut PartialValue>;
 }
 
+impl<'a> From<&'a Box<Expr>> for &'a Expr {
+    fn from(boxed: &'a Box<Expr>) -> Self {
+        &*boxed
+    }
+}
+
+impl<'a> From<&'a mut Box<Expr>> for &'a mut Expr {
+    fn from(boxed: &'a mut Box<Expr>) -> Self {
+        &mut *boxed
+    }
+}
+
+impl<'a> From<&'a Box<PartialValue>> for &'a PartialValue {
+    fn from(boxed: &'a Box<PartialValue>) -> Self {
+        &*boxed
+    }
+}
+
+impl<'a> From<&'a mut Box<PartialValue>> for &'a mut PartialValue {
+    fn from(boxed: &'a mut Box<PartialValue>) -> Self {
+        &mut *boxed
+    }
+}
+
 // TODO: Check for duplicates in each component-related thing.
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ComponentContents<N, E> {
     pub name: N,
     pub ty: E,
+}
+
+impl PartialValueVariant for ComponentContents<Str, PartialValue> {
+    fn sub_values(&self) -> Vec<&PartialValue> {
+        vec![&self.ty]
+    }
+
+    fn sub_values_mut(&mut self) -> Vec<&mut PartialValue> {
+        vec![&mut self.ty]
+    }
 }
 
 pub type Component<N, E> = Node<ComponentContents<N, E>>;
@@ -93,6 +127,16 @@ where
     }
 }
 
+impl ExpressionVariant for Component<Name, Expr> {
+    fn sub_expressions(&self) -> Vec<&Expr> {
+        vec![&self.contents.ty]
+    }
+
+    fn sub_expressions_mut(&mut self) -> Vec<&mut Expr> {
+        vec![&mut self.contents.ty]
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ListSexpr)]
 #[list_sexpr_keyword = "local"]
 pub struct IntroLocal(#[atomic] pub DeBruijnIndex);
@@ -131,6 +175,7 @@ pub struct IntroComponent<N, E> {
     #[direct]
     pub name: N,
     #[list]
+    #[sub_expr]
     pub expr: E,
 }
 
@@ -138,6 +183,7 @@ pub struct IntroComponent<N, E> {
 #[list_sexpr_keyword = "iprod"]
 pub struct IntroProduct<N, E> {
     #[list_flatten]
+    #[sub_exprs_flatten]
     pub fields: Vec<IntroComponent<N, E>>,
 }
 
@@ -145,6 +191,7 @@ pub struct IntroProduct<N, E> {
 #[list_sexpr_keyword = "fprod"]
 pub struct FormProduct<C> {
     #[list_flatten]
+    #[sub_exprs_flatten]
     pub fields: Vec<C>,
 }
 
@@ -154,8 +201,10 @@ pub struct MatchProduct<N, E> {
     #[list]
     pub fields: Vec<N>,
     #[list]
+    #[sub_expr]
     pub product: Box<E>,
     #[list]
+    #[sub_expr]
     pub body: Box<E>,
 }
 
@@ -168,9 +217,11 @@ pub struct Inst<Q>(#[list] pub Q);
 pub struct Let<E> {
     /// The value to assign to the new bound variable.
     #[list]
+    #[sub_expr]
     pub to_assign: Box<E>,
     /// The main body of the expression to be executed after assigning the value.
     #[list]
+    #[sub_expr]
     pub body: Box<E>,
 }
 
@@ -182,6 +233,7 @@ pub struct Lambda<E> {
     pub binding_count: u32,
     /// The body of the lambda, also called the lambda term.
     #[list]
+    #[sub_expr]
     pub body: Box<E>,
 }
 
@@ -190,6 +242,7 @@ pub struct Lambda<E> {
 pub struct Apply<E> {
     /// The function to be invoked.
     #[list]
+    #[sub_expr]
     pub function: Box<E>,
     /// The argument to apply to the function.
     #[atomic]
@@ -227,9 +280,11 @@ impl VarGenerator {
 pub struct FormFunc<E> {
     /// The type of the parameter.
     #[list]
+    #[sub_expr]
     pub parameter: Box<E>,
     /// The type of the result.
     #[list]
+    #[sub_expr]
     pub result: Box<E>,
 }
 
@@ -239,7 +294,11 @@ pub struct FormUniverse;
 
 #[derive(Debug, PartialEq, Eq, ListSexpr)]
 #[list_sexpr_keyword = "ty"]
-pub struct ExprTy(#[list] pub Box<Expr>);
+pub struct ExprTy(
+    #[list]
+    #[sub_expr]
+    pub Box<Expr>,
+);
 
 gen_expr! {
     IntroLocal,

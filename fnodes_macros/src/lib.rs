@@ -77,7 +77,15 @@ fn write_value_generics(generics: &[GenericType]) -> Punctuated<TokenStream, Tok
 
 #[proc_macro_derive(
     ListSexpr,
-    attributes(list_sexpr_keyword, atomic, list, direct, list_flatten, sub_expr)
+    attributes(
+        list_sexpr_keyword,
+        atomic,
+        list,
+        direct,
+        list_flatten,
+        sub_expr,
+        sub_exprs_flatten
+    )
 )]
 pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -241,6 +249,8 @@ pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStre
 
         let mut sub_expressions = Punctuated::<TokenStream, Token![;]>::new();
         let mut sub_expressions_mut = Punctuated::<TokenStream, Token![;]>::new();
+        let mut sub_values = Punctuated::<TokenStream, Token![;]>::new();
+        let mut sub_values_mut = Punctuated::<TokenStream, Token![;]>::new();
         for (field_index, field) in data.fields.iter().enumerate() {
             let field_name = field
                 .ident
@@ -253,10 +263,33 @@ pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                 .any(|attr| attr.path == Ident::new("sub_expr", Span::call_site()).into())
             {
                 sub_expressions.push(quote! {
-                    result.push(&*self.#field_name);
+                    result.push((&self.#field_name).into());
                 });
                 sub_expressions_mut.push(quote! {
-                    result.push(&*mut self.#field_name);
+                    result.push((&mut self.#field_name).into());
+                });
+                sub_values.push(quote! {
+                    result.push((&self.#field_name).into());
+                });
+                sub_values_mut.push(quote! {
+                    result.push((&mut self.#field_name).into());
+                });
+            } else if field
+                .attrs
+                .iter()
+                .any(|attr| attr.path == Ident::new("sub_exprs_flatten", Span::call_site()).into())
+            {
+                sub_expressions.push(quote! {
+                    result.extend((&self.#field_name).iter().flat_map(|x| x.sub_expressions()));
+                });
+                sub_expressions_mut.push(quote! {
+                    result.extend((&mut self.#field_name).iter_mut().flat_map(|x| x.sub_expressions_mut()));
+                });
+                sub_values.push(quote! {
+                    result.extend((&self.#field_name).iter().flat_map(|x| x.sub_values()));
+                });
+                sub_values_mut.push(quote! {
+                    result.extend((&mut self.#field_name).iter_mut().flat_map(|x| x.sub_values_mut()));
                 });
             }
         }
@@ -279,13 +312,13 @@ pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStre
             impl crate::expr::PartialValueVariant for #name<#value_generics> {
                 fn sub_values(&self) -> Vec<&PartialValue> {
                     let mut result = Vec::new();
-                    #sub_expressions;
+                    #sub_values;
                     result
                 }
 
                 fn sub_values_mut(&mut self) -> Vec<&mut PartialValue> {
                     let mut result = Vec::new();
-                    #sub_expressions_mut;
+                    #sub_values_mut;
                     result
                 }
             }
