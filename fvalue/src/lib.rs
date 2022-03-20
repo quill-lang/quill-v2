@@ -616,13 +616,13 @@ fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<U
         ExprContents::IntroU64(_) => {
             Dr::ok(Unification::new_with_expr_type(expr, PartialValue::FormU64))
         }
-        ExprContents::IntroFalse(_) => todo!(),
-        ExprContents::IntroTrue(_) => todo!(),
-        ExprContents::IntroUnit(_) => Dr::ok(Unification::new_with_expr_type(
+        ExprContents::IntroFalse => todo!(),
+        ExprContents::IntroTrue => todo!(),
+        ExprContents::IntroUnit => Dr::ok(Unification::new_with_expr_type(
             expr,
             PartialValue::FormUnit,
         )),
-        ExprContents::FormU64(_) | ExprContents::FormBool(_) | ExprContents::FormUnit(_) => Dr::ok(
+        ExprContents::FormU64 | ExprContents::FormBool | ExprContents::FormUnit => Dr::ok(
             Unification::new_with_expr_type(expr, PartialValue::FormUniverse),
         ),
         ExprContents::IntroProduct(IntroProduct { fields }) => {
@@ -840,7 +840,7 @@ fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<U
                 traverse(result, ctx, locals).bind(|unif2| unif.with(unif2, ctx, expr.span()))
             })
             .map(|unif| unif.with_expr_type(expr, PartialValue::FormUniverse)),
-        ExprContents::FormUniverse(_) => Dr::ok(Unification::new_with_expr_type(
+        ExprContents::FormUniverse => Dr::ok(Unification::new_with_expr_type(
             expr,
             PartialValue::FormUniverse,
         )),
@@ -888,12 +888,12 @@ fn evaluate(expr: &Expr, ctx: &mut TyCtx, unif: &Unification) -> Dr<PartialValue
     match &expr.contents {
         ExprContents::IntroLocal(_) => todo!(),
         ExprContents::IntroU64(_) => todo!(),
-        ExprContents::IntroFalse(_) => todo!(),
-        ExprContents::IntroTrue(_) => todo!(),
-        ExprContents::IntroUnit(_) => todo!(),
-        ExprContents::FormU64(_) => Dr::ok(PartialValue::FormU64),
-        ExprContents::FormBool(_) => todo!(),
-        ExprContents::FormUnit(_) => Dr::ok(PartialValue::FormUnit),
+        ExprContents::IntroFalse => todo!(),
+        ExprContents::IntroTrue => todo!(),
+        ExprContents::IntroUnit => todo!(),
+        ExprContents::FormU64 => Dr::ok(PartialValue::FormU64),
+        ExprContents::FormBool => todo!(),
+        ExprContents::FormUnit => Dr::ok(PartialValue::FormUnit),
         ExprContents::IntroProduct(_) => todo!(),
         ExprContents::FormProduct(FormProduct { fields }) => {
             Dr::sequence(fields.iter().map(|field| {
@@ -919,6 +919,6 @@ fn evaluate(expr: &Expr, ctx: &mut TyCtx, unif: &Unification) -> Dr<PartialValue
                     })
                 })
             }),
-        ExprContents::FormUniverse(_) => todo!(),
+        ExprContents::FormUniverse => todo!(),
     }
 }

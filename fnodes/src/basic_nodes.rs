@@ -1,4 +1,4 @@
-use fcommon::{Span, Str};
+use fcommon::{Path, PathData, Span, Str};
 
 use crate::*;
 
@@ -46,6 +46,19 @@ impl AtomicSexpr for Str {
 
     fn serialise(&self, _ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> String {
         db.lookup_intern_string_data(*self)
+    }
+}
+
+/// This impl is provided for symmetry with the impls of [`Name`].
+impl SexprParsable for Str {
+    type Output = Str;
+
+    fn parse(
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
+        node: SexprNode,
+    ) -> Result<Self::Output, ParseError> {
+        AtomicSexprWrapper::parse(ctx, db, node)
     }
 }
 
@@ -109,6 +122,51 @@ impl SexprSerialisable for Name {
     }
 }
 
+impl<T> ListSexpr for Vec<T>
+where
+    T: ListSexpr,
+{
+    const KEYWORD: Option<&'static str> = None;
+
+    fn parse_list(
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
+        _span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        args.into_iter()
+            .map(|arg| ListSexprWrapper::parse(ctx, db, arg))
+            .collect()
+    }
+
+    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
+        self.iter()
+            .map(|name| ListSexprWrapper::serialise_into_node(ctx, db, name))
+            .collect()
+    }
+}
+
+impl ListSexpr for Vec<Str> {
+    const KEYWORD: Option<&'static str> = None;
+
+    fn parse_list(
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
+        _span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        args.into_iter()
+            .map(|arg| AtomicSexprWrapper::parse(ctx, db, arg))
+            .collect()
+    }
+
+    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
+        self.iter()
+            .map(|name| AtomicSexprWrapper::serialise_into_node(ctx, db, name))
+            .collect()
+    }
+}
+
 impl ListSexpr for Vec<Name> {
     const KEYWORD: Option<&'static str> = None;
 
@@ -147,6 +205,23 @@ impl ListSexpr for QualifiedName {
 
     fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
         self.0.serialise(ctx, db)
+    }
+}
+
+impl ListSexpr for Path {
+    const KEYWORD: Option<&'static str> = None;
+
+    fn parse_list(
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
+        span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        ListSexpr::parse_list(ctx, db, span, args).map(|list| db.intern_path_data(PathData(list)))
+    }
+
+    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
+        db.lookup_intern_path_data(*self).0.serialise(ctx, db)
     }
 }
 

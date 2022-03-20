@@ -11,13 +11,13 @@ use std::{
 
 use fcommon::{Span, Str};
 
+use crate::s_expr::*;
 use crate::{
     basic_nodes::Name,
-    expr::{ComponentContents, Expr},
+    expr::{ComponentContents, Expr, ExprContents},
     serialise::*,
     DefinitionContents, ModuleContents, SexprParser,
 };
-use crate::{expr::ExprContents, s_expr::*};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeId(u32);
