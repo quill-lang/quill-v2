@@ -164,17 +164,13 @@ pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStre
         let node_parse_list_fields = parse_list_fields(&fields, true);
         let value_parse_list_fields = parse_list_fields(&fields, false);
 
-        let node_serialise = serialise(&fields, true);
-        let value_serialise = serialise(&fields, false);
-
         vec![
-            (node_generics, node_parse_list_fields, node_serialise),
-            (value_generics, value_parse_list_fields, value_serialise),
+            (node_generics, node_parse_list_fields),
+            (value_generics, value_parse_list_fields),
         ]
     } else {
         let parse_list_fields = parse_list_fields(&fields, false);
-        let serialise = serialise(&fields, false);
-        vec![(Punctuated::new(), parse_list_fields, serialise)]
+        vec![(Punctuated::new(), parse_list_fields)]
     };
 
     let parse_list_init = if fields
@@ -188,8 +184,33 @@ pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStre
         }
     };
 
+    let mut serialise = TokenStream::new();
+    for (i, (field, field_ty)) in fields.iter().enumerate() {
+        let val = match &field.ident {
+            Some(ident) => quote!(&self.#ident),
+            None => {
+                let i = syn::LitInt::new(&format!("{}", i), Span::call_site());
+                quote!(&self.#i)
+            }
+        };
+        match field_ty {
+            SexprParsableType::Atomic => serialise.extend(quote! {
+                result.push(crate::AtomicSexprWrapper::serialise_into_node(ctx, db, #val));
+            }),
+            SexprParsableType::List => serialise.extend(quote! {
+                result.push(crate::ListSexprWrapper::serialise_into_node(ctx, db, #val));
+            }),
+            SexprParsableType::ListFlatten => serialise.extend(quote! {
+                result.extend((#val).serialise(ctx, db));
+            }),
+            SexprParsableType::Direct => serialise.extend(quote! {
+                result.push(crate::SexprSerialisable::serialise(#val, ctx, db));
+            }),
+        };
+    }
+
     let mut output = TokenStream::new();
-    for (generics_option, parse_list_fields, serialise) in generics_options {
+    for (generics_option, parse_list_fields) in generics_options {
         let parse_list_result = match fields_type {
             FieldsType::Named => {
                 quote! {
@@ -353,42 +374,11 @@ pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStre
         })
     }
 
-    let result = output.into();
-    eprintln!("{}", result);
-    result
+    // let result = output.into();
+    // eprintln!("{}", result);
+    // result
 
-    // output.into()
-}
-
-fn serialise(fields: &[(&syn::Field, SexprParsableType)], use_node_generics: bool) -> TokenStream {
-    let mut serialise = TokenStream::new();
-    for (i, (field, field_ty)) in fields.iter().enumerate() {
-        let val = match &field.ident {
-            Some(ident) => quote!(&self.#ident),
-            None => {
-                let i = syn::LitInt::new(&format!("{}", i), Span::call_site());
-                quote!(&self.#i)
-            }
-        };
-        match field_ty {
-            SexprParsableType::Atomic => serialise.extend(quote! {
-                result.push(crate::AtomicSexprWrapper::serialise_into_node(ctx, db, #val));
-            }),
-            SexprParsableType::List => serialise.extend(quote! {
-                result.push(crate::ListSexprWrapper::serialise_into_node(ctx, db, #val));
-            }),
-            SexprParsableType::ListFlatten => serialise.extend(quote! {
-                result.extend((#val).serialise(ctx, db));
-            }),
-            SexprParsableType::Direct => {
-                let direct_ty = gen_direct_ty(field, use_node_generics);
-                serialise.extend(quote! {
-                    result.push(crate::SexprSerialisable::serialise(#val, ctx, db));
-                });
-            }
-        };
-    }
-    serialise
+    output.into()
 }
 
 fn parse_list_fields(

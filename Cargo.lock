@@ -142,6 +142,7 @@ dependencies = [
  "fnodes_macros",
  "salsa",
  "tracing",
+ "upcast",
 ]
 
 [[package]]
@@ -662,6 +663,12 @@ name = "unicode-xid"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ccb82d61f80a663efe1f787a51b16b5a51e3314d6ac365b08639f52387b33f3"
+
+[[package]]
+name = "upcast"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4a8a88129e2b27efd729ed3f7f79c532946051f6268c6a87e8617c4decf01ce"
 
 [[package]]
 name = "valuable"

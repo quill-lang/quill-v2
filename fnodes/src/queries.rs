@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use fcommon::{Dr, FileReader, Label, LabelType, Report, ReportKind, Source, Str};
+use upcast::{Upcast, UpcastFrom};
 
 use crate::{
     basic_nodes::{QualifiedName, SourceSpan},
@@ -109,11 +110,19 @@ fn module_from_feather_source(db: &dyn SexprParser, source: Source) -> Dr<Arc<Mo
         .map(Arc::new)
 }
 
-pub trait SexprParserExt: SexprParser {
+pub trait SexprParserExt: SexprParser + Upcast<dyn SexprParser> {
     fn qualified_name_to_path(&self, qn: &QualifiedName) -> fcommon::Path {
         self.intern_path_data(fcommon::PathData(
             qn.0.iter().map(|name| name.contents).collect(),
         ))
     }
 }
-impl<T> SexprParserExt for T where T: SexprParser {}
+impl<'a, T: SexprParser + 'a> UpcastFrom<T> for dyn SexprParser + 'a {
+    fn up_from(value: &T) -> &(dyn SexprParser + 'a) {
+        value
+    }
+    fn up_from_mut(value: &mut T) -> &mut (dyn SexprParser + 'a) {
+        value
+    }
+}
+impl<T> SexprParserExt for T where T: SexprParser + 'static {}

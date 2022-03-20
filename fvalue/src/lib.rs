@@ -1,8 +1,5 @@
 //! Computes values of expressions and performs value inference.
 
-mod value;
-pub use value::*;
-
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     sync::Arc,
@@ -233,7 +230,7 @@ fn infer_values_def(
         source,
         var_gen: Default::default(),
         known_local_types,
-        print: PartialValuePrinter::new(db),
+        print: PartialValuePrinter::new(db.up()),
         infos,
     };
     let unification = traverse(&def.contents.expr, &mut ctx, &[]);
