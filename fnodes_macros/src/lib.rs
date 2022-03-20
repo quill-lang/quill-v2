@@ -189,7 +189,7 @@ pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStre
         let val = match &field.ident {
             Some(ident) => quote!(&self.#ident),
             None => {
-                let i = syn::LitInt::new(&format!("{}", i), Span::call_site());
+                let i = syn::Index::from(i);
                 quote!(&self.#i)
             }
         };
@@ -281,7 +281,10 @@ pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                 .ident
                 .as_ref()
                 .map(|name| quote!(#name))
-                .unwrap_or_else(|| quote!(#field_index));
+                .unwrap_or_else(|| {
+                    let field_index = syn::Index::from(field_index);
+                    quote!(#field_index)
+                });
             if field
                 .attrs
                 .iter()

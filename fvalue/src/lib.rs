@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use fcommon::{Dr, Label, LabelType, Path, Report, ReportKind, Source, Span, Str};
+use fcommon::{Dr, Label, LabelType, Path, Report, ReportKind, Source, SourceType, Span, Str};
 use fnodes::{
     basic_nodes::SourceSpan, expr::*, DefaultInfos, Definition, ModuleParseResult, NodeId,
     NodeInfoContainer, SexprParserExt,
@@ -557,39 +557,32 @@ fn traverse(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<Unifica
             traverse(stated_type, ctx, locals)
                 .bind(|inner_unif| unif.with(inner_unif, ctx, stated_type.span()))
                 .bind(|unif| {
-                    evaluate(stated_type, ctx, &unif).bind(|stated_type_evaluated| {
-                        let found_type = unif.expr_type(expr);
-                        unif.unify(
-                            stated_type_evaluated,
-                            found_type,
-                            ctx,
-                            stated_type.span(),
-                            |ctx, expected, found| {
-                                Report::new(ReportKind::Error, ctx.source, stated_type.span().start)
-                                    .with_message("stated type did not match expression type")
-                                    .with_label(
-                                        Label::new(ctx.source, expr.span(), LabelType::Error)
-                                            .with_message(format!(
-                                                "this expression has type {}",
-                                                ctx.print.print(found)
-                                            )),
-                                    )
-                                    .with_label(
-                                        Label::new(
-                                            ctx.source,
-                                            stated_type.span(),
-                                            LabelType::Error,
-                                        )
-                                        .with_message(
-                                            format!(
-                                                "the expected type of the expression was {}",
-                                                ctx.print.print(expected)
-                                            ),
-                                        ),
-                                    )
-                            },
-                        )
-                    })
+                    let stated_type_evaluated = expr_to_value(stated_type, ctx, &unif);
+                    let found_type = unif.expr_type(expr);
+                    unif.unify(
+                        stated_type_evaluated,
+                        found_type,
+                        ctx,
+                        stated_type.span(),
+                        |ctx, expected, found| {
+                            Report::new(ReportKind::Error, ctx.source, stated_type.span().start)
+                                .with_message("stated type did not match expression type")
+                                .with_label(
+                                    Label::new(ctx.source, expr.span(), LabelType::Error)
+                                        .with_message(format!(
+                                            "this expression has type {}",
+                                            ctx.print.print(found)
+                                        )),
+                                )
+                                .with_label(
+                                    Label::new(ctx.source, stated_type.span(), LabelType::Error)
+                                        .with_message(format!(
+                                            "the expected type of the expression was {}",
+                                            ctx.print.print(expected)
+                                        )),
+                                )
+                        },
+                    )
                 })
         } else {
             Dr::ok(unif)
@@ -707,6 +700,46 @@ fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<U
                             let result_ty = unif.expr_type(body);
                             unif.with_expr_type(expr, result_ty)
                         })
+                })
+            })
+        }
+        ExprContents::ReduceTy(ReduceTy { body, target_ty }) => {
+            traverse(body, ctx, locals).bind(|unif| {
+                traverse(target_ty, ctx, locals).bind(|unif_inner| {
+                    unif.with(unif_inner, ctx, expr.span()).bind(|unif| {
+                        // The type of a reducety expression is target_ty.
+                        let target_ty_value = expr_to_value(target_ty, ctx, &unif);
+
+                        // Now, make sure that we can coerce target_ty into the body's type.
+                        coerce_into(
+                            target_ty.span(),
+                            &unif.expr_type(body),
+                            &target_ty_value,
+                            ctx,
+                            &unif,
+                        )
+                        .map(|()| unif.with_expr_type(expr, target_ty_value))
+                    })
+                })
+            })
+        }
+        ExprContents::ExpandTy(ExpandTy { body, target_ty }) => {
+            traverse(body, ctx, locals).bind(|unif| {
+                traverse(target_ty, ctx, locals).bind(|unif_inner| {
+                    unif.with(unif_inner, ctx, expr.span()).bind(|unif| {
+                        // The type of an expandty expression is target_ty.
+                        let target_ty_value = expr_to_value(target_ty, ctx, &unif);
+
+                        // Now, make sure that we can coerce the body's type into target_ty.
+                        coerce_into(
+                            target_ty.span(),
+                            &target_ty_value,
+                            &unif.expr_type(body),
+                            ctx,
+                            &unif,
+                        )
+                        .map(|()| unif.with_expr_type(expr, target_ty_value))
+                    })
                 })
             })
         }
@@ -880,42 +913,145 @@ fn fill_types(
     })
 }
 
-/// Try to evaluate this expression, given its type.
-fn evaluate(expr: &Expr, ctx: &mut TyCtx, unif: &Unification) -> Dr<PartialValue> {
+/// Convert this expression into a partial value.
+/// This essentially discards the provenance of the expression and keeps just its value.
+fn expr_to_value(expr: &Expr, ctx: &mut TyCtx, unif: &Unification) -> PartialValue {
     match &expr.contents {
         ExprContents::IntroLocal(_) => todo!(),
         ExprContents::IntroU64(_) => todo!(),
         ExprContents::IntroFalse => todo!(),
         ExprContents::IntroTrue => todo!(),
         ExprContents::IntroUnit => todo!(),
-        ExprContents::FormU64 => Dr::ok(PartialValue::FormU64),
+        ExprContents::FormU64 => PartialValue::FormU64,
         ExprContents::FormBool => todo!(),
-        ExprContents::FormUnit => Dr::ok(PartialValue::FormUnit),
+        ExprContents::FormUnit => PartialValue::FormUnit,
         ExprContents::IntroProduct(_) => todo!(),
         ExprContents::FormProduct(FormProduct { fields }) => {
-            Dr::sequence(fields.iter().map(|field| {
-                evaluate(&field.contents.ty, ctx, unif).map(|ty| ComponentContents {
-                    name: field.contents.name.contents,
-                    ty,
-                })
-            }))
-            .map(|fields| PartialValue::FormProduct(FormProduct { fields }))
+            PartialValue::FormProduct(FormProduct {
+                fields: fields
+                    .iter()
+                    .map(|field| ComponentContents {
+                        name: field.contents.name.contents,
+                        ty: expr_to_value(&field.contents.ty, ctx, unif),
+                    })
+                    .collect(),
+            })
         }
         ExprContents::MatchProduct(_) => todo!(),
-        ExprContents::Inst(_) => todo!(),
+        ExprContents::ReduceTy(_) => todo!(),
+        ExprContents::ExpandTy(_) => todo!(),
+        ExprContents::Inst(Inst(qn)) => PartialValue::Inst(Inst(ctx.db.qualified_name_to_path(qn))),
         ExprContents::Let(_) => todo!(),
         ExprContents::Lambda(_) => todo!(),
         ExprContents::Apply(_) => todo!(),
         ExprContents::Var(_) => todo!(),
-        ExprContents::FormFunc(FormFunc { parameter, result }) => evaluate(parameter, ctx, unif)
-            .bind(|parameter| {
-                evaluate(result, ctx, unif).map(|result| {
-                    PartialValue::FormFunc(FormFunc {
-                        parameter: Box::new(parameter),
-                        result: Box::new(result),
-                    })
-                })
-            }),
+        ExprContents::FormFunc(FormFunc { parameter, result }) => {
+            PartialValue::FormFunc(FormFunc {
+                parameter: Box::new(expr_to_value(parameter, ctx, unif)),
+                result: Box::new(expr_to_value(result, ctx, unif)),
+            })
+        }
         ExprContents::FormUniverse => todo!(),
     }
+}
+
+/// Try to evaluate this expression and check that it equals the given expression, given all relevant types.
+///
+/// TODO: Have a maximum calculation depth, after which computation should stop.
+///
+/// TODO: Track the original expressions passed into this function, so that the error messages are a bit nicer.
+/// This will be one of the big error-producing functions in the value inference phase of compilation, so special care should be taken with this.
+/// We should use a strategy like that in [`Unification`] above.
+///
+/// TODO: If necessary, unify further variables.
+fn coerce_into(
+    span: Span,
+    expr: &PartialValue,
+    target: &PartialValue,
+    ctx: &mut TyCtx,
+    unif: &Unification,
+) -> Dr<()> {
+    let mut fail = || {
+        Dr::fail(
+            Report::new(ReportKind::Error, ctx.source, span.start)
+                .with_message("could not coerce types")
+                .with_label(
+                    Label::new(ctx.source, span.clone(), LabelType::Error).with_message(format!(
+                        "could not coerce type {} into type {}",
+                        ctx.print.print(expr),
+                        ctx.print.print(target)
+                    )),
+                ),
+        )
+    };
+
+    if expr == target {
+        return Dr::ok(());
+    }
+
+    if let (
+        PartialValue::FormProduct(FormProduct {
+            fields: expr_fields,
+        }),
+        PartialValue::FormProduct(FormProduct {
+            fields: target_fields,
+        }),
+    ) = (expr, target)
+    {
+        if expr_fields.len() != target_fields.len() {
+            return fail();
+        }
+        return Dr::sequence(expr_fields.iter().zip(target_fields).map(
+            |(expr_field, target_field)| {
+                if expr_field.name != target_field.name {
+                    Dr::fail(
+                        Report::new(ReportKind::Error, ctx.source, span.start)
+                            .with_message("could not coerce types")
+                            .with_label(
+                                Label::new(ctx.source, span.clone(), LabelType::Error)
+                                    .with_message(format!(
+                                        "field names {} and {} did not match",
+                                        ctx.db.lookup_intern_string_data(expr_field.name),
+                                        ctx.db.lookup_intern_string_data(target_field.name),
+                                    )),
+                            ),
+                    )
+                } else {
+                    coerce_into(span.clone(), &expr_field.ty, &target_field.ty, ctx, unif)
+                }
+            },
+        ))
+        .map(|_| ());
+    }
+
+    if let PartialValue::Inst(Inst(path)) = expr {
+        // Instance the variable from this path.
+        let (source, def_name) = ctx.db.split_path_last(*path);
+        if let Some(module) = ctx
+            .db
+            .module_from_feather_source(Source {
+                path: source,
+                ty: SourceType::Feather,
+            })
+            .value()
+        {
+            if let Some(def) = module
+                .module
+                .contents
+                .defs
+                .iter()
+                .find(|def| def.contents.name.contents == def_name)
+            {
+                return coerce_into(
+                    span,
+                    &expr_to_value(&def.contents.expr, ctx, unif),
+                    target,
+                    ctx,
+                    unif,
+                );
+            }
+        }
+    }
+
+    fail()
 }

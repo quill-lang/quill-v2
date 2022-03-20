@@ -30,4 +30,20 @@
             (ap (inst (test test fst)) 0)
         )
     )
+
+    (def MyPair ()
+        (fprod (fst (funit)) (snd (fu64)))
+    )
+    (def make_my_pair ()
+        (expandty
+            (inst (test test make_pair))
+            (inst (test test MyPair))
+        )
+    )
+    (def use_my_pair ()
+        (reducety
+            (inst (test test make_my_pair))
+            (fprod (fst (funit)) (snd (fu64)))
+        )
+    )
 )

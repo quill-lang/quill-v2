@@ -212,6 +212,38 @@ pub struct MatchProduct<N, E> {
     pub body: Box<E>,
 }
 
+/// Change a variable's type to an equivalent type
+/// that can be found by evaluating the body's type.
+/// This is an instance of the ===-conv1 rule.
+///
+/// Together with [`ExpandTy`], we can convert between all equivalent types.
+#[derive(Debug, PartialEq, Eq, Clone, ListSexpr)]
+#[list_sexpr_keyword = "reducety"]
+pub struct ReduceTy<E> {
+    #[list]
+    #[sub_expr]
+    pub body: Box<E>,
+    #[list]
+    #[sub_expr]
+    pub target_ty: Box<E>,
+}
+
+/// Change a variable's type to an equivalent type,
+/// such that if this type is evaluated, we find the body's type.
+/// This is an instance of the ===-conv1 rule.
+///
+/// Together with [`ReduceTy`], we can convert between all equivalent types.
+#[derive(Debug, PartialEq, Eq, Clone, ListSexpr)]
+#[list_sexpr_keyword = "expandty"]
+pub struct ExpandTy<E> {
+    #[list]
+    #[sub_expr]
+    pub body: Box<E>,
+    #[list]
+    #[sub_expr]
+    pub target_ty: Box<E>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, ListSexpr)]
 #[list_sexpr_keyword = "inst"]
 pub struct Inst<Q>(#[list] pub Q);
@@ -327,6 +359,9 @@ gen_expr! {
     IntroProduct<N, E>,
     FormProduct<C>,
     MatchProduct<N, E>,
+
+    ReduceTy<E>,
+    ExpandTy<E>,
 
     Inst<Q>,
     Let<E>,
@@ -447,7 +482,9 @@ impl<'a> PartialValuePrinter<'a> {
                 format!("{{{}}}", fields)
             }
             PartialValue::MatchProduct(_) => todo!(),
-            PartialValue::Inst(_) => todo!(),
+            PartialValue::ReduceTy(_) => todo!(),
+            PartialValue::ExpandTy(_) => todo!(),
+            PartialValue::Inst(Inst(path)) => self.db.path_to_string(*path),
             PartialValue::Let(_) => todo!(),
             PartialValue::Lambda(_) => todo!(),
             PartialValue::Apply(_) => todo!(),
