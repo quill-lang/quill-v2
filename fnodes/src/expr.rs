@@ -87,11 +87,13 @@ impl ListSexpr for Component<Name, Expr> {
     }
 
     fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
-        // TODO: component info
-        vec![
-            self.contents.name.serialise(ctx, db),
+        let mut infos = ctx.process_component_info(db, self, ctx);
+        infos.insert(
+            0,
             ListSexprWrapper::serialise_into_node(ctx, db, &self.contents.ty),
-        ]
+        );
+        infos.insert(0, self.contents.name.serialise(ctx, db));
+        infos
     }
 }
 

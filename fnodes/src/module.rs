@@ -58,8 +58,7 @@ impl ListSexpr for Module {
     }
 
     fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
-        // TODO: infos
-        let infos = SexprNodeContents::List(Vec::new());
+        let infos = SexprNodeContents::List(ctx.process_module_info(db, self, ctx));
         std::iter::once(SexprNode {
             contents: infos,
             span: 0..0,
@@ -134,7 +133,7 @@ impl ListSexpr for Definition {
     }
 
     fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
-        let infos = SexprNodeContents::List(Vec::new());
+        let infos = SexprNodeContents::List(ctx.process_def_info(db, self, ctx));
         vec![
             self.contents.name.serialise(ctx, db),
             SexprNode {

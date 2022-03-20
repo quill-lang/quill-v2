@@ -124,8 +124,17 @@ impl SexprParsable for Name {
 
 impl SexprSerialisable for Name {
     fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> SexprNode {
-        // TODO: serialise infos
-        AtomicSexprWrapper::serialise_into_node(ctx, db, &self.contents)
+        let mut infos = ctx.process_name_info(db, self, ctx);
+        let serialised = AtomicSexprWrapper::serialise_into_node(ctx, db, &self.contents);
+        if infos.is_empty() {
+            serialised
+        } else {
+            infos.insert(0, serialised);
+            SexprNode {
+                contents: SexprNodeContents::List(infos),
+                span: 0..0,
+            }
+        }
     }
 }
 
