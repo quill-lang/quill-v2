@@ -62,6 +62,13 @@ impl SexprParsable for Str {
     }
 }
 
+/// This impl is provided for symmetry with the impls of [`Name`].
+impl SexprSerialisable for Str {
+    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> SexprNode {
+        AtomicSexprWrapper::serialise_into_node(ctx, db, self)
+    }
+}
+
 /// A single indivisible lexical unit in an identifier, variable, or so on.
 pub type Name = Node<Str>;
 

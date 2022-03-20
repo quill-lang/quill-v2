@@ -254,7 +254,7 @@ pub trait SexprSerialiseExt {
     type Input;
     /// Serialise this expression into a node.
     /// Typically this will be implemented automatically on [`AtomicSexprWrapper`] or [`ListSexprWrapper`]
-    /// if [`AtomicSexpr`] pr [`ListSexpr`] is implemented.
+    /// if [`AtomicSexpr`] or [`ListSexpr`] is implemented.
     fn serialise_into_node(
         ctx: &SexprSerialiseContext,
         db: &dyn SexprParser,

@@ -156,22 +156,25 @@ pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStre
     }
 
     let name = input.ident;
-    let serialise = TokenStream::new();
 
     let generics_options = if !generics.is_empty() {
         let node_generics = write_node_generics(&generics);
         let value_generics = write_value_generics(&generics);
 
-        let node_parse_list_fields = parse_list_fields(&fields, keyword.clone(), true);
-        let value_parse_list_fields = parse_list_fields(&fields, keyword, false);
+        let node_parse_list_fields = parse_list_fields(&fields, true);
+        let value_parse_list_fields = parse_list_fields(&fields, false);
+
+        let node_serialise = serialise(&fields, true);
+        let value_serialise = serialise(&fields, false);
 
         vec![
-            (node_generics, node_parse_list_fields),
-            (value_generics, value_parse_list_fields),
+            (node_generics, node_parse_list_fields, node_serialise),
+            (value_generics, value_parse_list_fields, value_serialise),
         ]
     } else {
-        let parse_list_fields = parse_list_fields(&fields, keyword, false);
-        vec![(Punctuated::new(), parse_list_fields)]
+        let parse_list_fields = parse_list_fields(&fields, false);
+        let serialise = serialise(&fields, false);
+        vec![(Punctuated::new(), parse_list_fields, serialise)]
     };
 
     let parse_list_init = if fields
@@ -186,7 +189,7 @@ pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStre
     };
 
     let mut output = TokenStream::new();
-    for (generics_option, parse_list_fields) in generics_options {
+    for (generics_option, parse_list_fields, serialise) in generics_options {
         let parse_list_result = match fields_type {
             FieldsType::Named => {
                 quote! {
@@ -232,8 +235,9 @@ pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                     ctx: &crate::SexprSerialiseContext,
                     db: &dyn crate::SexprParser,
                 ) -> Vec<crate::SexprNode> {
-                    #serialise
-                    todo!()
+                    let mut result = Vec::new();
+                    #serialise;
+                    result
                 }
             }
         });
@@ -352,11 +356,43 @@ pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStre
     let result = output.into();
     eprintln!("{}", result);
     result
+
+    // output.into()
+}
+
+fn serialise(fields: &[(&syn::Field, SexprParsableType)], use_node_generics: bool) -> TokenStream {
+    let mut serialise = TokenStream::new();
+    for (i, (field, field_ty)) in fields.iter().enumerate() {
+        let val = match &field.ident {
+            Some(ident) => quote!(&self.#ident),
+            None => {
+                let i = syn::LitInt::new(&format!("{}", i), Span::call_site());
+                quote!(&self.#i)
+            }
+        };
+        match field_ty {
+            SexprParsableType::Atomic => serialise.extend(quote! {
+                result.push(crate::AtomicSexprWrapper::serialise_into_node(ctx, db, #val));
+            }),
+            SexprParsableType::List => serialise.extend(quote! {
+                result.push(crate::ListSexprWrapper::serialise_into_node(ctx, db, #val));
+            }),
+            SexprParsableType::ListFlatten => serialise.extend(quote! {
+                result.extend((#val).serialise(ctx, db));
+            }),
+            SexprParsableType::Direct => {
+                let direct_ty = gen_direct_ty(field, use_node_generics);
+                serialise.extend(quote! {
+                    result.push(crate::SexprSerialisable::serialise(#val, ctx, db));
+                });
+            }
+        };
+    }
+    serialise
 }
 
 fn parse_list_fields(
     fields: &[(&syn::Field, SexprParsableType)],
-    keyword: Option<syn::LitStr>,
     use_node_generics: bool,
 ) -> Punctuated<TokenStream, Token![,]> {
     let mut parse_list_fields = Punctuated::<TokenStream, Token![,]>::new();
@@ -365,7 +401,7 @@ fn parse_list_fields(
             Some(ident) => quote! { #ident: },
             None => TokenStream::new(),
         };
-        let v = Ident::new(&format!("v{}", i), keyword.span());
+        let v = Ident::new(&format!("v{}", i), Span::call_site());
         match ty {
             SexprParsableType::Atomic => parse_list_fields.push(quote! {
                 #start crate::AtomicSexprWrapper::parse(ctx, db, #v)?
@@ -377,38 +413,7 @@ fn parse_list_fields(
                 #start <_ as crate::ListSexpr>::parse_list(ctx, db, span, args)?
             }),
             SexprParsableType::Direct => {
-                let direct_ty = match &field.ty {
-                    syn::Type::Path(path) => {
-                        if path.path == Ident::new("E", Span::call_site()).into() {
-                            Box::new(if use_node_generics {
-                                write_node_generic(&GenericType::Expr)
-                            } else {
-                                write_value_generic(&GenericType::Expr)
-                            }) as Box<dyn quote::ToTokens>
-                        } else if path.path == Ident::new("N", Span::call_site()).into() {
-                            Box::new(if use_node_generics {
-                                write_node_generic(&GenericType::Name)
-                            } else {
-                                write_value_generic(&GenericType::Name)
-                            }) as Box<dyn quote::ToTokens>
-                        } else if path.path == Ident::new("Q", Span::call_site()).into() {
-                            Box::new(if use_node_generics {
-                                write_node_generic(&GenericType::QualifiedName)
-                            } else {
-                                write_value_generic(&GenericType::QualifiedName)
-                            }) as Box<dyn quote::ToTokens>
-                        } else if path.path == Ident::new("C", Span::call_site()).into() {
-                            Box::new(if use_node_generics {
-                                write_node_generic(&GenericType::Component)
-                            } else {
-                                write_value_generic(&GenericType::Component)
-                            }) as Box<dyn quote::ToTokens>
-                        } else {
-                            Box::new(field.ty.clone())
-                        }
-                    }
-                    other => Box::new(other.clone()),
-                };
+                let direct_ty = gen_direct_ty(field, use_node_generics);
                 parse_list_fields.push(quote! {
                     #start #direct_ty::parse(ctx, db, #v)?
                 })
@@ -416,6 +421,41 @@ fn parse_list_fields(
         }
     }
     parse_list_fields
+}
+
+fn gen_direct_ty(field: &syn::Field, use_node_generics: bool) -> Box<dyn quote::ToTokens> {
+    match &field.ty {
+        syn::Type::Path(path) => {
+            if path.path == Ident::new("E", Span::call_site()).into() {
+                Box::new(if use_node_generics {
+                    write_node_generic(&GenericType::Expr)
+                } else {
+                    write_value_generic(&GenericType::Expr)
+                }) as Box<dyn quote::ToTokens>
+            } else if path.path == Ident::new("N", Span::call_site()).into() {
+                Box::new(if use_node_generics {
+                    write_node_generic(&GenericType::Name)
+                } else {
+                    write_value_generic(&GenericType::Name)
+                }) as Box<dyn quote::ToTokens>
+            } else if path.path == Ident::new("Q", Span::call_site()).into() {
+                Box::new(if use_node_generics {
+                    write_node_generic(&GenericType::QualifiedName)
+                } else {
+                    write_value_generic(&GenericType::QualifiedName)
+                }) as Box<dyn quote::ToTokens>
+            } else if path.path == Ident::new("C", Span::call_site()).into() {
+                Box::new(if use_node_generics {
+                    write_node_generic(&GenericType::Component)
+                } else {
+                    write_value_generic(&GenericType::Component)
+                }) as Box<dyn quote::ToTokens>
+            } else {
+                Box::new(field.ty.clone())
+            }
+        }
+        other => Box::new(other.clone()),
+    }
 }
 
 struct ExprVariants {
@@ -546,6 +586,7 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     }
 
     let mut serialise_expr_variants = Punctuated::<TokenStream, Token![,]>::new();
+    let mut serialise_value_variants = Punctuated::<TokenStream, Token![,]>::new();
     for variant in &input.variants {
         let name = variant.name.clone();
         let generics = write_node_generics(&variant.generics);
@@ -556,6 +597,16 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             (quote!(Self::#name(val)), quote!(val.serialise(ctx, db)))
         };
         serialise_expr_variants.push(quote! {
+            #variant => {
+                let mut result = #serialise;
+                result.insert(0, SexprNode {
+                    contents: SexprNodeContents::Atom(#path::KEYWORD.unwrap().to_string()),
+                    span: 0..0
+                });
+                result
+            }
+        });
+        serialise_value_variants.push(quote! {
             #variant => {
                 let mut result = #serialise;
                 result.insert(0, SexprNode {
@@ -698,11 +749,13 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             const KEYWORD: Option<&'static str> = None;
 
             fn parse_list(ctx: &mut SexprParseContext, db: &dyn SexprParser, span: Span, mut args: Vec<SexprNode>) -> Result<Self, ParseError> {
-                todo!()
+                todo!("partial value parse")
             }
 
             fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
-                todo!()
+                match self {
+                    #serialise_value_variants
+                }
             }
         }
 
