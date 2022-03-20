@@ -14,6 +14,8 @@ enum FieldsType {
 enum SexprParsableType {
     Atomic,
     List,
+    /// Like List, but doesn't wrap the result in another SexprNode.
+    ListFlatten,
     Direct,
 }
 
@@ -73,7 +75,10 @@ fn write_value_generics(generics: &[GenericType]) -> Punctuated<TokenStream, Tok
     generics.iter().map(write_value_generic).collect()
 }
 
-#[proc_macro_derive(ListSexpr, attributes(list_sexpr_keyword, atomic, list, direct))]
+#[proc_macro_derive(
+    ListSexpr,
+    attributes(list_sexpr_keyword, atomic, list, direct, list_flatten, sub_expr)
+)]
 pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let keyword = input
@@ -114,7 +119,7 @@ pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStre
     };
     let fields = data
         .fields
-        .into_iter()
+        .iter()
         .map(|field| {
             let ty = field
                 .attrs
@@ -124,6 +129,7 @@ pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                         match &*a.path.segments[0].ident.to_string() {
                             "atomic" => Some(SexprParsableType::Atomic),
                             "list" => Some(SexprParsableType::List),
+                            "list_flatten" => Some(SexprParsableType::ListFlatten),
                             "direct" => Some(SexprParsableType::Direct),
                             _ => None,
                         }
@@ -158,6 +164,17 @@ pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStre
     } else {
         let parse_list_fields = parse_list_fields(&fields, keyword, false);
         vec![(Punctuated::new(), parse_list_fields)]
+    };
+
+    let parse_list_init = if fields
+        .iter()
+        .any(|(_, field_ty)| matches!(field_ty, SexprParsableType::ListFlatten))
+    {
+        quote!()
+    } else {
+        quote! {
+            let [#parse_list_force_arity] = crate::force_arity(span, args)?;
+        }
     };
 
     let mut output = TokenStream::new();
@@ -198,7 +215,7 @@ pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                     args: Vec<crate::SexprNode>,
                 ) -> Result<Self, crate::ParseError> {
                     use crate::serialise::SexprParsable;
-                    let [#parse_list_force_arity] = crate::force_arity(span, args)?;
+                    #parse_list_init
                     #parse_list_result
                 }
 
@@ -207,7 +224,6 @@ pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                     ctx: &crate::SexprSerialiseContext,
                     db: &dyn crate::SexprParser,
                 ) -> Vec<crate::SexprNode> {
-                    // Vec::new()
                     #serialise
                     todo!()
                 }
@@ -215,11 +231,98 @@ pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStre
         });
     }
 
-    output.into()
+    if generics
+        .iter()
+        .any(|generic| matches!(generic, GenericType::Expr | GenericType::Component))
+    {
+        // We can make sub_expressions functions.
+        let node_generics = write_node_generics(&generics);
+        let value_generics = write_value_generics(&generics);
+
+        let mut sub_expressions = Punctuated::<TokenStream, Token![;]>::new();
+        let mut sub_expressions_mut = Punctuated::<TokenStream, Token![;]>::new();
+        for (field_index, field) in data.fields.iter().enumerate() {
+            let field_name = field
+                .ident
+                .as_ref()
+                .map(|name| quote!(#name))
+                .unwrap_or_else(|| quote!(#field_index));
+            if field
+                .attrs
+                .iter()
+                .any(|attr| attr.path == Ident::new("sub_expr", Span::call_site()).into())
+            {
+                sub_expressions.push(quote! {
+                    result.push(&*self.#field_name);
+                });
+                sub_expressions_mut.push(quote! {
+                    result.push(&*mut self.#field_name);
+                });
+            }
+        }
+
+        output.extend(quote! {
+            impl crate::expr::ExpressionVariant for #name<#node_generics> {
+                fn sub_expressions(&self) -> Vec<&Expr> {
+                    let mut result = Vec::new();
+                    #sub_expressions;
+                    result
+                }
+
+                fn sub_expressions_mut(&mut self) -> Vec<&mut Expr> {
+                    let mut result = Vec::new();
+                    #sub_expressions_mut;
+                    result
+                }
+            }
+
+            impl crate::expr::PartialValueVariant for #name<#value_generics> {
+                fn sub_values(&self) -> Vec<&PartialValue> {
+                    let mut result = Vec::new();
+                    #sub_expressions;
+                    result
+                }
+
+                fn sub_values_mut(&mut self) -> Vec<&mut PartialValue> {
+                    let mut result = Vec::new();
+                    #sub_expressions_mut;
+                    result
+                }
+            }
+        });
+    } else {
+        // We will make default sub_expressions functions.
+        let input_generics = &input.generics;
+        output.extend(quote! {
+            impl #input_generics crate::expr::ExpressionVariant for #name #input_generics {
+                fn sub_expressions(&self) -> Vec<&crate::expr::Expr> {
+                    Vec::new()
+                }
+
+                fn sub_expressions_mut(&mut self) -> Vec<&mut crate::expr::Expr> {
+                    Vec::new()
+                }
+            }
+
+            impl #input_generics crate::expr::PartialValueVariant for #name #input_generics {
+                fn sub_values(&self) -> Vec<&crate::expr::PartialValue> {
+                    Vec::new()
+                }
+
+                fn sub_values_mut(&mut self) -> Vec<&mut crate::expr::PartialValue> {
+                    Vec::new()
+                }
+            }
+        })
+    }
+
+    let result = output.into();
+    eprintln!("{}", result);
+    result
 }
 
 fn parse_list_fields(
-    fields: &[(syn::Field, SexprParsableType)],
+    fields: &[(&syn::Field, SexprParsableType)],
     keyword: Option<syn::LitStr>,
     use_node_generics: bool,
 ) -> Punctuated<TokenStream, Token![,]> {
@@ -236,6 +339,9 @@ fn parse_list_fields(
             }),
             SexprParsableType::List => parse_list_fields.push(quote! {
                 #start crate::ListSexprWrapper::parse(ctx, db, #v)?
+            }),
+            SexprParsableType::ListFlatten => parse_list_fields.push(quote! {
+                #start <_ as crate::ListSexpr>::parse_list(ctx, db, span, args)?
             }),
             SexprParsableType::Direct => {
                 let direct_ty = match &field.ty {
@@ -428,6 +534,41 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         });
     }
 
+    let mut process_sub_expressions = Punctuated::<TokenStream, Token![,]>::new();
+    let mut process_sub_expressions_mut = Punctuated::<TokenStream, Token![,]>::new();
+    let mut process_sub_values = Punctuated::<TokenStream, Token![,]>::new();
+    let mut process_sub_values_mut = Punctuated::<TokenStream, Token![,]>::new();
+    for variant in &input.variants {
+        let name = variant.name.clone();
+        if variant.nullary {
+            process_sub_expressions.push(quote! {
+                Self::#name => Vec::new()
+            });
+            process_sub_expressions_mut.push(quote! {
+                Self::#name => Vec::new()
+            });
+            process_sub_values.push(quote! {
+                Self::#name => Vec::new()
+            });
+            process_sub_values_mut.push(quote! {
+                Self::#name => Vec::new()
+            });
+        } else {
+            process_sub_expressions.push(quote! {
+                Self::#name(val) => val.sub_expressions()
+            });
+            process_sub_expressions_mut.push(quote! {
+                Self::#name(val) => val.sub_expressions_mut()
+            });
+            process_sub_values.push(quote! {
+                Self::#name(val) => val.sub_values()
+            });
+            process_sub_values_mut.push(quote! {
+                Self::#name(val) => val.sub_values_mut()
+            });
+        };
+    }
+
     let expr = quote! {
         /// # Adding variants
         /// When adding a new variant to [`ExprContents`], make sure to update:
@@ -529,6 +670,34 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
             fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
                 todo!()
+            }
+        }
+
+        impl ExprContents {
+            pub fn sub_expressions(&self) -> Vec<&Expr> {
+                match self {
+                    #process_sub_expressions
+                }
+            }
+
+            pub fn sub_expressions_mut(&mut self) -> Vec<&mut Expr> {
+                match self {
+                    #process_sub_expressions_mut
+                }
+            }
+        }
+
+        impl PartialValue {
+            pub fn sub_values(&self) -> Vec<&PartialValue> {
+                match self {
+                    #process_sub_values
+                }
+            }
+
+            pub fn sub_values_mut(&mut self) -> Vec<&mut PartialValue> {
+                match self {
+                    #process_sub_values_mut
+                }
             }
         }
     };

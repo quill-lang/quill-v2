@@ -3,6 +3,16 @@ use crate::*;
 use fcommon::{Span, Str};
 use fnodes_macros::*;
 
+pub trait ExpressionVariant {
+    fn sub_expressions(&self) -> Vec<&Expr>;
+    fn sub_expressions_mut(&mut self) -> Vec<&mut Expr>;
+}
+
+pub trait PartialValueVariant {
+    fn sub_values(&self) -> Vec<&PartialValue>;
+    fn sub_values_mut(&mut self) -> Vec<&mut PartialValue>;
+}
+
 // TODO: Check for duplicates in each component-related thing.
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -127,14 +137,14 @@ pub struct IntroComponent<N, E> {
 #[derive(Debug, PartialEq, Eq, Clone, ListSexpr)]
 #[list_sexpr_keyword = "iprod"]
 pub struct IntroProduct<N, E> {
-    #[list]
+    #[list_flatten]
     pub fields: Vec<IntroComponent<N, E>>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, ListSexpr)]
 #[list_sexpr_keyword = "fprod"]
 pub struct FormProduct<C> {
-    #[list]
+    #[list_flatten]
     pub fields: Vec<C>,
 }
 

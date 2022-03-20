@@ -341,7 +341,7 @@ impl Unification {
         match val {
             PartialValue::Var(var2) => var == var2,
             _ => val
-                .sub_expressions()
+                .sub_values()
                 .iter()
                 .any(|expr| self.occurs_in(var, expr)),
         }
@@ -356,7 +356,7 @@ impl Unification {
                 result
             }
             _ => val
-                .sub_expressions()
+                .sub_values()
                 .iter()
                 .flat_map(|expr| self.variables_occuring_in(expr))
                 .collect(),
@@ -399,7 +399,7 @@ impl Unification {
                 }
             }
             _ => {
-                for expr in val.sub_expressions_mut() {
+                for expr in val.sub_values_mut() {
                     self.canonicalise(expr);
                 }
             }
