@@ -644,10 +644,6 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     }
 
     let expr = quote! {
-        /// # Adding variants
-        /// When adding a new variant to [`ExprContents`], make sure to update:
-        /// - [`ExprContents::sub_expressions`]
-        /// - [`ExprContents::sub_expressions_mut`]
         #[derive(Debug, PartialEq, Eq)]
         pub enum ExprContents {
             #node_variants
@@ -657,11 +653,6 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         /// Importantly, it contains no provenance about where it came from in the expression - all we care
         /// about is its value.
         /// It therefore contains no feather nodes, and is cloneable.
-        ///
-        /// # Adding variants
-        /// When adding a new variant to [`PartialValue`], make sure to update:
-        /// - [`PartialValue::sub_expressions`]
-        /// - [`PartialValue::sub_expressions_mut`]
         #[derive(Debug, Clone, PartialEq, Eq)]
         pub enum PartialValue {
             #value_variants
