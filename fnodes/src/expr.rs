@@ -310,7 +310,6 @@ impl VarGenerator {
     }
 }
 
-// TODO: Document this in the spec.
 #[derive(Debug, Clone, PartialEq, Eq, ListSexpr)]
 #[list_sexpr_keyword = "ffunc"]
 pub struct FormFunc<E> {

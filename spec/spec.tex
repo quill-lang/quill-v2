@@ -1254,6 +1254,17 @@ This typically transfers ownership of the bound variable \( x \).
 \end{lstlisting}
 This expression instances the object described by the given qualified name.
 Typically, a function call must be executed to evaluate the result of this expression.
+\begin{lstlisting}[mathescape=true]
+(reducety $e:A$ Expr $B:\UU$ Expr)$ \;\longleftrightarrow\; e : B $
+(expandty $e:A$ Expr $B:\UU$ Expr)$ \;\longleftrightarrow\; e : B $
+\end{lstlisting}
+Superficially, the two above expressions perform a very similar function; they apply the \( \equiv \)-\textsc{conv}${}_1$ rule to alter the type of a variable to an equivalent type without altering its value.
+However, the way in which they perform their functions differ greatly.
+In \lstinline{reducety}, the partial value $A$ is evaluated, and its value is compared to $B$.
+In particular, we gradually evaluate any part of $A$ that is different to $B$ until they match or we can see that the two types are irreconcilably different.
+This is an actual computation of a Feather expression, so we must take care to forbid infinite loops or otherwise arduous code execution.
+Conversely, in \lstinline{expandty}, $B$ is evaluated until it matches $A$.
+By the Church-Rosser theorem (specifically, a version of this theorem proven for our type system), an instance of \lstinline{reducety} composed with an instance of \lstinline{expandty} is sufficient to convert between any two equivalent types.
 
 \subsection{Borrowed values}
 \begin{lstlisting}[mathescape=true]
@@ -1273,7 +1284,7 @@ The recursor is used to extract the value from behind the borrow.
 (let $e:A$ Expr $f:B$ Expr)$ \;\longleftrightarrow\; \mathtt{let}\ x:A = e\ \mathtt{in}\ x.f : B $
 \end{lstlisting}
 Let expressions allow us to formalise the notion of applying a function immediately after creating the function.
-Consider the pseudocode transformation.
+Consider the following pseudocode transformation.
 \begin{lstlisting}
 let x = e1 in e2 => (lambda x . e2) e1
 \end{lstlisting}
@@ -1300,7 +1311,14 @@ Here, \( x \) is bound in \( z \), but this is only possible if the inner \( \la
 By default, \( \lambda \) abstractions may capture outer variables, but they will later be converted into functions that do not capture outer variables.
 
 \begin{lstlisting}[mathescape=true]
+(ffunc $A:\UU$ Expr $B:\UU$ Expr)$ \;\longleftrightarrow\; (A \to B) $
+\end{lstlisting}
+
+This expression allows us to form the function type.
+
+\begin{lstlisting}[mathescape=true]
 (dlambda $B:A \to \UU$ Expr $e:B(x)$ Expr)$ \;\longleftrightarrow\; \Lambda (x:A)\,.\,(x.e:B(x)) $
+(fdfunc $A:\UU$ Expr $B:A \to \UU$ Expr)$ \;\longleftrightarrow\; \tprd{x:A} B(x) $
 \end{lstlisting}
 
 The prefix \lstinline{d} refers to dependence.
