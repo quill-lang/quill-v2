@@ -64,4 +64,19 @@
             )
         )
     )
+
+    (def unwrap_or_zero ()
+        (lambda 1
+            (mcoprod
+                (reducety
+                    (expr (local 0) (ty (inst (test test OptionInt))))
+                    (fcoprod (Some (fu64)) (None (funit)))
+                )
+                (
+                    (Some (local 0))
+                    (None (iu64 0))
+                )
+            )
+        )
+    )
 )

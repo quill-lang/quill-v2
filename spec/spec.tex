@@ -1423,11 +1423,11 @@ Finally, we define
 \begin{lstlisting}[mathescape=true]
 (fcoprod $A_1:\UU$ Component $\dots$ $A_n:\UU$ Component)$ \;\longleftrightarrow\; \bigplus_{j=1}^n A_j: \UU $
 (icoprod $n:\mathbb N_{32}$ $e:A$ Expr)$ \;\longleftrightarrow\; \inj_n(e): \bigplus_{j=1}^n A_j $
-(rcoprod $g_1 : A_1 \to C$ Expr $\dots$ $g_n : A_n \to C$ Expr $p:\bigplus_{j=1}^n A_j$ Expr)
-    $\longleftrightarrow\; \rec{\bigplus_{j=1}^n A_j}(C,g,p): C $
-(ecoprod $C:\bigplus_{j=1}^n A_j\to\UU$ Expr $g_1 : A_1 \to C$ Expr $\dots$ $g_n : A_n \to C$ Expr
+(mcoprod $p:\bigplus_{j=1}^n A_j$ Expr $e_1 : C$ Expr $\dots$ $e_n : C$ Expr)
+    $\longleftrightarrow\; \rec{\bigplus_{j=1}^n A_j}(C,\lam{x:A_1} x.g_1,\dots,\lam{x:A_n} x.g_n,p): C $
+(ecoprod $C:\bigplus_{j=1}^n A_j\to\UU$ Expr $e_1 : A_1 \to C$ Expr $\dots$ $e_n : A_n \to C$ Expr
   $p:\bigplus_{j=1}^n A_j$ Expr)
-    $\longleftrightarrow\; \ind{\bigplus_{j=1}^n A_j}(C,g,p): C(p) $
+    $\longleftrightarrow\; \ind{\bigplus_{j=1}^n A_j}(C,g_1, \dots, g_n,p): C(p) $
 \end{lstlisting}
 No \( n \) is required in \lstinline{rcoprod} and \lstinline{ecoprod}, since the number of variants is implicit from the arity of the S-expression itself.
 Similarly to with the dependent pair type, the type annotation for \lstinline{icoprod} is used to determine the possible variants for the coproduct.

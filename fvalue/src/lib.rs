@@ -547,6 +547,44 @@ impl Unification {
                     labels
                 }
             }
+            (
+                PartialValue::FormCoproduct(FormCoproduct {
+                    variants: expected_variants,
+                }),
+                PartialValue::FormCoproduct(FormCoproduct {
+                    variants: found_variants,
+                }),
+            ) => {
+                // TODO: Enhance this check to work out if there were missing or mistyped variants.
+                if expected_variants.len() != found_variants.len() {
+                    vec![Label::new(ctx.source, span, LabelType::Note)
+                        .with_order(1000)
+                        .with_message(
+                            format!(
+                                "coproduct types {} and {} had differing amounts of variants, so could not be compared",
+                                ctx.print.print(expected),
+                                ctx.print.print(found)
+                            )
+                        )]
+                } else {
+                    let mut labels = Vec::new();
+                    for (expected, found) in expected_variants.iter().zip(found_variants) {
+                        // At this point, the canonical form of the result may have changed.
+                        // So we need to recanonicalise it.
+                        let mut expected_ty = expected.ty.clone();
+                        let mut found_ty = found.ty.clone();
+                        self.canonicalise(&mut expected_ty);
+                        self.canonicalise(&mut found_ty);
+                        labels.extend(self.unify_recursive(
+                            ctx,
+                            span.clone(),
+                            &expected_ty,
+                            &found_ty,
+                        ));
+                    }
+                    labels
+                }
+            }
             (other, PartialValue::Var(var)) | (PartialValue::Var(var), other) => {
                 // Since we've canonicalised `var`, self.var_types.get(&var) is either None or Some(var).
                 // We will replace this entry with `other`.
@@ -783,6 +821,114 @@ fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<U
                 })
             })
         }
+        ExprContents::MatchCoproduct(MatchCoproduct { coprod, variants }) => {
+            // Traverse the value then each variant.
+            traverse(coprod, ctx, locals).bind(|unif| {
+                // Construct new inference variables for the variant types of the coprod.
+                let variant_types = variants
+                    .iter()
+                    .map(|_| ctx.var_gen.gen())
+                    .collect::<Vec<_>>();
+                let expected_coproduct_type = PartialValue::FormCoproduct(FormCoproduct {
+                    variants: variants
+                        .iter()
+                        .zip(&variant_types)
+                        .map(|(variant, var)| ComponentContents {
+                            name: variant.name.contents,
+                            ty: PartialValue::Var(*var),
+                        })
+                        .collect(),
+                });
+
+                // Unify `coprod` with this new coproduct type.
+                let coproduct_type = unif.expr_type(coprod);
+                unif.unify(
+                    expected_coproduct_type,
+                    coproduct_type,
+                    ctx,
+                    expr.span(),
+                    |_ctx, _expected, _found| {
+                        todo!("tried to invoke `mcoprod` on a non-coproduct type")
+                    },
+                )
+                .bind(|unif| {
+                    variants
+                        .iter()
+                        .enumerate()
+                        .fold(Dr::ok(unif), |unif, (i, variant)| {
+                            unif.bind(|unif| {
+                                // Add the given variant to the list of locals.
+                                let internal_locals = std::iter::once({
+                                    let mut ty = PartialValue::Var(variant_types[i]);
+                                    unif.canonicalise(&mut ty);
+                                    ty
+                                })
+                                .chain(locals.iter().cloned())
+                                .collect::<Vec<_>>();
+                                traverse(&variant.expr, ctx, &internal_locals)
+                                    .bind(|unif2| unif.with(unif2, ctx, expr.span()))
+                            })
+                        })
+                        .bind(|unif| {
+                            // Ensure that each body type matches.
+                            // TODO: Handle the empty coproduct.
+                            variants
+                                .iter()
+                                .skip(1)
+                                .fold(Dr::ok(unif), |unif, variant| {
+                                    unif.bind(|unif| {
+                                        // We need to recalculate `result_type` every iteration since canonicalisation might change.
+                                        let result_type = unif.expr_type(&variants[0].expr);
+                                        let found_type = unif.expr_type(&variant.expr);
+                                        unif.unify(
+                                            result_type,
+                                            found_type,
+                                            ctx,
+                                            expr.span(),
+                                            |ctx, expected, found| {
+                                                Report::new(
+                                                ReportKind::Error,
+                                                ctx.source,
+                                                expr.span().start,
+                                            )
+                                            .with_message(
+                                                "branches of `mcoprod` did not have matching types",
+                                            )
+                                            .with_label(
+                                                Label::new(
+                                                    ctx.source,
+                                                    variants[0].expr.span(),
+                                                    LabelType::Note,
+                                                )
+                                                .with_message(format!(
+                                                    "first branch has type {}",
+                                                    ctx.print.print(expected)
+                                                )),
+                                            )
+                                            .with_label(
+                                                Label::new(
+                                                    ctx.source,
+                                                    variant.expr.span(),
+                                                    LabelType::Error,
+                                                )
+                                                .with_message(format!(
+                                                    "this branch has type {}",
+                                                    ctx.print.print(found)
+                                                )),
+                                            )
+                                            },
+                                        )
+                                    })
+                                })
+                                .map(|unif| {
+                                    // The type of a match expression is the type of its variant bodies, which are all the same.
+                                    let result_ty = unif.expr_type(&variants[0].expr);
+                                    unif.with_expr_type(expr, result_ty)
+                                })
+                        })
+                })
+            })
+        }
         ExprContents::ExpandTy(ExpandTy { body, target_ty }) => {
             traverse(body, ctx, locals).bind(|unif| {
                 traverse(target_ty, ctx, locals).bind(|unif_inner| {
@@ -1014,6 +1160,7 @@ fn expr_to_value(expr: &Expr, ctx: &mut TyCtx, unif: &Unification) -> PartialVal
             })
         }
         ExprContents::FormAnyCoproduct(_) => todo!(),
+        ExprContents::MatchCoproduct(_) => todo!(),
         ExprContents::ReduceTy(_) => todo!(),
         ExprContents::ExpandTy(_) => todo!(),
         ExprContents::Inst(Inst(qn)) => PartialValue::Inst(Inst(ctx.db.qualified_name_to_path(qn))),

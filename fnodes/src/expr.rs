@@ -175,7 +175,7 @@ pub struct IntroU64(#[atomic] pub u64);
 
 #[derive(Debug, Clone, PartialEq, Eq, ListSexpr)]
 #[list_sexpr_keyword]
-pub struct IntroComponent<N, E> {
+pub struct NameWithExpr<N, E> {
     #[direct]
     pub name: N,
     #[list]
@@ -188,7 +188,7 @@ pub struct IntroComponent<N, E> {
 pub struct IntroProduct<N, E> {
     #[list_flatten]
     #[sub_exprs_flatten]
-    pub fields: Vec<IntroComponent<N, E>>,
+    pub fields: Vec<NameWithExpr<N, E>>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, ListSexpr)]
@@ -217,7 +217,7 @@ pub struct MatchProduct<N, E> {
 pub struct IntroCoproduct<N, E> {
     #[list]
     #[sub_expr_flatten]
-    pub variant: Box<IntroComponent<N, E>>,
+    pub variant: Box<NameWithExpr<N, E>>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, ListSexpr)]
@@ -226,6 +226,19 @@ pub struct FormCoproduct<C> {
     #[list_flatten]
     #[sub_exprs_flatten]
     pub variants: Vec<C>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, ListSexpr)]
+#[list_sexpr_keyword = "mcoprod"]
+pub struct MatchCoproduct<N, E> {
+    /// The type of the result.
+    #[list]
+    #[sub_expr]
+    pub coprod: Box<E>,
+    /// The different blocks to execute depending on the variant of this coproduct.
+    #[list]
+    #[sub_exprs_flatten]
+    pub variants: Vec<NameWithExpr<N, E>>,
 }
 
 /// A type that can be coerced into `fcoprod`, once we know the actual variants.
@@ -397,6 +410,7 @@ gen_expr! {
     IntroCoproduct<N, E>,
     FormCoproduct<C>,
     FormAnyCoproduct<C>,
+    MatchCoproduct<N, E>,
 
     ReduceTy<E>,
     ExpandTy<E>,
@@ -542,6 +556,7 @@ impl<'a> PartialValuePrinter<'a> {
                     self.print(&known_variant.ty)
                 )
             }
+            PartialValue::MatchCoproduct(_) => todo!(),
             PartialValue::ReduceTy(_) => todo!(),
             PartialValue::ExpandTy(_) => todo!(),
             PartialValue::Inst(Inst(path)) => self.db.path_to_string(*path),
