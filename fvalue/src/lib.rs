@@ -673,6 +673,8 @@ fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<U
         }
         ExprContents::FormProduct(FormProduct { fields }) => {
             // Traverse each field.
+            // TODO: Ensure that all field types are actually types, as in, their type is FormUniverse.
+            // This should be done with FormCoproduct as well.
             fields
                 .iter()
                 .fold(Dr::ok(Unification::default()), |unif, field| {
@@ -736,6 +738,31 @@ fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<U
                 })
             })
         }
+        ExprContents::IntroCoproduct(IntroCoproduct { variant }) => {
+            // Traverse the variant.
+            traverse(&variant.expr, ctx, locals).map(|unif| {
+                let expr_ty = PartialValue::FormAnyCoproduct(FormAnyCoproduct {
+                    known_variant: Box::new(ComponentContents {
+                        name: variant.name.contents,
+                        ty: unif.expr_type(&variant.expr),
+                    }),
+                });
+                unif.with_expr_type(expr, expr_ty)
+            })
+        }
+        ExprContents::FormAnyCoproduct(_) => todo!(),
+        ExprContents::FormCoproduct(FormCoproduct { variants }) => {
+            // Traverse each variant.
+            variants
+                .iter()
+                .fold(Dr::ok(Unification::default()), |unif, variant| {
+                    unif.bind(|unif| {
+                        traverse(&variant.contents.ty, ctx, locals)
+                            .bind(|unif2| unif.with(unif2, ctx, expr.span()))
+                    })
+                })
+                .map(|unif| unif.with_expr_type(expr, PartialValue::FormUniverse))
+        }
         ExprContents::ReduceTy(ReduceTy { body, target_ty }) => {
             traverse(body, ctx, locals).bind(|unif| {
                 traverse(target_ty, ctx, locals).bind(|unif_inner| {
@@ -749,9 +776,9 @@ fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<U
                             &unif.expr_type(body),
                             &target_ty_value,
                             ctx,
-                            &unif,
+                            unif,
                         )
-                        .map(|()| unif.with_expr_type(expr, target_ty_value))
+                        .map(|unif| unif.with_expr_type(expr, target_ty_value))
                     })
                 })
             })
@@ -769,9 +796,9 @@ fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<U
                             &target_ty_value,
                             &unif.expr_type(body),
                             ctx,
-                            &unif,
+                            unif,
                         )
-                        .map(|()| unif.with_expr_type(expr, target_ty_value))
+                        .map(|unif| unif.with_expr_type(expr, target_ty_value))
                     })
                 })
             })
@@ -974,6 +1001,19 @@ fn expr_to_value(expr: &Expr, ctx: &mut TyCtx, unif: &Unification) -> PartialVal
             })
         }
         ExprContents::MatchProduct(_) => todo!(),
+        ExprContents::IntroCoproduct(_) => todo!(),
+        ExprContents::FormCoproduct(FormCoproduct { variants }) => {
+            PartialValue::FormCoproduct(FormCoproduct {
+                variants: variants
+                    .iter()
+                    .map(|field| ComponentContents {
+                        name: field.contents.name.contents,
+                        ty: expr_to_value(&field.contents.ty, ctx, unif),
+                    })
+                    .collect(),
+            })
+        }
+        ExprContents::FormAnyCoproduct(_) => todo!(),
         ExprContents::ReduceTy(_) => todo!(),
         ExprContents::ExpandTy(_) => todo!(),
         ExprContents::Inst(Inst(qn)) => PartialValue::Inst(Inst(ctx.db.qualified_name_to_path(qn))),
@@ -1005,8 +1045,8 @@ fn coerce_into(
     expr: &PartialValue,
     target: &PartialValue,
     ctx: &mut TyCtx,
-    unif: &Unification,
-) -> Dr<()> {
+    unif: Unification,
+) -> Dr<Unification> {
     let mut fail = || {
         Dr::fail(
             Report::new(ReportKind::Error, ctx.source, span.start)
@@ -1021,8 +1061,28 @@ fn coerce_into(
         )
     };
 
+    match (expr, target) {
+        (PartialValue::Var(var), expr) | (expr, PartialValue::Var(var)) => {
+            let mut unif = unif;
+            let labels = unif.insert_var_type(ctx, span.clone(), *var, expr.clone());
+            if labels.is_empty() {
+                return Dr::ok(unif);
+            } else {
+                return Dr::ok_with(
+                    unif,
+                    labels.into_iter().fold(
+                        Report::new(ReportKind::Error, ctx.source, span.start)
+                            .with_message("could not coerce types"),
+                        |report, label| report.with_label(label),
+                    ),
+                );
+            }
+        }
+        _ => {}
+    }
+
     if expr == target {
-        return Dr::ok(());
+        return Dr::ok(unif);
     }
 
     if let (
@@ -1037,27 +1097,101 @@ fn coerce_into(
         if expr_fields.len() != target_fields.len() {
             return fail();
         }
-        return Dr::sequence(expr_fields.iter().zip(target_fields).map(
-            |(expr_field, target_field)| {
-                if expr_field.name != target_field.name {
-                    Dr::fail(
-                        Report::new(ReportKind::Error, ctx.source, span.start)
-                            .with_message("could not coerce types")
-                            .with_label(
-                                Label::new(ctx.source, span.clone(), LabelType::Error)
-                                    .with_message(format!(
-                                        "field names {} and {} did not match",
-                                        ctx.db.lookup_intern_string_data(expr_field.name),
-                                        ctx.db.lookup_intern_string_data(target_field.name),
-                                    )),
-                            ),
-                    )
-                } else {
-                    coerce_into(span.clone(), &expr_field.ty, &target_field.ty, ctx, unif)
-                }
+        return expr_fields.iter().zip(target_fields).fold(
+            Dr::ok(unif),
+            |unif, (expr_field, target_field)| {
+                unif.bind(|unif| {
+                    if expr_field.name != target_field.name {
+                        Dr::fail(
+                            Report::new(ReportKind::Error, ctx.source, span.start)
+                                .with_message("could not coerce types")
+                                .with_label(
+                                    Label::new(ctx.source, span.clone(), LabelType::Error)
+                                        .with_message(format!(
+                                            "field names {} and {} did not match",
+                                            ctx.db.lookup_intern_string_data(expr_field.name),
+                                            ctx.db.lookup_intern_string_data(target_field.name),
+                                        )),
+                                ),
+                        )
+                    } else {
+                        coerce_into(span.clone(), &expr_field.ty, &target_field.ty, ctx, unif)
+                    }
+                })
             },
-        ))
-        .map(|_| ());
+        );
+    }
+
+    if let (
+        PartialValue::FormCoproduct(FormCoproduct {
+            variants: expr_variants,
+        }),
+        PartialValue::FormCoproduct(FormCoproduct {
+            variants: target_variants,
+        }),
+    ) = (expr, target)
+    {
+        if expr_variants.len() != target_variants.len() {
+            return fail();
+        }
+        return expr_variants.iter().zip(target_variants).fold(
+            Dr::ok(unif),
+            |unif, (expr_variant, target_variant)| {
+                unif.bind(|unif| {
+                    if expr_variant.name != target_variant.name {
+                        Dr::fail(
+                            Report::new(ReportKind::Error, ctx.source, span.start)
+                                .with_message("could not coerce types")
+                                .with_label(
+                                    Label::new(ctx.source, span.clone(), LabelType::Error)
+                                        .with_message(format!(
+                                            "field names {} and {} did not match",
+                                            ctx.db.lookup_intern_string_data(expr_variant.name),
+                                            ctx.db.lookup_intern_string_data(target_variant.name),
+                                        )),
+                                ),
+                        )
+                    } else {
+                        coerce_into(
+                            span.clone(),
+                            &expr_variant.ty,
+                            &target_variant.ty,
+                            ctx,
+                            unif,
+                        )
+                    }
+                })
+            },
+        );
+    }
+
+    if let (
+        PartialValue::FormCoproduct(FormCoproduct {
+            variants: expr_variants,
+        }),
+        PartialValue::FormAnyCoproduct(FormAnyCoproduct { known_variant }),
+    ) = (expr, target)
+    {
+        if let Some(expr_variant) = expr_variants
+            .iter()
+            .find(|variant| variant.name == known_variant.name)
+        {
+            return coerce_into(span.clone(), &expr_variant.ty, &known_variant.ty, ctx, unif);
+        } else {
+            return Dr::fail(
+                Report::new(ReportKind::Error, ctx.source, span.start)
+                    .with_message("could not coerce types")
+                    .with_label(
+                        Label::new(ctx.source, span.clone(), LabelType::Error).with_message(
+                            format!(
+                                "coproduct type {} did not contain a variant with name {}",
+                                ctx.print.print(target),
+                                ctx.db.lookup_intern_string_data(known_variant.name),
+                            ),
+                        ),
+                    ),
+            );
+        }
     }
 
     if let PartialValue::Inst(Inst(path)) = expr {
@@ -1080,7 +1214,7 @@ fn coerce_into(
             {
                 return coerce_into(
                     span,
-                    &expr_to_value(&def.contents.expr, ctx, unif),
+                    &expr_to_value(&def.contents.expr, ctx, &unif),
                     target,
                     ctx,
                     unif,

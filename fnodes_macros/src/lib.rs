@@ -84,6 +84,7 @@ fn write_value_generics(generics: &[GenericType]) -> Punctuated<TokenStream, Tok
         direct,
         list_flatten,
         sub_expr,
+        sub_expr_flatten,
         sub_exprs_flatten
     )
 )]
@@ -318,6 +319,23 @@ pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                 });
                 sub_values_mut.push(quote! {
                     result.extend((&mut self.#field_name).iter_mut().flat_map(|x| x.sub_values_mut()));
+                });
+            } else if field
+                .attrs
+                .iter()
+                .any(|attr| attr.path == Ident::new("sub_expr_flatten", Span::call_site()).into())
+            {
+                sub_expressions.push(quote! {
+                    result.extend((&self.#field_name).sub_expressions());
+                });
+                sub_expressions_mut.push(quote! {
+                    result.extend((&mut self.#field_name).sub_expressions_mut());
+                });
+                sub_values.push(quote! {
+                    result.extend((&self.#field_name).sub_values());
+                });
+                sub_values_mut.push(quote! {
+                    result.extend((&mut self.#field_name).sub_values_mut());
                 });
             }
         }

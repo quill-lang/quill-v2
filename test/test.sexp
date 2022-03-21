@@ -52,4 +52,16 @@
             (ty (ffunc (inst (test test MyPair)) (var 1)))
         )
     )
+
+    (def OptionInt ()
+        (fcoprod (Some (fu64)) (None (funit)))
+    )
+    (def some ()
+        (lambda 1
+            (expandty
+                (icoprod (Some (local 0)))
+                (inst (test test OptionInt))
+            )
+        )
+    )
 )

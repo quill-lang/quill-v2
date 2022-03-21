@@ -212,6 +212,32 @@ pub struct MatchProduct<N, E> {
     pub body: Box<E>,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, ListSexpr)]
+#[list_sexpr_keyword = "icoprod"]
+pub struct IntroCoproduct<N, E> {
+    #[list]
+    #[sub_expr_flatten]
+    pub variant: Box<IntroComponent<N, E>>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, ListSexpr)]
+#[list_sexpr_keyword = "fcoprod"]
+pub struct FormCoproduct<C> {
+    #[list_flatten]
+    #[sub_exprs_flatten]
+    pub variants: Vec<C>,
+}
+
+/// A type that can be coerced into `fcoprod`, once we know the actual variants.
+/// This is mainly used during type inference.
+#[derive(Debug, PartialEq, Eq, Clone, ListSexpr)]
+#[list_sexpr_keyword = "fanycoprod"]
+pub struct FormAnyCoproduct<C> {
+    #[list]
+    #[sub_expr_flatten]
+    pub known_variant: Box<C>,
+}
+
 /// Change a variable's type to an equivalent type
 /// that can be found by evaluating the body's type.
 /// This is an instance of the ===-conv1 rule.
@@ -368,6 +394,10 @@ gen_expr! {
     FormProduct<C>,
     MatchProduct<N, E>,
 
+    IntroCoproduct<N, E>,
+    FormCoproduct<C>,
+    FormAnyCoproduct<C>,
+
     ReduceTy<E>,
     ExpandTy<E>,
 
@@ -490,6 +520,28 @@ impl<'a> PartialValuePrinter<'a> {
                 format!("{{{}}}", fields)
             }
             PartialValue::MatchProduct(_) => todo!(),
+            PartialValue::IntroCoproduct(_) => todo!(),
+            PartialValue::FormCoproduct(FormCoproduct { variants }) => {
+                let variants = variants
+                    .iter()
+                    .map(|comp| {
+                        format!(
+                            "{}: {}",
+                            self.db.lookup_intern_string_data(comp.name),
+                            self.print(&comp.ty)
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                format!("coprod {{{}}}", variants)
+            }
+            PartialValue::FormAnyCoproduct(FormAnyCoproduct { known_variant }) => {
+                format!(
+                    "coprod {{... {}: {} ...}}",
+                    self.db.lookup_intern_string_data(known_variant.name),
+                    self.print(&known_variant.ty)
+                )
+            }
             PartialValue::ReduceTy(_) => todo!(),
             PartialValue::ExpandTy(_) => todo!(),
             PartialValue::Inst(Inst(path)) => self.db.path_to_string(*path),
