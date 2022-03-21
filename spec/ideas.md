@@ -182,7 +182,7 @@ With sufficient modularity and expression-orientatedness, we can have a program 
 This documentation can be mathematical; generating LaTeX documentation code for a Quill project, where functions are written in math environments not code environments, is not an unreasonable target.
 This is a step towards the `literate programming' paradigm.
 
-Feather could also potentially have plugins for things like tactics, asslowing "implicit" keywords and such. This is a step towards a full automated theorem proof assistant.
+Feather could also potentially have plugins for things like tactics, allowing "implicit" keywords and such. This is a step towards a full automated theorem proof assistant.
 
 # TODO
 

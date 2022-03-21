@@ -382,14 +382,46 @@ fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<U
         }
         ExprContents::FormProduct(FormProduct { fields }) => {
             // Traverse each field.
-            // TODO: Ensure that all field types are actually types, as in, their type is FormUniverse.
-            // This should be done with FormCoproduct as well.
             fields
                 .iter()
                 .fold(Dr::ok(Unification::default()), |unif, field| {
                     unif.bind(|unif| {
                         traverse(&field.contents.ty, ctx, locals)
                             .bind(|unif2| unif.with(unif2, ctx, expr.span()))
+                    })
+                })
+                .bind(|unif| {
+                    fields.iter().fold(Dr::ok(unif), |unif, field| {
+                        unif.bind(|unif| {
+                            let found_type = unif.expr_type(&field.contents.ty);
+                            unif.unify(
+                                PartialValue::FormUniverse,
+                                found_type,
+                                ctx,
+                                field.contents.ty.span(),
+                                |ctx, _expected, found| {
+                                    Report::new(
+                                        ReportKind::Error,
+                                        ctx.source,
+                                        field.contents.ty.span().start,
+                                    )
+                                    .with_message("type of field was not a type")
+                                    .with_label(
+                                        Label::new(
+                                            ctx.source,
+                                            field.contents.ty.span(),
+                                            LabelType::Error,
+                                        )
+                                        .with_message(
+                                            format!(
+                                            "the type of this field was {}, which is not a type",
+                                            ctx.print.print(found)
+                                        ),
+                                        ),
+                                    )
+                                },
+                            )
+                        })
                     })
                 })
                 .map(|unif| unif.with_expr_type(expr, PartialValue::FormUniverse))
@@ -468,6 +500,40 @@ fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<U
                     unif.bind(|unif| {
                         traverse(&variant.contents.ty, ctx, locals)
                             .bind(|unif2| unif.with(unif2, ctx, expr.span()))
+                    })
+                })
+                .bind(|unif| {
+                    variants.iter().fold(Dr::ok(unif), |unif, variant| {
+                        unif.bind(|unif| {
+                            let found_type = unif.expr_type(&variant.contents.ty);
+                            unif.unify(
+                                PartialValue::FormUniverse,
+                                found_type,
+                                ctx,
+                                variant.contents.ty.span(),
+                                |ctx, _expected, found| {
+                                    Report::new(
+                                        ReportKind::Error,
+                                        ctx.source,
+                                        variant.contents.ty.span().start,
+                                    )
+                                    .with_message("type of variant was not a type")
+                                    .with_label(
+                                        Label::new(
+                                            ctx.source,
+                                            variant.contents.ty.span(),
+                                            LabelType::Error,
+                                        )
+                                        .with_message(
+                                            format!(
+                                            "the type of this variant was {}, which is not a type",
+                                            ctx.print.print(found)
+                                        ),
+                                        ),
+                                    )
+                                },
+                            )
+                        })
                     })
                 })
                 .map(|unif| unif.with_expr_type(expr, PartialValue::FormUniverse))

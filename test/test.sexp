@@ -85,4 +85,10 @@
             )
         )
     )
+
+    (def Option ()
+        (lambda 1
+            (fcoprod (Some (local 0)) (None (funit)))
+        )
+    )
 )
