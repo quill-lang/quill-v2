@@ -95,7 +95,7 @@ impl ParseError {
 
 /// Trait implemented by types that can be deserialised from S-expressions.
 /// Normally you shouldn't implement this trait yourself, and should instead use
-/// [`SexprAtomParsable`] or [`SexprListParsable`].
+/// [`AtomicSexprWrapper`] or [`ListSexprWrapper`].
 pub trait SexprParsable: Sized {
     type Output;
     fn parse(

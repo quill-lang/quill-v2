@@ -336,7 +336,7 @@ impl<T> Dr<T> {
         }
     }
 
-    /// Apply an infallible operation to the value inside this result. If the operation could fail, use [`DiagnosticResult::bind`] instead.
+    /// Apply an infallible operation to the value inside this result. If the operation could fail, use [`Dr::bind`] instead.
     pub fn map<F, U>(self, f: F) -> Dr<U>
     where
         F: FnOnce(T) -> U,

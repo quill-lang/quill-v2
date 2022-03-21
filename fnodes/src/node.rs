@@ -164,7 +164,7 @@ impl<C, T> NodeInfoContainer<C, T> {
 /// but only cares about the node type it can be used with.
 /// All instances of this trait should just be [`NodeInfoContainer`] objects.
 trait AbstractNodeInfoContainer<C> {
-    /// Returns the keyword of the underlying [`SexprListParsable`].
+    /// Returns the keyword of the underlying [`ListSexpr`].
     /// This takes `self` to make `AbstractNodeInfoContainer` object-safe.
     fn keyword(&self) -> &'static str;
 

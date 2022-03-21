@@ -289,7 +289,7 @@ fn largest_unusable_var(expr: &Expr, infos: &DefaultInfos) -> Option<Var> {
 }
 
 /// Traverses the expression syntax tree, working out the *types* of each expression.
-/// Once types are known, we can call [`evaluate`] to compute the value of each expression.
+/// Once types are known, we can call [`Unification::expr_to_value`] to compute the value of each expression.
 ///
 /// `locals` is the list of the types associated with each local.
 /// The de Bruijn index `n` refers to the `n`th entry in this slice.
