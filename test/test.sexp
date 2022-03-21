@@ -20,7 +20,7 @@
             )
             (ty (ffunc
                 (fprod (fst (funit)) (snd (fu64)))
-                (funit)
+                (var 0)
             ))
         )
     )
@@ -44,6 +44,12 @@
         (reducety
             (inst (test test make_my_pair))
             (fprod (fst (funit)) (snd (fu64)))
+        )
+    )
+    (def id_MyPair ()
+        (expr
+            (lambda 1 (local 0))
+            (ty (ffunc (inst (test test MyPair)) (var 1)))
         )
     )
 )

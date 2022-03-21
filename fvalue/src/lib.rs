@@ -53,7 +53,7 @@ fn def_deps(db: &dyn ValueInferenceEngine, source: Source) -> Dr<BTreeMap<Str, B
             .map(|def| {
                 (def.contents.name.contents, {
                     let mut result = BTreeSet::new();
-                    find_expr_def_deps(db, &def.contents.expr, &mut result);
+                    find_expr_def_deps(db, &def.contents.expr, &res.infos, &mut result);
                     debug!(
                         "def {} depends on [{}]",
                         db.lookup_intern_string_data(def.contents.name.contents),
@@ -72,16 +72,24 @@ fn def_deps(db: &dyn ValueInferenceEngine, source: Source) -> Dr<BTreeMap<Str, B
 
 /// Work out which definitions this expression references.
 /// For each `inst` expression, add it to the list of deps.
-fn find_expr_def_deps(db: &dyn ValueInferenceEngine, expr: &Expr, deps: &mut BTreeSet<Path>) {
+fn find_expr_def_deps(
+    db: &dyn ValueInferenceEngine,
+    expr: &Expr,
+    infos: &DefaultInfos,
+    deps: &mut BTreeSet<Path>,
+) {
     match &expr.contents {
         ExprContents::Inst(inst) => {
             deps.insert(db.qualified_name_to_path(&inst.0));
         }
         _ => {
             for sub_expr in expr.contents.sub_expressions() {
-                find_expr_def_deps(db, sub_expr, deps);
+                find_expr_def_deps(db, sub_expr, infos, deps);
             }
         }
+    }
+    if let Some(ExprTy(ty)) = infos.expr_ty.get(expr) {
+        find_expr_def_deps(db, ty, infos, deps);
     }
 }
 
@@ -228,7 +236,7 @@ fn infer_values_def(
     let mut ctx = TyCtx {
         db,
         source,
-        var_gen: Default::default(),
+        var_gen: VarGenerator::new(largest_unusable_var(&def.contents.expr, infos)),
         known_local_types,
         print: PartialValuePrinter::new(db.up()),
         infos,
@@ -248,6 +256,31 @@ fn infer_values_def(
             result.map(|()| types)
         }
     })
+}
+
+fn largest_unusable_var(expr: &Expr, infos: &DefaultInfos) -> Option<Var> {
+    let first = if let ExprContents::Var(var) = expr.contents {
+        Some(var)
+    } else {
+        None
+    };
+    std::iter::once(first)
+        .flatten()
+        .chain(
+            infos
+                .expr_ty
+                .get(expr)
+                .map(|ExprTy(ty)| largest_unusable_var(ty, infos))
+                .into_iter()
+                .flatten(),
+        )
+        .chain(
+            expr.contents
+                .sub_expressions()
+                .iter()
+                .filter_map(|inner_expr| largest_unusable_var(inner_expr, infos)),
+        )
+        .max()
 }
 
 /// Do not mutate any values in `TyCtx` except for `print`, which may be used mutably.
@@ -864,7 +897,10 @@ fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<U
                 .map(|unif| unif.with_expr_type(expr, PartialValue::Var(result_ty)))
             })
         }
-        ExprContents::Var(_) => todo!(),
+        ExprContents::Var(var) => Dr::ok(Unification::new_with_expr_type(
+            expr,
+            PartialValue::Var(*var),
+        )),
         ExprContents::FormFunc(FormFunc { parameter, result }) => traverse(parameter, ctx, locals)
             .bind(|unif| {
                 traverse(result, ctx, locals).bind(|unif2| unif.with(unif2, ctx, expr.span()))
@@ -944,7 +980,7 @@ fn expr_to_value(expr: &Expr, ctx: &mut TyCtx, unif: &Unification) -> PartialVal
         ExprContents::Let(_) => todo!(),
         ExprContents::Lambda(_) => todo!(),
         ExprContents::Apply(_) => todo!(),
-        ExprContents::Var(_) => todo!(),
+        ExprContents::Var(var) => PartialValue::Var(*var),
         ExprContents::FormFunc(FormFunc { parameter, result }) => {
             PartialValue::FormFunc(FormFunc {
                 parameter: Box::new(expr_to_value(parameter, ctx, unif)),

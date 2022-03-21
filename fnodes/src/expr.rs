@@ -303,6 +303,15 @@ impl Default for VarGenerator {
 }
 
 impl VarGenerator {
+    /// Creates a new variable generator.
+    /// Its variables will all be greater than the provided "largest unusable" variable name.
+    /// If one was not provided, no guarantees are made about name clashing.
+    pub fn new(largest_unusable: Option<Var>) -> Self {
+        Self {
+            next_var: Var(largest_unusable.map_or(0, |x| x.0 + 1)),
+        }
+    }
+
     pub fn gen(&mut self) -> Var {
         let result = self.next_var;
         self.next_var.0 += 1;
