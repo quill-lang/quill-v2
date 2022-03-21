@@ -66,16 +66,22 @@
     )
 
     (def unwrap_or_zero ()
-        (lambda 1
-            (mcoprod
-                (reducety
-                    (expr (local 0) (ty (inst (test test OptionInt))))
-                    (fcoprod (Some (fu64)) (None (funit)))
+        (expr
+            (lambda 1
+                (mcoprod
+                    (reducety
+                        (local 0)
+                        (fcoprod (Some (fu64)) (None (funit)))
+                    )
+                    (
+                        (Some (local 0))
+                        (None (iu64 0))
+                    )
                 )
-                (
-                    (Some (local 0))
-                    (None (iu64 0))
-                )
+            )
+            (ty
+                (ffunc (inst (test test OptionInt))
+                (var 2))
             )
         )
     )

@@ -1,5 +1,8 @@
 //! Computes values of expressions and performs value inference.
 
+mod unification;
+use unification::*;
+
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     sync::Arc,
@@ -243,19 +246,21 @@ fn infer_values_def(
     };
     let unification = traverse(&def.contents.expr, &mut ctx, &[]);
     let errored = unification.errored();
-    unification.bind(|unif| {
-        // Store the deduced type of each expression.
-        let mut types = NodeInfoContainer::<ExprContents, PartialExprTy>::new();
-        let result = fill_types(&mut ctx, &def.contents.expr, &unif, &mut types);
-        debug!("types were: {:#?}", types);
-        // Don't produce error messages for unknown types if we already have type inference errors.
-        // We still want to produce the side effect of filling `types` though.
-        if errored {
-            Dr::ok(types)
-        } else {
-            result.map(|()| types)
-        }
-    })
+    unification
+        .bind(|unif| unif.finish_performing_coercions(&mut ctx))
+        .bind(|unif| {
+            // Store the deduced type of each expression.
+            let mut types = NodeInfoContainer::<ExprContents, PartialExprTy>::new();
+            let result = fill_types(&mut ctx, &def.contents.expr, &unif, &mut types);
+            debug!("types were: {:#?}", types);
+            // Don't produce error messages for unknown types if we already have type inference errors.
+            // We still want to produce the side effect of filling `types` though.
+            if errored {
+                Dr::ok(types)
+            } else {
+                result.map(|()| types)
+            }
+        })
 }
 
 fn largest_unusable_var(expr: &Expr, infos: &DefaultInfos) -> Option<Var> {
@@ -283,338 +288,6 @@ fn largest_unusable_var(expr: &Expr, infos: &DefaultInfos) -> Option<Var> {
         .max()
 }
 
-/// Do not mutate any values in `TyCtx` except for `print`, which may be used mutably.
-struct TyCtx<'a> {
-    db: &'a dyn ValueInferenceEngine,
-    source: Source,
-    var_gen: VarGenerator,
-    known_local_types: &'a NodeInfoContainer<ExprContents, PartialExprTy>,
-    print: PartialValuePrinter<'a>,
-    infos: &'a DefaultInfos,
-}
-
-/// Represents the types of known expressions and type variables at some stage in type inference.
-/// Any methods that return a [`Vec<Label>`] are diagnostic methods; if they return a non-empty list,
-/// the labels should be attached to a [`Report`] and encased in a [`Dr`].
-#[derive(Debug, Default)]
-struct Unification {
-    expr_types: HashMap<NodeId, PartialValue>,
-    /// A map converting a variable into a canonical representation.
-    var_types: HashMap<Var, PartialValue>,
-}
-
-impl Unification {
-    /// Construct a blank unification that contains only the information for a single expression.
-    fn new_with_expr_type(expr: &Expr, ty: PartialValue) -> Self {
-        let mut result = Self::default();
-        result.insert_expr_type(expr, ty);
-        result
-    }
-
-    /// Record the type of a single node.
-    fn insert_expr_type(&mut self, expr: &Expr, ty: PartialValue) {
-        self.insert_expr_type_from_id(expr.id(), ty)
-    }
-
-    /// Record the type of a single node.
-    /// Call [`Self::insert_expr_type`] instead, if possible.
-    fn insert_expr_type_from_id(&mut self, node_id: NodeId, mut ty: PartialValue) {
-        self.canonicalise(&mut ty);
-        self.expr_types.insert(node_id, ty);
-    }
-
-    /// Record the type of a single node.
-    fn with_expr_type(mut self, expr: &Expr, ty: PartialValue) -> Self {
-        self.insert_expr_type(expr, ty);
-        self
-    }
-
-    /// Record the type of a single inference variable.
-    /// If this causes an occurs check to fail, which can happen with circularly defined types,
-    /// an error will be emitted.
-    fn insert_var_type(
-        &mut self,
-        ctx: &mut TyCtx,
-        span: Span,
-        var: Var,
-        mut ty: PartialValue,
-    ) -> Vec<Label> {
-        trace!("inferring {:?} -> {:?}", var, ty);
-        // Run an occurs check on `ty` to see if the variable occurs in its replacement.
-        if matches!(ty, PartialValue::Var(_)) {
-            // Skip the occurs check, it's trivial anyway.
-        } else if self.occurs_in(&var, &ty) {
-            // TODO: Add node information, showing which nodes had this bad type.
-            return vec![
-                Label::new(ctx.source, span, LabelType::Error).with_message(format!(
-                    "found self-referential type {} ~ {}",
-                    ctx.print.print(&PartialValue::Var(var)),
-                    ctx.print.print(&ty)
-                )),
-            ];
-        }
-        self.canonicalise(&mut ty);
-        if let Some(previous_inference) = self.var_types.insert(var, ty) {
-            panic!(
-                "tried to set already-defined variable {:?} (was {:?})",
-                var, previous_inference
-            );
-        }
-
-        // TODO: We may want to canonicalise all the expr types we found that depend on this var,
-        // although it's fine if that just happens ad hoc.
-        Vec::new()
-    }
-
-    /// Returns true if the variable occurs in the given value.
-    fn occurs_in(&self, var: &Var, val: &PartialValue) -> bool {
-        match val {
-            PartialValue::Var(var2) => var == var2,
-            _ => val
-                .sub_values()
-                .iter()
-                .any(|expr| self.occurs_in(var, expr)),
-        }
-    }
-
-    /// Returns the names of any inference variables that occur in the given value.
-    fn variables_occuring_in(&self, val: &PartialValue) -> HashSet<Var> {
-        match val {
-            PartialValue::Var(var) => {
-                let mut result = HashSet::new();
-                result.insert(*var);
-                result
-            }
-            _ => val
-                .sub_values()
-                .iter()
-                .flat_map(|expr| self.variables_occuring_in(expr))
-                .collect(),
-        }
-    }
-
-    /// Assuming that there are no duplicates, return the union of the two unifications.
-    // TODO: This assumption isn't actually necessarily true...?
-    fn with(mut self, other: Self, ctx: &mut TyCtx, span: Span) -> Dr<Self> {
-        let mut labels = Vec::new();
-        for (var, ty) in other.var_types {
-            labels.extend(self.insert_var_type(ctx, span.clone(), var, ty));
-        }
-        for (node_id, mut val) in other.expr_types {
-            self.canonicalise(&mut val);
-            self.insert_expr_type_from_id(node_id, val);
-        }
-        if labels.is_empty() {
-            Dr::ok(self)
-        } else {
-            todo!()
-        }
-    }
-
-    /// An idempotent operation reducing a value to a standard form.
-    fn canonicalise(&self, val: &mut PartialValue) {
-        match val {
-            PartialValue::Var(var) => match self.var_types.get(var) {
-                // TODO: Is this operation really idempotent?
-                Some(PartialValue::Var(var2)) => *var = *var2,
-                Some(value) => {
-                    *val = value.clone();
-                    self.canonicalise(val);
-                }
-                None => {}
-            },
-            PartialValue::FormProduct(FormProduct { fields }) => {
-                for field in fields {
-                    self.canonicalise(&mut field.ty);
-                }
-            }
-            _ => {
-                for expr in val.sub_values_mut() {
-                    self.canonicalise(expr);
-                }
-            }
-        }
-    }
-
-    /// Unify the two partial values.
-    /// If an error was found, the `report` function is called, which should generate a suitable report.
-    /// The arguments are the canonicalised versions of `expected` and `found`.
-    fn unify<R>(
-        mut self,
-        mut expected: PartialValue,
-        mut found: PartialValue,
-        ctx: &mut TyCtx,
-        span: Span,
-        report: R,
-    ) -> Dr<Self>
-    where
-        R: FnOnce(&mut TyCtx, &PartialValue, &PartialValue) -> Report,
-    {
-        // Recall everything we currently know about the two values we're dealing with.
-        self.canonicalise(&mut expected);
-        self.canonicalise(&mut found);
-
-        trace!("unifying {:?}, {:?}", expected, found);
-
-        // The report should only be called once, but it's easier to implement without this compile time restriction.
-        // So we put it in an Option, and take it out when we need it.
-        let labels = self.unify_recursive(ctx, span, &expected, &found);
-        if labels.is_empty() {
-            Dr::ok(self)
-        } else {
-            Dr::ok_with(
-                self,
-                labels
-                    .into_iter()
-                    .fold(report(ctx, &expected, &found), |report, label| {
-                        report.with_label(label)
-                    }),
-            )
-        }
-    }
-
-    /// Do not call this manually.
-    /// Given canonicalised types, unify them.
-    /// If the unification could not occur, the report is emitted using `base_expected` and `base_found`.
-    /// Returns a list of labels which detail type errors. If no labels were emitted, this operation succeeded.
-    fn unify_recursive(
-        &mut self,
-        ctx: &mut TyCtx,
-        span: Span,
-        expected: &PartialValue,
-        found: &PartialValue,
-    ) -> Vec<Label> {
-        match (expected, found) {
-            (
-                PartialValue::FormFunc(FormFunc {
-                    parameter: expected_parameter,
-                    result: expected_result,
-                }),
-                PartialValue::FormFunc(FormFunc {
-                    parameter: found_parameter,
-                    result: found_result,
-                }),
-            ) => {
-                // Unify the parameters and then the results.
-                let mut labels =
-                    self.unify_recursive(ctx, span.clone(), expected_parameter, found_parameter);
-
-                // At this point, the canonical form of the result may have changed.
-                // So we need to recanonicalise it.
-                let mut expected_result = *expected_result.clone();
-                let mut found_result = *found_result.clone();
-                self.canonicalise(&mut expected_result);
-                self.canonicalise(&mut found_result);
-                labels.extend(self.unify_recursive(ctx, span, &expected_result, &found_result));
-
-                labels
-            }
-            (
-                PartialValue::FormProduct(FormProduct {
-                    fields: expected_fields,
-                }),
-                PartialValue::FormProduct(FormProduct {
-                    fields: found_fields,
-                }),
-            ) => {
-                // TODO: Enhance this check to work out if there were missing or mistyped fields.
-                if expected_fields.len() != found_fields.len() {
-                    vec![Label::new(ctx.source, span, LabelType::Note)
-                        .with_order(1000)
-                        .with_message(
-                            format!(
-                                "product types {} and {} had differing amounts of fields, so could not be compared",
-                                ctx.print.print(expected),
-                                ctx.print.print(found)
-                            )
-                        )]
-                } else {
-                    let mut labels = Vec::new();
-                    for (expected, found) in expected_fields.iter().zip(found_fields) {
-                        // At this point, the canonical form of the result may have changed.
-                        // So we need to recanonicalise it.
-                        let mut expected_ty = expected.ty.clone();
-                        let mut found_ty = found.ty.clone();
-                        self.canonicalise(&mut expected_ty);
-                        self.canonicalise(&mut found_ty);
-                        labels.extend(self.unify_recursive(
-                            ctx,
-                            span.clone(),
-                            &expected_ty,
-                            &found_ty,
-                        ));
-                    }
-                    labels
-                }
-            }
-            (
-                PartialValue::FormCoproduct(FormCoproduct {
-                    variants: expected_variants,
-                }),
-                PartialValue::FormCoproduct(FormCoproduct {
-                    variants: found_variants,
-                }),
-            ) => {
-                // TODO: Enhance this check to work out if there were missing or mistyped variants.
-                if expected_variants.len() != found_variants.len() {
-                    vec![Label::new(ctx.source, span, LabelType::Note)
-                        .with_order(1000)
-                        .with_message(
-                            format!(
-                                "coproduct types {} and {} had differing amounts of variants, so could not be compared",
-                                ctx.print.print(expected),
-                                ctx.print.print(found)
-                            )
-                        )]
-                } else {
-                    let mut labels = Vec::new();
-                    for (expected, found) in expected_variants.iter().zip(found_variants) {
-                        // At this point, the canonical form of the result may have changed.
-                        // So we need to recanonicalise it.
-                        let mut expected_ty = expected.ty.clone();
-                        let mut found_ty = found.ty.clone();
-                        self.canonicalise(&mut expected_ty);
-                        self.canonicalise(&mut found_ty);
-                        labels.extend(self.unify_recursive(
-                            ctx,
-                            span.clone(),
-                            &expected_ty,
-                            &found_ty,
-                        ));
-                    }
-                    labels
-                }
-            }
-            (other, PartialValue::Var(var)) | (PartialValue::Var(var), other) => {
-                // Since we've canonicalised `var`, self.var_types.get(&var) is either None or Some(var).
-                // We will replace this entry with `other`.
-                self.insert_var_type(ctx, span, *var, other.clone())
-            }
-            _ => {
-                // Directly test for equality.
-                if expected == found {
-                    Vec::new()
-                } else {
-                    // We couldn't unify the two types.
-                    vec![
-                        Label::new(ctx.source, span, LabelType::Note).with_message(format!(
-                            "types {} and {} could not be unified",
-                            ctx.print.print(expected),
-                            ctx.print.print(found),
-                        )),
-                    ]
-                }
-            }
-        }
-    }
-
-    fn expr_type(&self, expr: &Expr) -> PartialValue {
-        let mut result = self.expr_types[&expr.id()].clone();
-        self.canonicalise(&mut result);
-        result
-    }
-}
-
 /// Traverses the expression syntax tree, working out the *types* of each expression.
 /// Once types are known, we can call [`evaluate`] to compute the value of each expression.
 ///
@@ -624,11 +297,10 @@ fn traverse(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<Unifica
     traverse_inner(expr, ctx, locals).bind(|unif| {
         // Once we've done type inference for this expression, unify it with the stated type.
         if let Some(ExprTy(stated_type)) = ctx.infos.expr_ty.get(expr) {
-            debug!("found stated type {:#?} for {:#?}", stated_type, expr);
             traverse(stated_type, ctx, locals)
                 .bind(|inner_unif| unif.with(inner_unif, ctx, stated_type.span()))
                 .bind(|unif| {
-                    let stated_type_evaluated = expr_to_value(stated_type, ctx, &unif);
+                    let stated_type_evaluated = unif.expr_to_value(stated_type, ctx);
                     let found_type = unif.expr_type(expr);
                     unif.unify(
                         stated_type_evaluated,
@@ -667,7 +339,6 @@ fn traverse(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<Unifica
 /// `locals` is the list of the types associated with each local.
 /// The de Bruijn index `n` refers to the `n`th entry in this slice.
 fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<Unification> {
-    debug!("traversing {:#?}", expr);
     // TODO: Raise errors if a de Bruijn index was too high instead of panicking.
     match &expr.contents {
         ExprContents::IntroLocal(IntroLocal(n)) => Dr::ok(Unification::new_with_expr_type(
@@ -806,17 +477,12 @@ fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<U
                 traverse(target_ty, ctx, locals).bind(|unif_inner| {
                     unif.with(unif_inner, ctx, expr.span()).bind(|unif| {
                         // The type of a reducety expression is target_ty.
-                        let target_ty_value = expr_to_value(target_ty, ctx, &unif);
+                        let target_ty_value = unif.expr_to_value(target_ty, ctx);
 
                         // Now, make sure that we can coerce target_ty into the body's type.
-                        coerce_into(
-                            target_ty.span(),
-                            &unif.expr_type(body),
-                            &target_ty_value,
-                            ctx,
-                            unif,
-                        )
-                        .map(|unif| unif.with_expr_type(expr, target_ty_value))
+                        let body_ty = unif.expr_type(body);
+                        unif.coerce_into(target_ty.span(), &body_ty, &target_ty_value, ctx)
+                            .map(|unif| unif.with_expr_type(expr, target_ty_value))
                     })
                 })
             })
@@ -934,17 +600,12 @@ fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<U
                 traverse(target_ty, ctx, locals).bind(|unif_inner| {
                     unif.with(unif_inner, ctx, expr.span()).bind(|unif| {
                         // The type of an expandty expression is target_ty.
-                        let target_ty_value = expr_to_value(target_ty, ctx, &unif);
+                        let target_ty_value = unif.expr_to_value(target_ty, ctx);
 
                         // Now, make sure that we can coerce the body's type into target_ty.
-                        coerce_into(
-                            target_ty.span(),
-                            &target_ty_value,
-                            &unif.expr_type(body),
-                            ctx,
-                            unif,
-                        )
-                        .map(|unif| unif.with_expr_type(expr, target_ty_value))
+                        let body_ty = unif.expr_type(body);
+                        unif.coerce_into(target_ty.span(), &target_ty_value, &body_ty, ctx)
+                            .map(|unif| unif.with_expr_type(expr, target_ty_value))
                     })
                 })
             })
@@ -1120,255 +781,4 @@ fn fill_types(
                 result.bind(|()| fill_types(ctx, sub_expr, unif, types))
             })
     })
-}
-
-/// Convert this expression into a partial value.
-/// This essentially discards the provenance of the expression and keeps just its value.
-fn expr_to_value(expr: &Expr, ctx: &mut TyCtx, unif: &Unification) -> PartialValue {
-    match &expr.contents {
-        ExprContents::IntroLocal(_) => todo!(),
-        ExprContents::IntroU64(_) => todo!(),
-        ExprContents::IntroFalse => todo!(),
-        ExprContents::IntroTrue => todo!(),
-        ExprContents::IntroUnit => todo!(),
-        ExprContents::FormU64 => PartialValue::FormU64,
-        ExprContents::FormBool => todo!(),
-        ExprContents::FormUnit => PartialValue::FormUnit,
-        ExprContents::IntroProduct(_) => todo!(),
-        ExprContents::FormProduct(FormProduct { fields }) => {
-            PartialValue::FormProduct(FormProduct {
-                fields: fields
-                    .iter()
-                    .map(|field| ComponentContents {
-                        name: field.contents.name.contents,
-                        ty: expr_to_value(&field.contents.ty, ctx, unif),
-                    })
-                    .collect(),
-            })
-        }
-        ExprContents::MatchProduct(_) => todo!(),
-        ExprContents::IntroCoproduct(_) => todo!(),
-        ExprContents::FormCoproduct(FormCoproduct { variants }) => {
-            PartialValue::FormCoproduct(FormCoproduct {
-                variants: variants
-                    .iter()
-                    .map(|field| ComponentContents {
-                        name: field.contents.name.contents,
-                        ty: expr_to_value(&field.contents.ty, ctx, unif),
-                    })
-                    .collect(),
-            })
-        }
-        ExprContents::FormAnyCoproduct(_) => todo!(),
-        ExprContents::MatchCoproduct(_) => todo!(),
-        ExprContents::ReduceTy(_) => todo!(),
-        ExprContents::ExpandTy(_) => todo!(),
-        ExprContents::Inst(Inst(qn)) => PartialValue::Inst(Inst(ctx.db.qualified_name_to_path(qn))),
-        ExprContents::Let(_) => todo!(),
-        ExprContents::Lambda(_) => todo!(),
-        ExprContents::Apply(_) => todo!(),
-        ExprContents::Var(var) => PartialValue::Var(*var),
-        ExprContents::FormFunc(FormFunc { parameter, result }) => {
-            PartialValue::FormFunc(FormFunc {
-                parameter: Box::new(expr_to_value(parameter, ctx, unif)),
-                result: Box::new(expr_to_value(result, ctx, unif)),
-            })
-        }
-        ExprContents::FormUniverse => todo!(),
-    }
-}
-
-/// Try to evaluate this expression and check that it equals the given expression, given all relevant types.
-///
-/// TODO: Have a maximum calculation depth, after which computation should stop.
-///
-/// TODO: Track the original expressions passed into this function, so that the error messages are a bit nicer.
-/// This will be one of the big error-producing functions in the value inference phase of compilation, so special care should be taken with this.
-/// We should use a strategy like that in [`Unification`] above.
-///
-/// TODO: If necessary, unify further variables.
-fn coerce_into(
-    span: Span,
-    expr: &PartialValue,
-    target: &PartialValue,
-    ctx: &mut TyCtx,
-    unif: Unification,
-) -> Dr<Unification> {
-    let mut fail = || {
-        Dr::fail(
-            Report::new(ReportKind::Error, ctx.source, span.start)
-                .with_message("could not coerce types")
-                .with_label(
-                    Label::new(ctx.source, span.clone(), LabelType::Error).with_message(format!(
-                        "could not coerce type {} into type {}",
-                        ctx.print.print(expr),
-                        ctx.print.print(target)
-                    )),
-                ),
-        )
-    };
-
-    match (expr, target) {
-        (PartialValue::Var(var), expr) | (expr, PartialValue::Var(var)) => {
-            let mut unif = unif;
-            let labels = unif.insert_var_type(ctx, span.clone(), *var, expr.clone());
-            if labels.is_empty() {
-                return Dr::ok(unif);
-            } else {
-                return Dr::ok_with(
-                    unif,
-                    labels.into_iter().fold(
-                        Report::new(ReportKind::Error, ctx.source, span.start)
-                            .with_message("could not coerce types"),
-                        |report, label| report.with_label(label),
-                    ),
-                );
-            }
-        }
-        _ => {}
-    }
-
-    if expr == target {
-        return Dr::ok(unif);
-    }
-
-    if let (
-        PartialValue::FormProduct(FormProduct {
-            fields: expr_fields,
-        }),
-        PartialValue::FormProduct(FormProduct {
-            fields: target_fields,
-        }),
-    ) = (expr, target)
-    {
-        if expr_fields.len() != target_fields.len() {
-            return fail();
-        }
-        return expr_fields.iter().zip(target_fields).fold(
-            Dr::ok(unif),
-            |unif, (expr_field, target_field)| {
-                unif.bind(|unif| {
-                    if expr_field.name != target_field.name {
-                        Dr::fail(
-                            Report::new(ReportKind::Error, ctx.source, span.start)
-                                .with_message("could not coerce types")
-                                .with_label(
-                                    Label::new(ctx.source, span.clone(), LabelType::Error)
-                                        .with_message(format!(
-                                            "field names {} and {} did not match",
-                                            ctx.db.lookup_intern_string_data(expr_field.name),
-                                            ctx.db.lookup_intern_string_data(target_field.name),
-                                        )),
-                                ),
-                        )
-                    } else {
-                        coerce_into(span.clone(), &expr_field.ty, &target_field.ty, ctx, unif)
-                    }
-                })
-            },
-        );
-    }
-
-    if let (
-        PartialValue::FormCoproduct(FormCoproduct {
-            variants: expr_variants,
-        }),
-        PartialValue::FormCoproduct(FormCoproduct {
-            variants: target_variants,
-        }),
-    ) = (expr, target)
-    {
-        if expr_variants.len() != target_variants.len() {
-            return fail();
-        }
-        return expr_variants.iter().zip(target_variants).fold(
-            Dr::ok(unif),
-            |unif, (expr_variant, target_variant)| {
-                unif.bind(|unif| {
-                    if expr_variant.name != target_variant.name {
-                        Dr::fail(
-                            Report::new(ReportKind::Error, ctx.source, span.start)
-                                .with_message("could not coerce types")
-                                .with_label(
-                                    Label::new(ctx.source, span.clone(), LabelType::Error)
-                                        .with_message(format!(
-                                            "field names {} and {} did not match",
-                                            ctx.db.lookup_intern_string_data(expr_variant.name),
-                                            ctx.db.lookup_intern_string_data(target_variant.name),
-                                        )),
-                                ),
-                        )
-                    } else {
-                        coerce_into(
-                            span.clone(),
-                            &expr_variant.ty,
-                            &target_variant.ty,
-                            ctx,
-                            unif,
-                        )
-                    }
-                })
-            },
-        );
-    }
-
-    if let (
-        PartialValue::FormCoproduct(FormCoproduct {
-            variants: expr_variants,
-        }),
-        PartialValue::FormAnyCoproduct(FormAnyCoproduct { known_variant }),
-    ) = (expr, target)
-    {
-        if let Some(expr_variant) = expr_variants
-            .iter()
-            .find(|variant| variant.name == known_variant.name)
-        {
-            return coerce_into(span.clone(), &expr_variant.ty, &known_variant.ty, ctx, unif);
-        } else {
-            return Dr::fail(
-                Report::new(ReportKind::Error, ctx.source, span.start)
-                    .with_message("could not coerce types")
-                    .with_label(
-                        Label::new(ctx.source, span.clone(), LabelType::Error).with_message(
-                            format!(
-                                "coproduct type {} did not contain a variant with name {}",
-                                ctx.print.print(target),
-                                ctx.db.lookup_intern_string_data(known_variant.name),
-                            ),
-                        ),
-                    ),
-            );
-        }
-    }
-
-    if let PartialValue::Inst(Inst(path)) = expr {
-        // Instance the variable from this path.
-        let (source, def_name) = ctx.db.split_path_last(*path);
-        if let Some(module) = ctx
-            .db
-            .module_from_feather_source(Source {
-                path: source,
-                ty: SourceType::Feather,
-            })
-            .value()
-        {
-            if let Some(def) = module
-                .module
-                .contents
-                .defs
-                .iter()
-                .find(|def| def.contents.name.contents == def_name)
-            {
-                return coerce_into(
-                    span,
-                    &expr_to_value(&def.contents.expr, ctx, &unif),
-                    target,
-                    ctx,
-                    unif,
-                );
-            }
-        }
-    }
-
-    fail()
 }
