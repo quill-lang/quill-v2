@@ -481,8 +481,29 @@ fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<U
 
                         // Now, make sure that we can coerce target_ty into the body's type.
                         let body_ty = unif.expr_type(body);
-                        unif.coerce_into(target_ty.span(), &body_ty, &target_ty_value, ctx)
-                            .map(|unif| unif.with_expr_type(expr, target_ty_value))
+                        unif.coerce_into(
+                            body_ty,
+                            target_ty_value.clone(),
+                            ctx,
+                            target_ty.span(),
+                            |ctx, body_ty, target_ty_value| {
+                                Report::new(ReportKind::Error, ctx.source, target_ty.span().start)
+                                    .with_label(
+                                        Label::new(ctx.source, body.span(), LabelType::Error)
+                                            .with_message(format!(
+                                                "this expression had type {}",
+                                                ctx.print.print(body_ty)
+                                            )),
+                                    ).with_label(
+                                        Label::new(ctx.source, target_ty.span(), LabelType::Error)
+                                            .with_message(format!(
+                                                "tried to reduce the expression's type into the type {}",
+                                                ctx.print.print(target_ty_value)
+                                            )),
+                                    )
+                            },
+                        )
+                        .map(|unif| unif.with_expr_type(expr, target_ty_value))
                     })
                 })
             })
@@ -604,8 +625,24 @@ fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<U
 
                         // Now, make sure that we can coerce the body's type into target_ty.
                         let body_ty = unif.expr_type(body);
-                        unif.coerce_into(target_ty.span(), &target_ty_value, &body_ty, ctx)
-                            .map(|unif| unif.with_expr_type(expr, target_ty_value))
+                        unif.coerce_into(target_ty_value.clone(), body_ty, ctx,target_ty.span(),
+                        |ctx, body_ty, target_ty_value| {
+                            Report::new(ReportKind::Error, ctx.source, target_ty.span().start)
+                                .with_label(
+                                    Label::new(ctx.source, body.span(), LabelType::Error)
+                                        .with_message(format!(
+                                            "this expression had type {}",
+                                            ctx.print.print(body_ty)
+                                        )),
+                                ).with_label(
+                                    Label::new(ctx.source, target_ty.span(), LabelType::Error)
+                                        .with_message(format!(
+                                            "tried to expand the expression's type into the type {}",
+                                            ctx.print.print(target_ty_value)
+                                        )),
+                                )
+                        })
+                        .map(|unif| unif.with_expr_type(expr, target_ty_value))
                     })
                 })
             })

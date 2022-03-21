@@ -183,3 +183,7 @@ This documentation can be mathematical; generating LaTeX documentation code for 
 This is a step towards the `literate programming' paradigm.
 
 Feather could also potentially have plugins for things like tactics, asslowing "implicit" keywords and such. This is a step towards a full automated theorem proof assistant.
+
+# TODO
+
+Make the use of past/present tense and active/passive voice consistent within the compiler.

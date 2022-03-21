@@ -363,14 +363,36 @@ impl Unification {
     fn process_pending_coercions(mut self, ctx: &mut TyCtx) -> Dr<Unification> {
         // TODO: We should optimise this if necessary.
         // We're probably performing too many coercion checks.
+        trace!("processing pending coercions");
         let coercions = std::mem::take(&mut self.pending_coercions);
         coercions.into_iter().fold(Dr::ok(self), |unif, coercion| {
             unif.bind(|unif| {
-                let mut source = coercion.source();
-                let mut target = coercion.target();
-                unif.canonicalise(&mut source);
-                unif.canonicalise(&mut target);
-                unif.coerce_into(coercion.cause.clone(), &source, &target, ctx)
+                unif.coerce_into(
+                    coercion.source(),
+                    coercion.target(),
+                    ctx,
+                    coercion.cause.clone(),
+                    |ctx, expected, found| {
+                        Report::new(ReportKind::Error, ctx.source, coercion.cause.clone().start)
+                            .with_message("type mismatch during type coercion")
+                            .with_label(
+                                Label::new(ctx.source, coercion.cause.clone(), LabelType::Error)
+                                    .with_message(format!(
+                                        "tried to coerce {} into {}",
+                                        ctx.print.print(if coercion.coerce_var_to_value {
+                                            expected
+                                        } else {
+                                            found
+                                        }),
+                                        ctx.print.print(if coercion.coerce_var_to_value {
+                                            found
+                                        } else {
+                                            expected
+                                        })
+                                    )),
+                            )
+                    },
+                )
             })
         })
     }
@@ -393,7 +415,7 @@ impl Unification {
                             .with_label(
                                 Label::new(ctx.source, coercion.cause.clone(), LabelType::Error)
                                     .with_message(format!(
-                                        "tried to coerce {} into {}",
+                                        "tried to unify {} with {}",
                                         ctx.print.print(if coercion.coerce_var_to_value {
                                             expected
                                         } else {
@@ -406,6 +428,7 @@ impl Unification {
                                         })
                                     )),
                             )
+                            .with_note("the rest of the expression has already been type checked, so this coercion was weakened to a unification")
                     },
                 )
             })
@@ -477,39 +500,52 @@ impl Unification {
     }
 
     /// Try to evaluate this expression and check that it equals the given expression, given all relevant types.
-    ///
-    /// TODO: Have a maximum calculation depth, after which computation should stop.
-    ///
-    /// TODO: Track the original expressions passed into this function, so that the error messages are a bit nicer.
-    /// This will be one of the big error-producing functions in the value inference phase of compilation, so special care should be taken with this.
-    /// We should use a strategy like the [`Self::unify`] function above.
-    ///
-    /// TODO: If necessary, unify further variables.
-    pub fn coerce_into(
+    /// If an error was found, the `report` function is called, which should generate a suitable report.
+    /// The arguments are the canonicalised versions of `expected` and `found`.
+    pub fn coerce_into<R>(
         mut self,
+        mut expr: PartialValue,
+        mut target: PartialValue,
+        ctx: &mut TyCtx,
         span: Span,
+        report: R,
+    ) -> Dr<Self>
+    where
+        R: FnOnce(&mut TyCtx, &PartialValue, &PartialValue) -> Report,
+    {
+        // Recall everything we currently know about the two values we're dealing with.
+        self.canonicalise(&mut expr);
+        self.canonicalise(&mut target);
+
+        trace!("coercing {:?} into {:?}", expr, target);
+
+        // The report should only be called once, but it's easier to implement without this compile time restriction.
+        // So we put it in an Option, and take it out when we need it.
+        let labels = self.coerce_into_inner(&expr, &target, ctx, span);
+        if labels.is_empty() {
+            Dr::ok(self)
+        } else {
+            Dr::ok_with(
+                self,
+                labels
+                    .into_iter()
+                    .fold(report(ctx, &expr, &target), |report, label| {
+                        report.with_label(label)
+                    }),
+            )
+        }
+    }
+
+    // TODO: Have a maximum calculation depth, after which computation should stop.
+    pub fn coerce_into_inner(
+        &mut self,
         expr: &PartialValue,
         target: &PartialValue,
         ctx: &mut TyCtx,
-    ) -> Dr<Unification> {
-        let mut fail = || {
-            Dr::fail(
-                Report::new(ReportKind::Error, ctx.source, span.start)
-                    .with_message("could not coerce types")
-                    .with_label(
-                        Label::new(ctx.source, span.clone(), LabelType::Error).with_message(
-                            format!(
-                                "could not coerce type {} into type {}",
-                                ctx.print.print(expr),
-                                ctx.print.print(target)
-                            ),
-                        ),
-                    ),
-            )
-        };
-
+        span: Span,
+    ) -> Vec<Label> {
         if expr == target {
-            return Dr::ok(self);
+            return Vec::new();
         }
 
         if let PartialValue::Var(var) = expr {
@@ -520,7 +556,7 @@ impl Unification {
                 var: *var,
                 coerce_var_to_value: true,
             });
-            return Dr::ok(self);
+            return Vec::new();
         }
         if let PartialValue::Var(var) = target {
             self.pending_coercions.push(PendingCoercion {
@@ -529,7 +565,7 @@ impl Unification {
                 var: *var,
                 coerce_var_to_value: false,
             });
-            return Dr::ok(self);
+            return Vec::new();
         }
 
         if let (
@@ -542,31 +578,37 @@ impl Unification {
         ) = (expr, target)
         {
             if expr_fields.len() != target_fields.len() {
-                return fail();
-            }
-            return expr_fields.iter().zip(target_fields).fold(
-                Dr::ok(self),
-                |unif, (expr_field, target_field)| {
-                    unif.bind(|unif| {
-                        if expr_field.name != target_field.name {
-                            Dr::fail(
-                                Report::new(ReportKind::Error, ctx.source, span.start)
-                                    .with_message("could not coerce types")
-                                    .with_label(
-                                        Label::new(ctx.source, span.clone(), LabelType::Error)
-                                            .with_message(format!(
-                                                "field names {} and {} did not match",
-                                                ctx.db.lookup_intern_string_data(expr_field.name),
-                                                ctx.db.lookup_intern_string_data(target_field.name),
-                                            )),
-                                    ),
+                return vec![
+                    Label::new(ctx.source, span, LabelType::Note)
+                        .with_order(1000)
+                        .with_message(
+                            format!(
+                                "product types {} and {} had differing amounts of fields, so could not be compared",
+                                ctx.print.print(expr),
+                                ctx.print.print(target)
                             )
-                        } else {
-                            unif.coerce_into(span.clone(), &expr_field.ty, &target_field.ty, ctx)
-                        }
-                    })
-                },
-            );
+                        )
+                ];
+            }
+            return expr_fields
+                .iter()
+                .zip(target_fields)
+                .flat_map(|(expr_field, target_field)| {
+                    if expr_field.name != target_field.name {
+                        vec![
+                            Label::new(ctx.source, span.clone(), LabelType::Error).with_message(
+                                format!(
+                                    "field names {} and {} did not match",
+                                    ctx.db.lookup_intern_string_data(expr_field.name),
+                                    ctx.db.lookup_intern_string_data(target_field.name),
+                                ),
+                            ),
+                        ]
+                    } else {
+                        self.coerce_into_inner(&expr_field.ty, &target_field.ty, ctx, span.clone())
+                    }
+                })
+                .collect();
         }
 
         if let (
@@ -579,37 +621,42 @@ impl Unification {
         ) = (expr, target)
         {
             if expr_variants.len() != target_variants.len() {
-                return fail();
+                return vec![
+                    Label::new(ctx.source, span, LabelType::Note)
+                        .with_order(1000)
+                        .with_message(
+                            format!(
+                                "coproduct types {} and {} had differing amounts of variants, so could not be compared",
+                                ctx.print.print(expr),
+                                ctx.print.print(target)
+                            )
+                        )
+                ];
             }
-            return expr_variants.iter().zip(target_variants).fold(
-                Dr::ok(self),
-                |unif, (expr_variant, target_variant)| {
-                    unif.bind(|unif| {
-                        if expr_variant.name != target_variant.name {
-                            Dr::fail(
-                                Report::new(ReportKind::Error, ctx.source, span.start)
-                                    .with_message("could not coerce types")
-                                    .with_label(
-                                        Label::new(ctx.source, span.clone(), LabelType::Error)
-                                            .with_message(format!(
-                                                "field names {} and {} did not match",
-                                                ctx.db.lookup_intern_string_data(expr_variant.name),
-                                                ctx.db
-                                                    .lookup_intern_string_data(target_variant.name),
-                                            )),
-                                    ),
-                            )
-                        } else {
-                            unif.coerce_into(
-                                span.clone(),
-                                &expr_variant.ty,
-                                &target_variant.ty,
-                                ctx,
-                            )
-                        }
-                    })
-                },
-            );
+            return expr_variants
+                .iter()
+                .zip(target_variants)
+                .flat_map(|(expr_variant, target_variant)| {
+                    if expr_variant.name != target_variant.name {
+                        vec![
+                            Label::new(ctx.source, span.clone(), LabelType::Error).with_message(
+                                format!(
+                                    "variant names {} and {} did not match",
+                                    ctx.db.lookup_intern_string_data(expr_variant.name),
+                                    ctx.db.lookup_intern_string_data(target_variant.name),
+                                ),
+                            ),
+                        ]
+                    } else {
+                        self.coerce_into_inner(
+                            &expr_variant.ty,
+                            &target_variant.ty,
+                            ctx,
+                            span.clone(),
+                        )
+                    }
+                })
+                .collect();
         }
 
         if let (
@@ -623,21 +670,15 @@ impl Unification {
                 .iter()
                 .find(|variant| variant.name == known_variant.name)
             {
-                return self.coerce_into(span.clone(), &expr_variant.ty, &known_variant.ty, ctx);
+                return self.coerce_into_inner(&expr_variant.ty, &known_variant.ty, ctx, span);
             } else {
-                return Dr::fail(
-                    Report::new(ReportKind::Error, ctx.source, span.start)
-                        .with_message("could not coerce types")
-                        .with_label(
-                            Label::new(ctx.source, span.clone(), LabelType::Error).with_message(
-                                format!(
-                                    "coproduct type {} did not contain a variant with name {}",
-                                    ctx.print.print(target),
-                                    ctx.db.lookup_intern_string_data(known_variant.name),
-                                ),
-                            ),
-                        ),
-                );
+                return vec![
+                    Label::new(ctx.source, span, LabelType::Error).with_message(format!(
+                        "coproduct type {} did not contain a variant with name {}",
+                        ctx.print.print(target),
+                        ctx.db.lookup_intern_string_data(known_variant.name),
+                    )),
+                ];
             }
         }
 
@@ -661,11 +702,17 @@ impl Unification {
                     .find(|def| def.contents.name.contents == def_name)
                 {
                     let def_value = self.expr_to_value(&def.contents.expr, ctx);
-                    return self.coerce_into(span, &def_value, target, ctx);
+                    return self.coerce_into_inner(&def_value, target, ctx, span);
                 }
             }
         }
 
-        fail()
+        vec![
+            Label::new(ctx.source, span, LabelType::Note).with_message(format!(
+                "could not coerce type {} into type {}",
+                ctx.print.print(expr),
+                ctx.print.print(target),
+            )),
+        ]
     }
 }
