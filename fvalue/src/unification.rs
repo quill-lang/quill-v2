@@ -235,6 +235,7 @@ impl Unification {
         expected: &PartialValue,
         found: &PartialValue,
     ) -> Vec<Label> {
+        // TODO: It's not trivial to unify local variables.
         match (expected, found) {
             (
                 PartialValue::FormFunc(FormFunc {
@@ -334,6 +335,44 @@ impl Unification {
                         ));
                     }
                     labels
+                }
+            }
+            (
+                PartialValue::FormCoproduct(FormCoproduct { variants }),
+                PartialValue::FormAnyCoproduct(FormAnyCoproduct { known_variant }),
+            ) => {
+                if let Some(variant) = variants
+                    .iter()
+                    .find(|variant| variant.name == known_variant.name)
+                {
+                    self.unify_recursive(ctx, span, &variant.ty, &known_variant.ty)
+                } else {
+                    vec![Label::new(ctx.source, span, LabelType::Note)
+                        .with_order(1000)
+                        .with_message(format!(
+                            "coproduct type {} did not contain a field named {}",
+                            ctx.print.print(expected),
+                            ctx.db.lookup_intern_string_data(known_variant.name)
+                        ))]
+                }
+            }
+            (
+                PartialValue::FormAnyCoproduct(FormAnyCoproduct { known_variant }),
+                PartialValue::FormCoproduct(FormCoproduct { variants }),
+            ) => {
+                if let Some(variant) = variants
+                    .iter()
+                    .find(|variant| variant.name == known_variant.name)
+                {
+                    self.unify_recursive(ctx, span, &known_variant.ty, &variant.ty)
+                } else {
+                    vec![Label::new(ctx.source, span, LabelType::Note)
+                        .with_order(1000)
+                        .with_message(format!(
+                            "coproduct type {} did not contain a field named {}",
+                            ctx.print.print(found),
+                            ctx.db.lookup_intern_string_data(known_variant.name)
+                        ))]
                 }
             }
             (other, PartialValue::Var(var)) | (PartialValue::Var(var), other) => {
@@ -445,7 +484,7 @@ impl Unification {
     /// This essentially discards the provenance of the expression and keeps just its value.
     pub fn expr_to_value(&self, expr: &Expr, ctx: &mut TyCtx) -> PartialValue {
         match &expr.contents {
-            ExprContents::IntroLocal(_) => todo!(),
+            ExprContents::IntroLocal(local) => PartialValue::IntroLocal(*local),
             ExprContents::IntroU64(_) => todo!(),
             ExprContents::IntroFalse => todo!(),
             ExprContents::IntroTrue => todo!(),

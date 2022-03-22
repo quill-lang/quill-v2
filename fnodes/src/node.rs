@@ -26,6 +26,10 @@ pub struct NodeId(u32);
 /// Things like locations, which should not be altered by the Feather compiler,
 /// are not considered nodes, even if they are encoded as such in S-expressions.
 ///
+/// Nodes have *provenance*; they are entirely unique and represent an object in a program.
+/// Hence, we cannot simply clone a node, since this would be equivalent to duplicating the
+/// end user's code.
+///
 /// `C` is the node's contents.
 pub struct Node<C> {
     /// A unique identifier for this node.

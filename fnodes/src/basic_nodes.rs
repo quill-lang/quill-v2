@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use fcommon::{Path, PathData, Span, Str};
 
 use crate::*;
@@ -289,6 +291,12 @@ impl AtomicSexpr for DeBruijnIndex {
 
     fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> String {
         self.0.serialise(ctx, db)
+    }
+}
+
+impl Display for DeBruijnIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "#{}", self.0)
     }
 }
 

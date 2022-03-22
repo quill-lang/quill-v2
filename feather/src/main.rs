@@ -47,7 +47,7 @@ fn main() {
         let pretty_print = PrettyPrintSettings {
             no_indent_for: {
                 let mut map = HashSet::new();
-                for s in ["local", "iu64", "iunit", "fu64", "funit"] {
+                for s in ["local", "iu64", "iunit", "fu64", "funit", "funiverse"] {
                     map.insert(s.to_string());
                 }
                 map

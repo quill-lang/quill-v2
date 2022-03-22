@@ -143,7 +143,7 @@ impl ExpressionVariant for Component<Name, Expr> {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ListSexpr)]
 #[list_sexpr_keyword = "local"]
-pub struct IntroLocal(#[atomic] pub DeBruijnIndex);
+pub struct IntroLocal(#[atomic] pub Str);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ListSexpr)]
 #[list_sexpr_keyword = "ifalse"]
@@ -202,6 +202,9 @@ pub struct FormProduct<C> {
 #[derive(Debug, PartialEq, Eq, Clone, ListSexpr)]
 #[list_sexpr_keyword = "mprod"]
 pub struct MatchProduct<N, E> {
+    /// Should have the same length as `fields`.
+    #[list]
+    pub names_to_bind: Vec<N>,
     #[list]
     pub fields: Vec<N>,
     #[list]
@@ -231,6 +234,9 @@ pub struct FormCoproduct<C> {
 #[derive(Debug, PartialEq, Eq, Clone, ListSexpr)]
 #[list_sexpr_keyword = "mcoprod"]
 pub struct MatchCoproduct<N, E> {
+    /// Should have the same length as `variants`.
+    #[list]
+    pub names_to_bind: Vec<N>,
     /// The type of the result.
     #[list]
     #[sub_expr]
@@ -289,7 +295,10 @@ pub struct Inst<Q>(#[list] pub Q);
 
 #[derive(Debug, Clone, PartialEq, Eq, ListSexpr)]
 #[list_sexpr_keyword = "let"]
-pub struct Let<E> {
+pub struct Let<N, E> {
+    /// The name of the local variable to bind.
+    #[direct]
+    pub name_to_assign: N,
     /// The value to assign to the new bound variable.
     #[list]
     #[sub_expr]
@@ -302,10 +311,10 @@ pub struct Let<E> {
 
 #[derive(Debug, Clone, PartialEq, Eq, ListSexpr)]
 #[list_sexpr_keyword = "lambda"]
-pub struct Lambda<E> {
-    /// The amount of new variables to be bound in the body of the lambda.
-    #[atomic]
-    pub binding_count: u32,
+pub struct Lambda<N, E> {
+    /// The new variables to be bound in the body of the lambda.
+    #[list]
+    pub names_to_bind: Vec<N>,
     /// The body of the lambda, also called the lambda term.
     #[list]
     #[sub_expr]
@@ -314,14 +323,14 @@ pub struct Lambda<E> {
 
 #[derive(Debug, Clone, PartialEq, Eq, ListSexpr)]
 #[list_sexpr_keyword = "ap"]
-pub struct Apply<E> {
+pub struct Apply<N, E> {
     /// The function to be invoked.
     #[list]
     #[sub_expr]
     pub function: Box<E>,
     /// The argument to apply to the function.
-    #[atomic]
-    pub argument: DeBruijnIndex,
+    #[direct]
+    pub argument: N,
 }
 
 /// An inference variable.
@@ -416,15 +425,17 @@ gen_expr! {
     ExpandTy<E>,
 
     Inst<Q>,
-    Let<E>,
-    Lambda<E>,
-    Apply<E>,
+    Let<N, E>,
+    Lambda<N, E>,
+    Apply<N, E>,
     Var,
 
     FormFunc<E>,
 
     nullary FormUniverse,
 }
+
+// TODO: Create an alpha-equivalence function.
 
 pub type Expr = Node<ExprContents>;
 
@@ -510,7 +521,7 @@ impl<'a> PartialValuePrinter<'a> {
 
     pub fn print(&mut self, val: &PartialValue) -> String {
         match val {
-            PartialValue::IntroLocal(_) => todo!(),
+            PartialValue::IntroLocal(local) => self.db.lookup_intern_string_data(local.0),
             PartialValue::IntroU64(_) => todo!(),
             PartialValue::IntroFalse => todo!(),
             PartialValue::IntroTrue => todo!(),

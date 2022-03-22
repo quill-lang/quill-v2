@@ -10,8 +10,9 @@ use std::{
 
 use fcommon::{Dr, Label, LabelType, Path, Report, ReportKind, Source, SourceType, Span, Str};
 use fnodes::{
-    basic_nodes::SourceSpan, expr::*, DefaultInfos, Definition, ModuleParseResult, NodeId,
-    NodeInfoContainer, SexprParserExt,
+    basic_nodes::{Name, SourceSpan},
+    expr::*,
+    DefaultInfos, Definition, ModuleParseResult, NodeId, NodeInfoContainer, SexprParserExt,
 };
 use tracing::{debug, trace};
 
@@ -221,6 +222,28 @@ fn infer_values(
     })
 }
 
+#[derive(Default)]
+struct LocalVariables<'a> {
+    map: HashMap<Str, PartialValue>,
+    provenance: HashMap<Str, &'a Name>,
+}
+
+impl<'a> LocalVariables<'a> {
+    pub fn insert_ty(&mut self, name: &'a Name, ty: PartialValue) {
+        if let Some(original_provenance) = self.provenance.insert(name.contents, name) {
+            panic!(
+                "variable name {:?} used twice: {:?} and {:?}",
+                name.contents, name, original_provenance
+            );
+        }
+        self.map.insert(name.contents, ty);
+    }
+
+    pub fn get_ty(&mut self, name: Str) -> &PartialValue {
+        &self.map[&name]
+    }
+}
+
 /// Infers types of each sub-expression in a given definition.
 /// `known_local_types` is the set of types that we currently know about.
 /// In particular, any locally-defined definitions (in this module) have known types listed in this map.
@@ -244,7 +267,9 @@ fn infer_values_def(
         print: PartialValuePrinter::new(db.up()),
         infos,
     };
-    let unification = traverse(&def.contents.expr, &mut ctx, &[]);
+    // Store the deduced type of each local.
+    let mut locals = LocalVariables::default();
+    let unification = traverse(&def.contents.expr, &mut ctx, &mut locals);
     let errored = unification.errored();
     unification
         .bind(|unif| unif.finish_performing_coercions(&mut ctx))
@@ -291,9 +316,13 @@ fn largest_unusable_var(expr: &Expr, infos: &DefaultInfos) -> Option<Var> {
 /// Traverses the expression syntax tree, working out the *types* of each expression.
 /// Once types are known, we can call [`Unification::expr_to_value`] to compute the value of each expression.
 ///
-/// `locals` is the list of the types associated with each local.
-/// The de Bruijn index `n` refers to the `n`th entry in this slice.
-fn traverse(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<Unification> {
+/// `locals` is the map of the types associated with each local.
+/// The declared locals are assumed to have been given different names.
+fn traverse<'a, 'b: 'a>(
+    expr: &'a Expr,
+    ctx: &mut TyCtx<'b>,
+    locals: &mut LocalVariables<'a>,
+) -> Dr<Unification> {
     traverse_inner(expr, ctx, locals).bind(|unif| {
         // Once we've done type inference for this expression, unify it with the stated type.
         if let Some(ExprTy(stated_type)) = ctx.infos.expr_ty.get(expr) {
@@ -336,14 +365,17 @@ fn traverse(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<Unifica
 /// Do not call manually - use `traverse` instead.
 /// This function essentially codifies the type behaviour of each expression type.
 ///
-/// `locals` is the list of the types associated with each local.
-/// The de Bruijn index `n` refers to the `n`th entry in this slice.
-fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<Unification> {
-    // TODO: Raise errors if a de Bruijn index was too high instead of panicking.
+/// `locals` is the map of the types associated with each local.
+fn traverse_inner<'a, 'b: 'a>(
+    expr: &'a Expr,
+    ctx: &mut TyCtx<'b>,
+    locals: &mut LocalVariables<'a>,
+) -> Dr<Unification> {
+    // TODO: Raise errors if a local was not found instead of panicking.
     match &expr.contents {
         ExprContents::IntroLocal(IntroLocal(n)) => Dr::ok(Unification::new_with_expr_type(
             expr,
-            locals[n.0 as usize].clone(),
+            locals.get_ty(*n).clone(),
         )),
         ExprContents::IntroU64(_) => {
             Dr::ok(Unification::new_with_expr_type(expr, PartialValue::FormU64))
@@ -427,6 +459,7 @@ fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<U
                 .map(|unif| unif.with_expr_type(expr, PartialValue::FormUniverse))
         }
         ExprContents::MatchProduct(MatchProduct {
+            names_to_bind,
             fields,
             product,
             body,
@@ -458,18 +491,13 @@ fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<U
                     },
                 )
                 .bind(|unif| {
-                    // Add the result of this inference to the list of locals.
-                    let internal_locals = field_types
-                        .iter()
-                        .rev()
-                        .map(|v| {
-                            let mut ty = PartialValue::Var(*v);
-                            unif.canonicalise(&mut ty);
-                            ty
-                        })
-                        .chain(locals.iter().cloned())
-                        .collect::<Vec<_>>();
-                    traverse(body, ctx, &internal_locals)
+                    // Add the result of this inference to the map of locals.
+                    for (var, name) in field_types.into_iter().zip(names_to_bind) {
+                        let mut ty = PartialValue::Var(var);
+                        unif.canonicalise(&mut ty);
+                        locals.insert_ty(name, ty);
+                    }
+                    traverse(body, ctx, locals)
                         .bind(|body_unif| body_unif.with(unif, ctx, expr.span()))
                         .map(|unif| {
                             // The type of a match expression is the type of its body.
@@ -574,7 +602,11 @@ fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<U
                 })
             })
         }
-        ExprContents::MatchCoproduct(MatchCoproduct { coprod, variants }) => {
+        ExprContents::MatchCoproduct(MatchCoproduct {
+            names_to_bind,
+            coprod,
+            variants,
+        }) => {
             // Traverse the value then each variant.
             traverse(coprod, ctx, locals).bind(|unif| {
                 // Construct new inference variables for the variant types of the coprod.
@@ -607,18 +639,15 @@ fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<U
                 .bind(|unif| {
                     variants
                         .iter()
+                        .zip(names_to_bind)
                         .enumerate()
-                        .fold(Dr::ok(unif), |unif, (i, variant)| {
+                        .fold(Dr::ok(unif), |unif, (i, (variant, name_to_bind))| {
                             unif.bind(|unif| {
-                                // Add the given variant to the list of locals.
-                                let internal_locals = std::iter::once({
-                                    let mut ty = PartialValue::Var(variant_types[i]);
-                                    unif.canonicalise(&mut ty);
-                                    ty
-                                })
-                                .chain(locals.iter().cloned())
-                                .collect::<Vec<_>>();
-                                traverse(&variant.expr, ctx, &internal_locals)
+                                // Add the given variant to the map of locals.
+                                let mut ty = PartialValue::Var(variant_types[i]);
+                                unif.canonicalise(&mut ty);
+                                locals.insert_ty(name_to_bind, ty);
+                                traverse(&variant.expr, ctx, locals)
                                     .bind(|unif2| unif.with(unif2, ctx, expr.span()))
                             })
                         })
@@ -742,15 +771,17 @@ fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<U
                 todo!()
             }
         }
-        ExprContents::Let(Let { to_assign, body }) => {
+        ExprContents::Let(Let {
+            name_to_assign,
+            to_assign,
+            body,
+        }) => {
             // Traverse the expression to assign to a new variable first.
             traverse(to_assign, ctx, locals).bind(|to_assign_unif| {
-                // Add the result of this inference to the list of locals.
-                let internal_locals = std::iter::once(to_assign_unif.expr_type(to_assign))
-                    .chain(locals.iter().cloned())
-                    .collect::<Vec<_>>();
+                // Add the result of this inference to the map of locals.
+                locals.insert_ty(name_to_assign, to_assign_unif.expr_type(to_assign));
                 // Traverse the body.
-                traverse(body, ctx, &internal_locals).bind(|inner_unif| {
+                traverse(body, ctx, locals).bind(|inner_unif| {
                     // The type of a let expression is the type of its body.
                     let result_ty = inner_unif.expr_type(body);
                     inner_unif
@@ -760,23 +791,20 @@ fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<U
             })
         }
         ExprContents::Lambda(Lambda {
-            binding_count,
+            names_to_bind,
             body,
         }) => {
             // Construct new type variables for these locals.
-            let new_locals = (0..*binding_count)
-                .into_iter()
+            let new_locals = names_to_bind
+                .iter()
                 .map(|_| PartialValue::Var(ctx.var_gen.gen()))
                 .collect::<Vec<_>>();
-            // Construct the list of locals as seen from inside the lambda itself.
-            let internal_locals = new_locals
-                .iter()
-                .rev()
-                .chain(locals.iter())
-                .cloned()
-                .collect::<Vec<_>>();
+            // Add these new variables to the list of locals.
+            for (name, ty) in names_to_bind.iter().zip(&new_locals) {
+                locals.insert_ty(name, ty.clone());
+            }
             // Traverse the body and do an inner step of type inference.
-            traverse(body, ctx, &internal_locals).map(|body_unif| {
+            traverse(body, ctx, locals).map(|body_unif| {
                 // Construct the result type of this abstraction.
                 // For each local, add it as a parameter to the function's type.
                 let func_ty = new_locals.into_iter().rev().fold(
@@ -798,7 +826,7 @@ fn traverse_inner(expr: &Expr, ctx: &mut TyCtx, locals: &[PartialValue]) -> Dr<U
                 let result_ty = ctx.var_gen.gen();
                 let function_type = unif.expr_type(function);
                 let found_type = PartialValue::FormFunc(FormFunc {
-                    parameter: Box::new(locals[argument.0 as usize].clone()),
+                    parameter: Box::new(locals.get_ty(argument.contents).clone()),
                     result: Box::new(PartialValue::Var(result_ty)),
                 });
                 unif.unify(

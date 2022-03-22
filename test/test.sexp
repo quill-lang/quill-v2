@@ -1,9 +1,9 @@
 (module
     ()
     (def test ()
-        (let
+        (let val
             (inst (test test ret4))
-            (ap (lambda 1 (local 0)) 0)
+            (ap (lambda (x) (local x)) val)
         )
     )
     (def ret4 ()
@@ -15,8 +15,8 @@
     )
     (def fst ()
         (expr
-            (lambda 1
-                (mprod (fst snd) (local 0) (local 1))
+            (lambda (x)
+                (mprod (fst snd) (fst snd) (local x) (local fst))
             )
             (ty (ffunc
                 (fprod (fst (funit)) (snd (fu64)))
@@ -25,9 +25,9 @@
         )
     )
     (def use_fst ()
-        (let
+        (let pair
             (inst (test test make_pair))
-            (ap (inst (test test fst)) 0)
+            (ap (inst (test test fst)) pair)
         )
     )
 
@@ -48,7 +48,7 @@
     )
     (def id_MyPair ()
         (expr
-            (lambda 1 (local 0))
+            (lambda (x) (local x))
             (ty (ffunc (inst (test test MyPair)) (var 1)))
         )
     )
@@ -56,10 +56,10 @@
     (def OptionInt ()
         (fcoprod (Some (fu64)) (None (funit)))
     )
-    (def some ()
-        (lambda 1
+    (def some_int ()
+        (lambda (i)
             (expandty
-                (icoprod (Some (local 0)))
+                (icoprod (Some (local i)))
                 (inst (test test OptionInt))
             )
         )
@@ -67,14 +67,15 @@
 
     (def unwrap_or_zero ()
         (expr
-            (lambda 1
+            (lambda (pair)
                 (mcoprod
+                    (val none)
                     (reducety
-                        (local 0)
+                        (local pair)
                         (fcoprod (Some (fu64)) (None (funit)))
                     )
                     (
-                        (Some (local 0))
+                        (Some (local val))
                         (None (iu64 0))
                     )
                 )
@@ -87,8 +88,18 @@
     )
 
     (def Option ()
-        (lambda 1
-            (fcoprod (Some (local 0)) (None (funit)))
+        (lambda (T)
+            (fcoprod (Some (local T)) (None (funit)))
+        )
+    )
+    (def some ()
+        (lambda (T)
+            (lambda (x)
+                (expr
+                    (icoprod (Some (local x)))
+                    (ty (fcoprod (Some (local T)) (None (funit))))
+                )
+            )
         )
     )
 )
