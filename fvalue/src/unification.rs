@@ -239,11 +239,13 @@ impl Unification {
         match (expected, found) {
             (
                 PartialValue::FormFunc(FormFunc {
-                    parameter: expected_parameter,
+                    parameter_name: expected_parameter_name,
+                    parameter_ty: expected_parameter,
                     result: expected_result,
                 }),
                 PartialValue::FormFunc(FormFunc {
-                    parameter: found_parameter,
+                    parameter_name: found_parameter_name,
+                    parameter_ty: found_parameter,
                     result: found_result,
                 }),
             ) => {
@@ -528,12 +530,16 @@ impl Unification {
             ExprContents::Lambda(_) => todo!(),
             ExprContents::Apply(_) => todo!(),
             ExprContents::Var(var) => PartialValue::Var(*var),
-            ExprContents::FormFunc(FormFunc { parameter, result }) => {
-                PartialValue::FormFunc(FormFunc {
-                    parameter: Box::new(self.expr_to_value(parameter, ctx)),
-                    result: Box::new(self.expr_to_value(result, ctx)),
-                })
-            }
+            ExprContents::FormFunc(FormFunc {
+                parameter_name,
+                parameter_ty,
+                result,
+            }) => PartialValue::FormFunc(FormFunc {
+                parameter_name: parameter_name.contents,
+                parameter_ty: Box::new(self.expr_to_value(parameter_ty, ctx)),
+                result: Box::new(self.expr_to_value(result, ctx)),
+            }),
+            ExprContents::FormAnyFunc(_) => todo!(),
             ExprContents::FormUniverse => todo!(),
         }
     }

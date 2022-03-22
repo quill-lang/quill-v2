@@ -807,11 +807,12 @@ fn traverse_inner<'a, 'b: 'a>(
             traverse(body, ctx, locals).map(|body_unif| {
                 // Construct the result type of this abstraction.
                 // For each local, add it as a parameter to the function's type.
-                let func_ty = new_locals.into_iter().rev().fold(
+                let func_ty = names_to_bind.iter().zip(new_locals).rev().fold(
                     body_unif.expr_type(body),
-                    |result, parameter| {
+                    |result, (name_to_bind, parameter)| {
                         PartialValue::FormFunc(FormFunc {
-                            parameter: Box::new(parameter),
+                            parameter_name: name_to_bind.contents,
+                            parameter_ty: Box::new(parameter),
                             result: Box::new(result),
                         })
                     },
@@ -825,8 +826,8 @@ fn traverse_inner<'a, 'b: 'a>(
                 // Construct a new inference variable for the result type.
                 let result_ty = ctx.var_gen.gen();
                 let function_type = unif.expr_type(function);
-                let found_type = PartialValue::FormFunc(FormFunc {
-                    parameter: Box::new(locals.get_ty(argument.contents).clone()),
+                let found_type = PartialValue::FormAnyFunc(FormAnyFunc {
+                    parameter_ty: Box::new(locals.get_ty(argument.contents).clone()),
                     result: Box::new(PartialValue::Var(result_ty)),
                 });
                 unif.unify(
@@ -846,11 +847,15 @@ fn traverse_inner<'a, 'b: 'a>(
                                     .with_order(0),
                             )
                             .with_label(
-                                if let PartialValue::FormFunc(FormFunc { parameter, .. }) = found {
+                                if let PartialValue::FormFunc(FormFunc { parameter_ty, .. })
+                                | PartialValue::FormAnyFunc(FormAnyFunc {
+                                    parameter_ty, ..
+                                }) = found
+                                {
                                     Label::new(ctx.source, function.span(), LabelType::Error)
                                         .with_message(format!(
                                             "the argument had type {}",
-                                            ctx.print.print(parameter)
+                                            ctx.print.print(parameter_ty)
                                         ))
                                         .with_order(10)
                                 } else {
@@ -866,11 +871,16 @@ fn traverse_inner<'a, 'b: 'a>(
             expr,
             PartialValue::Var(*var),
         )),
-        ExprContents::FormFunc(FormFunc { parameter, result }) => traverse(parameter, ctx, locals)
+        ExprContents::FormFunc(FormFunc {
+            parameter_name,
+            parameter_ty,
+            result,
+        }) => traverse(parameter_ty, ctx, locals)
             .bind(|unif| {
                 traverse(result, ctx, locals).bind(|unif2| unif.with(unif2, ctx, expr.span()))
             })
             .map(|unif| unif.with_expr_type(expr, PartialValue::FormUniverse)),
+        ExprContents::FormAnyFunc(_) => todo!(),
         ExprContents::FormUniverse => Dr::ok(Unification::new_with_expr_type(
             expr,
             PartialValue::FormUniverse,

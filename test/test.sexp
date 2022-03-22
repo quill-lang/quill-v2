@@ -18,7 +18,7 @@
             (lambda (x)
                 (mprod (fst snd) (fst snd) (local x) (local fst))
             )
-            (ty (ffunc
+            (ty (ffunc pair
                 (fprod (fst (funit)) (snd (fu64)))
                 (var 0)
             ))
@@ -49,7 +49,7 @@
     (def id_MyPair ()
         (expr
             (lambda (x) (local x))
-            (ty (ffunc (inst (test test MyPair)) (var 1)))
+            (ty (ffunc pair (inst (test test MyPair)) (var 1)))
         )
     )
 
@@ -81,8 +81,10 @@
                 )
             )
             (ty
-                (ffunc (inst (test test OptionInt))
-                (var 2))
+                (ffunc pair
+                    (inst (test test OptionInt))
+                    (var 2)
+                )
             )
         )
     )

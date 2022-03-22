@@ -369,11 +369,28 @@ impl VarGenerator {
 
 #[derive(Debug, Clone, PartialEq, Eq, ListSexpr)]
 #[list_sexpr_keyword = "ffunc"]
-pub struct FormFunc<E> {
+pub struct FormFunc<N, E> {
+    /// The name of the parameter.
+    #[direct]
+    pub parameter_name: N,
     /// The type of the parameter.
     #[list]
     #[sub_expr]
-    pub parameter: Box<E>,
+    pub parameter_ty: Box<E>,
+    /// The type of the result.
+    #[list]
+    #[sub_expr]
+    pub result: Box<E>,
+}
+
+/// Like [`FormFunc`] but with no fixed name for the parameter.
+#[derive(Debug, Clone, PartialEq, Eq, ListSexpr)]
+#[list_sexpr_keyword = "fanyfunc"]
+pub struct FormAnyFunc<E> {
+    /// The type of the parameter.
+    #[list]
+    #[sub_expr]
+    pub parameter_ty: Box<E>,
     /// The type of the result.
     #[list]
     #[sub_expr]
@@ -430,7 +447,8 @@ gen_expr! {
     Apply<N, E>,
     Var,
 
-    FormFunc<E>,
+    FormFunc<N, E>,
+    FormAnyFunc<E>,
 
     nullary FormUniverse,
 }
@@ -575,10 +593,25 @@ impl<'a> PartialValuePrinter<'a> {
             PartialValue::Lambda(_) => todo!(),
             PartialValue::Apply(_) => todo!(),
             PartialValue::Var(var) => self.get_name(*var),
-            PartialValue::FormFunc(FormFunc { parameter, result }) => {
+            PartialValue::FormFunc(FormFunc {
+                parameter_name,
+                parameter_ty,
+                result,
+            }) => {
                 // TODO: Check precedence with (->) symbol.
                 // Perhaps unify this with some generic node pretty printer?
-                format!("{} -> {}", self.print(parameter), self.print(result))
+                format!(
+                    "({}: {}) -> {}",
+                    self.db.lookup_intern_string_data(*parameter_name),
+                    self.print(parameter_ty),
+                    self.print(result)
+                )
+            }
+            PartialValue::FormAnyFunc(FormAnyFunc {
+                parameter_ty,
+                result,
+            }) => {
+                format!("{} -> {}", self.print(parameter_ty), self.print(result))
             }
             PartialValue::FormUniverse => "Universe".to_string(),
         }
