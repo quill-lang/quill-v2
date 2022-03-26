@@ -247,7 +247,6 @@ impl<'a> LocalVariables<'a> {
 /// Infers types of each sub-expression in a given definition.
 /// `known_local_types` is the set of types that we currently know about.
 /// In particular, any locally-defined definitions (in this module) have known types listed in this map.
-#[tracing::instrument(level = "trace")]
 fn infer_values_def(
     db: &dyn ValueInferenceEngine,
     source: Source,
@@ -256,8 +255,6 @@ fn infer_values_def(
     infos: &DefaultInfos,
 ) -> Dr<NodeInfoContainer<ExprContents, PartialExprTy>> {
     // To each expression we associate a type.
-    // TODO: use tys from node info in `res`
-    // TODO: variable ID generator should be initialised with non-clashing IDs from the expression, since it may have its own IDs already
     debug!("def was: {:#?}", def);
     let mut ctx = TyCtx {
         db,
@@ -375,6 +372,7 @@ fn traverse_inner<'a, 'b: 'a>(
     match &expr.contents {
         ExprContents::IntroLocal(IntroLocal(n)) => Dr::ok(Unification::new_with_expr_type(
             expr,
+            // TODO: Make sure that we don't reuse variable names.
             locals.get_ty(*n).clone(),
         )),
         ExprContents::IntroU64(_) => {
@@ -746,6 +744,7 @@ fn traverse_inner<'a, 'b: 'a>(
             let (source_file, def_name) = ctx
                 .db
                 .split_path_last(ctx.db.qualified_name_to_path(qualified_name));
+            // TODO: Make sure that we don't reuse variable names.
             if source_file == ctx.source.path {
                 // This is a local definition.
                 // So its type should be present in `ctx.known_local_types`.
@@ -826,7 +825,8 @@ fn traverse_inner<'a, 'b: 'a>(
                 // Construct a new inference variable for the result type.
                 let result_ty = ctx.var_gen.gen();
                 let function_type = unif.expr_type(function);
-                let found_type = PartialValue::FormAnyFunc(FormAnyFunc {
+                let found_type = PartialValue::FormFunc(FormFunc {
+                    parameter_name: argument.contents,
                     parameter_ty: Box::new(locals.get_ty(argument.contents).clone()),
                     result: Box::new(PartialValue::Var(result_ty)),
                 });
@@ -847,10 +847,7 @@ fn traverse_inner<'a, 'b: 'a>(
                                     .with_order(0),
                             )
                             .with_label(
-                                if let PartialValue::FormFunc(FormFunc { parameter_ty, .. })
-                                | PartialValue::FormAnyFunc(FormAnyFunc {
-                                    parameter_ty, ..
-                                }) = found
+                                if let PartialValue::FormFunc(FormFunc { parameter_ty, .. }) = found
                                 {
                                     Label::new(ctx.source, function.span(), LabelType::Error)
                                         .with_message(format!(
@@ -872,7 +869,7 @@ fn traverse_inner<'a, 'b: 'a>(
             PartialValue::Var(*var),
         )),
         ExprContents::FormFunc(FormFunc {
-            parameter_name,
+            parameter_name: _,
             parameter_ty,
             result,
         }) => traverse(parameter_ty, ctx, locals)
@@ -880,7 +877,6 @@ fn traverse_inner<'a, 'b: 'a>(
                 traverse(result, ctx, locals).bind(|unif2| unif.with(unif2, ctx, expr.span()))
             })
             .map(|unif| unif.with_expr_type(expr, PartialValue::FormUniverse)),
-        ExprContents::FormAnyFunc(_) => todo!(),
         ExprContents::FormUniverse => Dr::ok(Unification::new_with_expr_type(
             expr,
             PartialValue::FormUniverse,

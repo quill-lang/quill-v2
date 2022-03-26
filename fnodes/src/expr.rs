@@ -383,20 +383,6 @@ pub struct FormFunc<N, E> {
     pub result: Box<E>,
 }
 
-/// Like [`FormFunc`] but with no fixed name for the parameter.
-#[derive(Debug, Clone, PartialEq, Eq, ListSexpr)]
-#[list_sexpr_keyword = "fanyfunc"]
-pub struct FormAnyFunc<E> {
-    /// The type of the parameter.
-    #[list]
-    #[sub_expr]
-    pub parameter_ty: Box<E>,
-    /// The type of the result.
-    #[list]
-    #[sub_expr]
-    pub result: Box<E>,
-}
-
 #[derive(Debug, PartialEq, Eq, ListSexpr)]
 #[list_sexpr_keyword = "funiverse"]
 pub struct FormUniverse;
@@ -448,7 +434,6 @@ gen_expr! {
     Var,
 
     FormFunc<N, E>,
-    FormAnyFunc<E>,
 
     nullary FormUniverse,
 }
@@ -513,6 +498,24 @@ impl ListSexpr for Expr {
                 AtomicSexprWrapper::serialise_into_node(ctx, db, &"expr".to_string()),
             );
             infos
+        }
+    }
+}
+
+impl PartialValue {
+    /// Perform an α-conversion to convert any usage of the given name to the result name.
+    /// This does *not* check for name collisions.
+    pub fn alpha_convert(&mut self, name: Str, result: Str) {
+        match self {
+            PartialValue::IntroLocal(IntroLocal(local_name)) => {
+                if *local_name == name {
+                    *local_name = result;
+                }
+            }
+            _ => self
+                .sub_values_mut()
+                .into_iter()
+                .for_each(|value| value.alpha_convert(name, result)),
         }
     }
 }
@@ -606,12 +609,6 @@ impl<'a> PartialValuePrinter<'a> {
                     self.print(parameter_ty),
                     self.print(result)
                 )
-            }
-            PartialValue::FormAnyFunc(FormAnyFunc {
-                parameter_ty,
-                result,
-            }) => {
-                format!("{} -> {}", self.print(parameter_ty), self.print(result))
             }
             PartialValue::FormUniverse => "Universe".to_string(),
         }
