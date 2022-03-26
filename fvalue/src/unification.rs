@@ -536,7 +536,7 @@ impl Unification {
                 parameter_ty,
                 result,
             }) => PartialValue::FormFunc(FormFunc {
-                parameter_name: parameter_name.contents,
+                parameter_name: Shadow::<Str>::from(parameter_name),
                 parameter_ty: Box::new(self.expr_to_value(parameter_ty, ctx)),
                 result: Box::new(self.expr_to_value(result, ctx)),
             }),

@@ -1,9 +1,9 @@
 (module
     ()
     (def test ()
-        (let val
+        (let (val 0)
             (inst (test test ret4))
-            (ap (lambda (x) (local x)) val)
+            (ap (lambda ((x 0)) (local (x 0))) (val 0))
         )
     )
     (def ret4 ()
@@ -15,19 +15,24 @@
     )
     (def fst ()
         (expr
-            (lambda (x)
-                (mprod (fst snd) (fst snd) (local x) (local fst))
+            (lambda ((x 0))
+                (mprod
+                    ((fst 0) (snd 0))
+                    (fst snd)
+                    (local (x 0))
+                    (local (fst 0))
+                )
             )
-            (ty (ffunc pair
+            (ty (ffunc (pair 0)
                 (fprod (fst (funit)) (snd (fu64)))
                 (var 0)
             ))
         )
     )
     (def use_fst ()
-        (let pair
+        (let (pair 0)
             (inst (test test make_pair))
-            (ap (inst (test test fst)) pair)
+            (ap (inst (test test fst)) (pair 0))
         )
     )
 
@@ -48,8 +53,8 @@
     )
     (def id_MyPair ()
         (expr
-            (lambda (x) (local x))
-            (ty (ffunc pair (inst (test test MyPair)) (var 1)))
+            (lambda ((x 0)) (local (x 0)))
+            (ty (ffunc (pair 0) (inst (test test MyPair)) (var 1)))
         )
     )
 
@@ -57,9 +62,9 @@
         (fcoprod (Some (fu64)) (None (funit)))
     )
     (def some_int ()
-        (lambda (i)
+        (lambda ((i 0))
             (expandty
-                (icoprod (Some (local i)))
+                (icoprod (Some (local (i 0))))
                 (inst (test test OptionInt))
             )
         )
@@ -67,21 +72,21 @@
 
     (def unwrap_or_zero ()
         (expr
-            (lambda (pair)
+            (lambda ((pair 0))
                 (mcoprod
-                    (val none)
+                    ((val 0) (none 0))
                     (reducety
-                        (local pair)
+                        (local (pair 0))
                         (fcoprod (Some (fu64)) (None (funit)))
                     )
                     (
-                        (Some (local val))
+                        (Some (local (val 0)))
                         (None (iu64 0))
                     )
                 )
             )
             (ty
-                (ffunc pair
+                (ffunc (pair 0)
                     (inst (test test OptionInt))
                     (var 2)
                 )
@@ -90,16 +95,16 @@
     )
 
     (def Option ()
-        (lambda (T)
-            (fcoprod (Some (local T)) (None (funit)))
+        (lambda ((T 0))
+            (fcoprod (Some (local (T 0))) (None (funit)))
         )
     )
     (def some ()
-        (lambda (T)
-            (lambda (x)
+        (lambda ((T 0))
+            (lambda ((x 0))
                 (expr
-                    (icoprod (Some (local x)))
-                    (ty (fcoprod (Some (local T)) (None (funit))))
+                    (icoprod (Some (local (x 0))))
+                    (ty (fcoprod (Some (local (T 0))) (None (funit))))
                 )
             )
         )

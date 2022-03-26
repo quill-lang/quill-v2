@@ -143,7 +143,7 @@ impl ExpressionVariant for Component<Name, Expr> {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ListSexpr)]
 #[list_sexpr_keyword = "local"]
-pub struct IntroLocal(#[atomic] pub Str);
+pub struct IntroLocal(#[list] pub Shadow<Str>);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ListSexpr)]
 #[list_sexpr_keyword = "ifalse"]
@@ -204,7 +204,7 @@ pub struct FormProduct<C> {
 pub struct MatchProduct<N, E> {
     /// Should have the same length as `fields`.
     #[list]
-    pub names_to_bind: Vec<N>,
+    pub names_to_bind: Vec<Shadow<N>>,
     #[list]
     pub fields: Vec<N>,
     #[list]
@@ -236,7 +236,7 @@ pub struct FormCoproduct<C> {
 pub struct MatchCoproduct<N, E> {
     /// Should have the same length as `variants`.
     #[list]
-    pub names_to_bind: Vec<N>,
+    pub names_to_bind: Vec<Shadow<N>>,
     /// The type of the result.
     #[list]
     #[sub_expr]
@@ -297,8 +297,8 @@ pub struct Inst<Q>(#[list] pub Q);
 #[list_sexpr_keyword = "let"]
 pub struct Let<N, E> {
     /// The name of the local variable to bind.
-    #[direct]
-    pub name_to_assign: N,
+    #[list]
+    pub name_to_assign: Shadow<N>,
     /// The value to assign to the new bound variable.
     #[list]
     #[sub_expr]
@@ -314,7 +314,7 @@ pub struct Let<N, E> {
 pub struct Lambda<N, E> {
     /// The new variables to be bound in the body of the lambda.
     #[list]
-    pub names_to_bind: Vec<N>,
+    pub names_to_bind: Vec<Shadow<N>>,
     /// The body of the lambda, also called the lambda term.
     #[list]
     #[sub_expr]
@@ -329,8 +329,8 @@ pub struct Apply<N, E> {
     #[sub_expr]
     pub function: Box<E>,
     /// The argument to apply to the function.
-    #[direct]
-    pub argument: N,
+    #[list]
+    pub argument: Shadow<N>,
 }
 
 /// An inference variable.
@@ -371,8 +371,8 @@ impl VarGenerator {
 #[list_sexpr_keyword = "ffunc"]
 pub struct FormFunc<N, E> {
     /// The name of the parameter.
-    #[direct]
-    pub parameter_name: N,
+    #[list]
+    pub parameter_name: Shadow<N>,
     /// The type of the parameter.
     #[list]
     #[sub_expr]
@@ -437,8 +437,6 @@ gen_expr! {
 
     nullary FormUniverse,
 }
-
-// TODO: Create an alpha-equivalence function.
 
 pub type Expr = Node<ExprContents>;
 
@@ -505,7 +503,7 @@ impl ListSexpr for Expr {
 impl PartialValue {
     /// Perform an α-conversion to convert any usage of the given name to the result name.
     /// This does *not* check for name collisions.
-    pub fn alpha_convert(&mut self, name: Str, result: Str) {
+    pub fn alpha_convert(&mut self, name: Shadow<Str>, result: Shadow<Str>) {
         match self {
             PartialValue::IntroLocal(IntroLocal(local_name)) => {
                 if *local_name == name {
@@ -542,7 +540,7 @@ impl<'a> PartialValuePrinter<'a> {
 
     pub fn print(&mut self, val: &PartialValue) -> String {
         match val {
-            PartialValue::IntroLocal(local) => self.db.lookup_intern_string_data(local.0),
+            PartialValue::IntroLocal(IntroLocal(shadow)) => shadow.display(self.db),
             PartialValue::IntroU64(_) => todo!(),
             PartialValue::IntroFalse => todo!(),
             PartialValue::IntroTrue => todo!(),
@@ -605,7 +603,7 @@ impl<'a> PartialValuePrinter<'a> {
                 // Perhaps unify this with some generic node pretty printer?
                 format!(
                     "({}: {}) -> {}",
-                    self.db.lookup_intern_string_data(*parameter_name),
+                    parameter_name.display(self.db),
                     self.print(parameter_ty),
                     self.print(result)
                 )

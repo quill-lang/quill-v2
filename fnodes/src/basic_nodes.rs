@@ -140,6 +140,71 @@ impl SexprSerialisable for Name {
     }
 }
 
+/// A value attached to an ID.
+/// Two values are considered equal if their values and IDs both match.
+/// This is commonly used for things like name shadowing (`Shadow<Name>`, for example),
+/// in which names are permitted to occur multiple times in a single definition,
+/// but their IDs are different, so we can precisely refer to each instance of the name unambiguously.
+///
+/// IDs are shared between `Shadow<Name>` and `Shadow<Str>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Shadow<T> {
+    pub value: T,
+    pub id: u32,
+}
+
+impl<T> ListSexpr for Shadow<T>
+where
+    T: SexprParsable<Output = T> + SexprSerialisable,
+{
+    const KEYWORD: Option<&'static str> = None;
+
+    fn parse_list(
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
+        span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        let [value, id] = force_arity(span, args)?;
+        Ok(Shadow {
+            value: T::parse(ctx, db, value)?,
+            id: AtomicSexprWrapper::parse(ctx, db, id)?,
+        })
+    }
+
+    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
+        vec![
+            self.value.serialise(ctx, db),
+            AtomicSexprWrapper::serialise_into_node(ctx, db, &self.id),
+        ]
+    }
+}
+
+impl Shadow<Str> {
+    pub fn display(&self, db: &dyn SexprParser) -> String {
+        format!("{}#{}", db.lookup_intern_string_data(self.value), self.id)
+    }
+}
+
+impl Shadow<Name> {
+    pub fn display(&self, db: &dyn SexprParser) -> String {
+        format!(
+            "{}#{}",
+            db.lookup_intern_string_data(self.value.contents),
+            self.id
+        )
+    }
+}
+
+impl From<&Shadow<Name>> for Shadow<Str> {
+    fn from(shadow_name: &Shadow<Name>) -> Self {
+        Self {
+            value: shadow_name.value.contents,
+            id: shadow_name.id,
+        }
+    }
+}
+
 impl<T> ListSexpr for Vec<T>
 where
     T: ListSexpr,

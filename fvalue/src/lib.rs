@@ -10,7 +10,7 @@ use std::{
 
 use fcommon::{Dr, Label, LabelType, Path, Report, ReportKind, Source, SourceType, Span, Str};
 use fnodes::{
-    basic_nodes::{Name, SourceSpan},
+    basic_nodes::{Name, Shadow, SourceSpan},
     expr::*,
     DefaultInfos, Definition, ModuleParseResult, NodeId, NodeInfoContainer, SexprParserExt,
 };
@@ -224,22 +224,23 @@ fn infer_values(
 
 #[derive(Default)]
 struct LocalVariables<'a> {
-    map: HashMap<Str, PartialValue>,
-    provenance: HashMap<Str, &'a Name>,
+    map: HashMap<Shadow<Str>, PartialValue>,
+    provenance: HashMap<Shadow<Str>, &'a Shadow<Name>>,
 }
 
 impl<'a> LocalVariables<'a> {
-    pub fn insert_ty(&mut self, name: &'a Name, ty: PartialValue) {
-        if let Some(original_provenance) = self.provenance.insert(name.contents, name) {
+    pub fn insert_ty(&mut self, name: &'a Shadow<Name>, ty: PartialValue) {
+        let shadow_str = name.into();
+        if let Some(original_provenance) = self.provenance.insert(shadow_str, name) {
             panic!(
                 "variable name {:?} used twice: {:?} and {:?}",
-                name.contents, name, original_provenance
+                shadow_str, name, original_provenance
             );
         }
-        self.map.insert(name.contents, ty);
+        self.map.insert(shadow_str, ty);
     }
 
-    pub fn get_ty(&mut self, name: Str) -> &PartialValue {
+    pub fn get_ty(&mut self, name: Shadow<Str>) -> &PartialValue {
         &self.map[&name]
     }
 }
@@ -810,7 +811,7 @@ fn traverse_inner<'a, 'b: 'a>(
                     body_unif.expr_type(body),
                     |result, (name_to_bind, parameter)| {
                         PartialValue::FormFunc(FormFunc {
-                            parameter_name: name_to_bind.contents,
+                            parameter_name: Shadow::<Str>::from(name_to_bind),
                             parameter_ty: Box::new(parameter),
                             result: Box::new(result),
                         })
@@ -825,9 +826,10 @@ fn traverse_inner<'a, 'b: 'a>(
                 // Construct a new inference variable for the result type.
                 let result_ty = ctx.var_gen.gen();
                 let function_type = unif.expr_type(function);
+                let parameter_name = Shadow::<Str>::from(argument);
                 let found_type = PartialValue::FormFunc(FormFunc {
-                    parameter_name: argument.contents,
-                    parameter_ty: Box::new(locals.get_ty(argument.contents).clone()),
+                    parameter_name,
+                    parameter_ty: Box::new(locals.get_ty(parameter_name).clone()),
                     result: Box::new(PartialValue::Var(result_ty)),
                 });
                 unif.unify(
