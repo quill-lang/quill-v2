@@ -10,7 +10,7 @@ use std::{
 
 use fcommon::{Dr, Label, LabelType, Path, Report, ReportKind, Source, SourceType, Span, Str};
 use fnodes::{
-    basic_nodes::{Name, Shadow, SourceSpan},
+    basic_nodes::{Name, Shadow, ShadowGenerator, SourceSpan},
     expr::*,
     DefaultInfos, Definition, ModuleParseResult, NodeId, NodeInfoContainer, SexprParserExt,
 };
@@ -261,6 +261,12 @@ fn infer_values_def(
         db,
         source,
         var_gen: VarGenerator::new(largest_unusable_var(&def.contents.expr, infos)),
+        shadow_gen: {
+            let mut gen = ShadowGenerator::new();
+            fill_shadow_gen(&mut gen, &def.contents.expr);
+            debug!("gen: {:#?}", gen);
+            gen
+        },
         known_local_types,
         print: PartialValuePrinter::new(db.up()),
         infos,
@@ -309,6 +315,18 @@ fn largest_unusable_var(expr: &Expr, infos: &DefaultInfos) -> Option<Var> {
                 .filter_map(|inner_expr| largest_unusable_var(inner_expr, infos)),
         )
         .max()
+}
+
+/// Work out which shadow IDs were used by the given expression.
+/// This will initialise the shadow generator such that it never produces a clashing ID.
+fn fill_shadow_gen(shadow_gen: &mut ShadowGenerator, expr: &Expr) {
+    for shadow in expr.contents.binding_shadow_names() {
+        shadow_gen.register_from_name(shadow);
+    }
+
+    for e in expr.contents.sub_expressions() {
+        fill_shadow_gen(shadow_gen, e);
+    }
 }
 
 /// Traverses the expression syntax tree, working out the *types* of each expression.

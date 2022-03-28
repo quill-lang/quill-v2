@@ -1,3 +1,52 @@
+//! All types of expression and value are defined here.
+//!
+//! # Adding variants
+//! When adding a new expression variant, make sure to derive [`ExprVariant`].
+//! This will automatically create implementations of [`ExpressionVariant`],
+//! [`PartialValueVariant`], and [`ListSexpr`], with suitable generic arguments.
+//! Such types must always be structs.
+//!
+//! ### Generic argument names
+//! We restrict the possible generic argument names and their functions in [`ExprVariant`].
+//! Each generic argument may take one of two possible values, one for node-based expressions
+//! ([`Expr`]), and one for value-based expressions ([`PartialValue`]).
+//! - `E`: [`Expr`] or [`PartialValue`]
+//! - `N`: [`Name`] or [`Str`]
+//! - `Q`: [`QualifiedName`] or [`fcommon::Path`]
+//! - `C`: [`Component<Name, Expr>`] or [`ComponentContents<Str, PartialValue>`].
+//!
+//! ### Serialisation keyword
+//! The `#[list_sexpr_keyword = "..."]` attribute must be provided to provide the keyword
+//! that will be used for the [`ListSexpr`] implementation.
+//! If no keyword is desired (for example, for utility structs) then simply use the
+//! attribute with no parameters: `#[list_sexpr_keyword]`.
+//!
+//! ### Field serialisation methods
+//! Each field must be serialisable.
+//! It must be tagged with one of the following three attributes:
+//! - `#[atomic]`: if this field implements [`AtomicSexpr`]
+//! - `#[list]`: if this field implements [`ListSexpr`]
+//! - `#[direct]`: if this field implements [`SexprParsable<Output = Self>`] and [`SexprSerialisable`]
+//! The choice of attribute will influence the serialisation method.
+//!
+//! ### Shadow names
+//! When registering a new variant, care should be taken to consider the function of any uses
+//! of `N`, which is a [`Name`] or a [`Str`].
+//! If it is used in a shadow context (i.e. writing [`Shadow<N>`] to denote [`Shadow<Name>`]
+//! or [`Shadow<Str>`]), then one of the following attributes should be used.
+//! - `#[binding_shadow_name]`: if this name is considered a binder (from any viewpoint)
+//! - `#[binding_shadow_names]`: if this can be iterated over,
+//!     and its elements are binders as in `#[binding_shadow_name]`
+//! - `#[non_binding_shadow_name]`: if this name is not a binder, but simply the name
+//!     of a previously bound value or node
+//! - `#[non_binding_shadow_names]`: if this can be iterated over,
+//!     and its elements are non-binders as in `#[non_binding_shadow_name]`
+//!
+//! ## Sub-expressions
+//! Any use of `E` must be tagged with the attribute `#[sub_expr]` to show that it is a
+//! sub-expression (or sub-value, if `E` is [`PartialValue`]).
+//! Like with shadow names, `#[sub_exprs]` can be used to denote an iterable field with
+//! sub-expression values.
 use std::collections::HashMap;
 
 use crate::basic_nodes::*;
@@ -8,11 +57,25 @@ use fnodes_macros::*;
 pub trait ExpressionVariant {
     fn sub_expressions(&self) -> Vec<&Expr>;
     fn sub_expressions_mut(&mut self) -> Vec<&mut Expr>;
+    /// A list of the local names bound in this expression.
+    /// Not all binding names may a priori be visible to all sub-expressions.
+    fn binding_shadow_names(&self) -> Vec<&Shadow<Name>>;
+    /// A list of the local names used in this expression that were bound somewhere else.
+    fn non_binding_shadow_names(&self) -> Vec<&Shadow<Name>>;
 }
 
 pub trait PartialValueVariant {
     fn sub_values(&self) -> Vec<&PartialValue>;
     fn sub_values_mut(&mut self) -> Vec<&mut PartialValue>;
+    /// A list of the local names bound in this value.
+    /// Not all binding names may a priori be visible to all sub-values.
+    fn binding_shadow_names(&self) -> Vec<Shadow<Str>>;
+    /// A list of the local names used in this expression that were bound somewhere else.
+    fn non_binding_shadow_names(&self) -> Vec<Shadow<Str>>;
+    /// See [`PartialValueVariant::binding_names`].
+    fn binding_shadow_names_mut(&mut self) -> Vec<&mut Shadow<Str>>;
+    /// See [`PartialValueVariant::non_binding_names`].
+    fn non_binding_shadow_names_mut(&mut self) -> Vec<&mut Shadow<Str>>;
 }
 
 impl<'a> From<&'a Box<Expr>> for &'a Expr {
@@ -54,6 +117,22 @@ impl PartialValueVariant for ComponentContents<Str, PartialValue> {
 
     fn sub_values_mut(&mut self) -> Vec<&mut PartialValue> {
         vec![&mut self.ty]
+    }
+
+    fn binding_shadow_names(&self) -> Vec<Shadow<Str>> {
+        Vec::new()
+    }
+
+    fn non_binding_shadow_names(&self) -> Vec<Shadow<Str>> {
+        Vec::new()
+    }
+
+    fn binding_shadow_names_mut(&mut self) -> Vec<&mut Shadow<Str>> {
+        Vec::new()
+    }
+
+    fn non_binding_shadow_names_mut(&mut self) -> Vec<&mut Shadow<Str>> {
+        Vec::new()
     }
 }
 
@@ -139,41 +218,55 @@ impl ExpressionVariant for Component<Name, Expr> {
     fn sub_expressions_mut(&mut self) -> Vec<&mut Expr> {
         vec![&mut self.contents.ty]
     }
+
+    fn binding_shadow_names(&self) -> Vec<&Shadow<Name>> {
+        Vec::new()
+    }
+
+    fn non_binding_shadow_names(&self) -> Vec<&Shadow<Name>> {
+        Vec::new()
+    }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ListSexpr)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword = "local"]
-pub struct IntroLocal(#[list] pub Shadow<Str>);
+pub struct IntroLocal(
+    #[list]
+    #[non_binding_shadow_name]
+    pub Shadow<Str>,
+);
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ListSexpr)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword = "ifalse"]
 pub struct IntroFalse;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ListSexpr)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword = "itrue"]
 pub struct IntroTrue;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ListSexpr)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword = "iunit"]
 pub struct IntroUnit;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ListSexpr)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword = "fu64"]
 pub struct FormU64;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ListSexpr)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword = "fbool"]
 pub struct FormBool;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ListSexpr)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword = "funit"]
 pub struct FormUnit;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ListSexpr)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword = "iu64"]
 pub struct IntroU64(#[atomic] pub u64);
 
-#[derive(Debug, Clone, PartialEq, Eq, ListSexpr)]
+/// This derives [`ExprVariant`] even though it's not really an expression variant.
+/// This is simply for ease of use, and we don't register it as a 'real' enum variant.
+#[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword]
 pub struct NameWithExpr<N, E> {
     #[direct]
@@ -183,7 +276,7 @@ pub struct NameWithExpr<N, E> {
     pub expr: E,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, ListSexpr)]
+#[derive(Debug, PartialEq, Eq, Clone, ExprVariant)]
 #[list_sexpr_keyword = "iprod"]
 pub struct IntroProduct<N, E> {
     #[list_flatten]
@@ -191,7 +284,7 @@ pub struct IntroProduct<N, E> {
     pub fields: Vec<NameWithExpr<N, E>>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, ListSexpr)]
+#[derive(Debug, PartialEq, Eq, Clone, ExprVariant)]
 #[list_sexpr_keyword = "fprod"]
 pub struct FormProduct<C> {
     #[list_flatten]
@@ -199,11 +292,12 @@ pub struct FormProduct<C> {
     pub fields: Vec<C>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, ListSexpr)]
+#[derive(Debug, PartialEq, Eq, Clone, ExprVariant)]
 #[list_sexpr_keyword = "mprod"]
 pub struct MatchProduct<N, E> {
     /// Should have the same length as `fields`.
     #[list]
+    #[binding_shadow_names]
     pub names_to_bind: Vec<Shadow<N>>,
     #[list]
     pub fields: Vec<N>,
@@ -215,7 +309,7 @@ pub struct MatchProduct<N, E> {
     pub body: Box<E>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, ListSexpr)]
+#[derive(Debug, PartialEq, Eq, Clone, ExprVariant)]
 #[list_sexpr_keyword = "icoprod"]
 pub struct IntroCoproduct<N, E> {
     #[list]
@@ -223,7 +317,7 @@ pub struct IntroCoproduct<N, E> {
     pub variant: Box<NameWithExpr<N, E>>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, ListSexpr)]
+#[derive(Debug, PartialEq, Eq, Clone, ExprVariant)]
 #[list_sexpr_keyword = "fcoprod"]
 pub struct FormCoproduct<C> {
     #[list_flatten]
@@ -231,11 +325,12 @@ pub struct FormCoproduct<C> {
     pub variants: Vec<C>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, ListSexpr)]
+#[derive(Debug, PartialEq, Eq, Clone, ExprVariant)]
 #[list_sexpr_keyword = "mcoprod"]
 pub struct MatchCoproduct<N, E> {
     /// Should have the same length as `variants`.
     #[list]
+    #[binding_shadow_names]
     pub names_to_bind: Vec<Shadow<N>>,
     /// The type of the result.
     #[list]
@@ -249,7 +344,7 @@ pub struct MatchCoproduct<N, E> {
 
 /// A type that can be coerced into `fcoprod`, once we know the actual variants.
 /// This is mainly used during type inference.
-#[derive(Debug, PartialEq, Eq, Clone, ListSexpr)]
+#[derive(Debug, PartialEq, Eq, Clone, ExprVariant)]
 #[list_sexpr_keyword = "fanycoprod"]
 pub struct FormAnyCoproduct<C> {
     #[list]
@@ -262,7 +357,7 @@ pub struct FormAnyCoproduct<C> {
 /// This is an instance of the ===-conv1 rule.
 ///
 /// Together with [`ExpandTy`], we can convert between all equivalent types.
-#[derive(Debug, PartialEq, Eq, Clone, ListSexpr)]
+#[derive(Debug, PartialEq, Eq, Clone, ExprVariant)]
 #[list_sexpr_keyword = "reducety"]
 pub struct ReduceTy<E> {
     #[list]
@@ -278,7 +373,7 @@ pub struct ReduceTy<E> {
 /// This is an instance of the ===-conv1 rule.
 ///
 /// Together with [`ReduceTy`], we can convert between all equivalent types.
-#[derive(Debug, PartialEq, Eq, Clone, ListSexpr)]
+#[derive(Debug, PartialEq, Eq, Clone, ExprVariant)]
 #[list_sexpr_keyword = "expandty"]
 pub struct ExpandTy<E> {
     #[list]
@@ -289,15 +384,16 @@ pub struct ExpandTy<E> {
     pub target_ty: Box<E>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, ListSexpr)]
+#[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword = "inst"]
 pub struct Inst<Q>(#[list] pub Q);
 
-#[derive(Debug, Clone, PartialEq, Eq, ListSexpr)]
+#[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword = "let"]
 pub struct Let<N, E> {
     /// The name of the local variable to bind.
     #[list]
+    #[binding_shadow_name]
     pub name_to_assign: Shadow<N>,
     /// The value to assign to the new bound variable.
     #[list]
@@ -309,11 +405,12 @@ pub struct Let<N, E> {
     pub body: Box<E>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, ListSexpr)]
+#[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword = "lambda"]
 pub struct Lambda<N, E> {
     /// The new variables to be bound in the body of the lambda.
     #[list]
+    #[binding_shadow_names]
     pub names_to_bind: Vec<Shadow<N>>,
     /// The body of the lambda, also called the lambda term.
     #[list]
@@ -321,7 +418,7 @@ pub struct Lambda<N, E> {
     pub body: Box<E>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, ListSexpr)]
+#[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword = "ap"]
 pub struct Apply<N, E> {
     /// The function to be invoked.
@@ -330,12 +427,13 @@ pub struct Apply<N, E> {
     pub function: Box<E>,
     /// The argument to apply to the function.
     #[list]
+    #[non_binding_shadow_name]
     pub argument: Shadow<N>,
 }
 
 /// An inference variable.
 /// May have theoretically any type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, ListSexpr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, ExprVariant)]
 #[list_sexpr_keyword = "var"]
 pub struct Var(#[atomic] u32);
 
@@ -367,11 +465,12 @@ impl VarGenerator {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, ListSexpr)]
+#[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword = "ffunc"]
 pub struct FormFunc<N, E> {
     /// The name of the parameter.
     #[list]
+    #[binding_shadow_name]
     pub parameter_name: Shadow<N>,
     /// The type of the parameter.
     #[list]
@@ -383,11 +482,11 @@ pub struct FormFunc<N, E> {
     pub result: Box<E>,
 }
 
-#[derive(Debug, PartialEq, Eq, ListSexpr)]
+#[derive(Debug, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword = "funiverse"]
 pub struct FormUniverse;
 
-#[derive(Debug, PartialEq, Eq, ListSexpr)]
+#[derive(Debug, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword = "ty"]
 pub struct ExprTy(
     #[list]
@@ -395,7 +494,7 @@ pub struct ExprTy(
     pub Expr,
 );
 
-#[derive(Debug, PartialEq, Eq, ListSexpr)]
+#[derive(Debug, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword = "pty"]
 pub struct PartialExprTy(
     #[list]

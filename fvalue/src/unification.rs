@@ -1,3 +1,5 @@
+use fnodes::basic_nodes::ShadowGenerator;
+
 use crate::*;
 
 /// Do not mutate any values in `TyCtx` except for `print`, which may be used mutably.
@@ -5,6 +7,7 @@ pub struct TyCtx<'a> {
     pub db: &'a dyn ValueInferenceEngine,
     pub source: Source,
     pub var_gen: VarGenerator,
+    pub shadow_gen: ShadowGenerator,
     pub known_local_types: &'a NodeInfoContainer<ExprContents, PartialExprTy>,
     pub print: PartialValuePrinter<'a>,
     pub infos: &'a DefaultInfos,

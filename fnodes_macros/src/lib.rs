@@ -76,7 +76,7 @@ fn write_value_generics(generics: &[GenericType]) -> Punctuated<TokenStream, Tok
 }
 
 #[proc_macro_derive(
-    ListSexpr,
+    ExprVariant,
     attributes(
         list_sexpr_keyword,
         atomic,
@@ -85,10 +85,14 @@ fn write_value_generics(generics: &[GenericType]) -> Punctuated<TokenStream, Tok
         list_flatten,
         sub_expr,
         sub_expr_flatten,
-        sub_exprs_flatten
+        sub_exprs_flatten,
+        binding_shadow_name,
+        binding_shadow_names,
+        non_binding_shadow_name,
+        non_binding_shadow_names,
     )
 )]
-pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+pub fn derive_expr_variant(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let keyword = input
         .attrs
@@ -265,18 +269,19 @@ pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStre
         });
     }
 
+    let node_generics = write_node_generics(&generics);
+    let value_generics = write_value_generics(&generics);
+
+    let mut sub_expressions = Punctuated::<TokenStream, Token![;]>::new();
+    let mut sub_expressions_mut = Punctuated::<TokenStream, Token![;]>::new();
+    let mut sub_values = Punctuated::<TokenStream, Token![;]>::new();
+    let mut sub_values_mut = Punctuated::<TokenStream, Token![;]>::new();
+
     if generics
         .iter()
         .any(|generic| matches!(generic, GenericType::Expr | GenericType::Component))
     {
         // We can make sub_expressions functions.
-        let node_generics = write_node_generics(&generics);
-        let value_generics = write_value_generics(&generics);
-
-        let mut sub_expressions = Punctuated::<TokenStream, Token![;]>::new();
-        let mut sub_expressions_mut = Punctuated::<TokenStream, Token![;]>::new();
-        let mut sub_values = Punctuated::<TokenStream, Token![;]>::new();
-        let mut sub_values_mut = Punctuated::<TokenStream, Token![;]>::new();
         for (field_index, field) in data.fields.iter().enumerate() {
             let field_name = field
                 .ident
@@ -286,6 +291,7 @@ pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                     let field_index = syn::Index::from(field_index);
                     quote!(#field_index)
                 });
+
             if field
                 .attrs
                 .iter()
@@ -339,61 +345,147 @@ pub fn derive_list_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                 });
             }
         }
-
-        output.extend(quote! {
-            impl crate::expr::ExpressionVariant for #name<#node_generics> {
-                fn sub_expressions(&self) -> Vec<&Expr> {
-                    let mut result = Vec::new();
-                    #sub_expressions;
-                    result
-                }
-
-                fn sub_expressions_mut(&mut self) -> Vec<&mut Expr> {
-                    let mut result = Vec::new();
-                    #sub_expressions_mut;
-                    result
-                }
-            }
-
-            impl crate::expr::PartialValueVariant for #name<#value_generics> {
-                fn sub_values(&self) -> Vec<&PartialValue> {
-                    let mut result = Vec::new();
-                    #sub_values;
-                    result
-                }
-
-                fn sub_values_mut(&mut self) -> Vec<&mut PartialValue> {
-                    let mut result = Vec::new();
-                    #sub_values_mut;
-                    result
-                }
-            }
-        });
-    } else {
-        // We will make default sub_expressions functions.
-        let input_generics = &input.generics;
-        output.extend(quote! {
-            impl #input_generics crate::expr::ExpressionVariant for #name #input_generics {
-                fn sub_expressions(&self) -> Vec<&crate::expr::Expr> {
-                    Vec::new()
-                }
-
-                fn sub_expressions_mut(&mut self) -> Vec<&mut crate::expr::Expr> {
-                    Vec::new()
-                }
-            }
-
-            impl #input_generics crate::expr::PartialValueVariant for #name #input_generics {
-                fn sub_values(&self) -> Vec<&crate::expr::PartialValue> {
-                    Vec::new()
-                }
-
-                fn sub_values_mut(&mut self) -> Vec<&mut crate::expr::PartialValue> {
-                    Vec::new()
-                }
-            }
-        })
     }
+
+    let mut node_binding_shadow_names = Punctuated::<TokenStream, Token![;]>::new();
+    let mut node_non_binding_shadow_names = Punctuated::<TokenStream, Token![;]>::new();
+    let mut value_binding_shadow_names = Punctuated::<TokenStream, Token![;]>::new();
+    let mut value_non_binding_shadow_names = Punctuated::<TokenStream, Token![;]>::new();
+    let mut value_binding_shadow_names_mut = Punctuated::<TokenStream, Token![;]>::new();
+    let mut value_non_binding_shadow_names_mut = Punctuated::<TokenStream, Token![;]>::new();
+
+    if generics
+        .iter()
+        .any(|generic| matches!(generic, GenericType::Name))
+    {
+        // We can make the binding_shadow_names function.
+        for (field_index, field) in data.fields.iter().enumerate() {
+            let field_name = field
+                .ident
+                .as_ref()
+                .map(|name| quote!(#name))
+                .unwrap_or_else(|| {
+                    let field_index = syn::Index::from(field_index);
+                    quote!(#field_index)
+                });
+
+            if field.attrs.iter().any(|attr| {
+                attr.path == Ident::new("binding_shadow_name", Span::call_site()).into()
+            }) {
+                node_binding_shadow_names.push(quote! {
+                    result.push(&self.#field_name);
+                });
+                value_binding_shadow_names.push(quote! {
+                    result.push(self.#field_name);
+                });
+                value_binding_shadow_names_mut.push(quote! {
+                    result.push(&mut self.#field_name);
+                });
+            } else if field.attrs.iter().any(|attr| {
+                attr.path == Ident::new("binding_shadow_names", Span::call_site()).into()
+            }) {
+                node_binding_shadow_names.push(quote! {
+                    result.extend((&self.#field_name).iter());
+                });
+                value_binding_shadow_names.push(quote! {
+                    result.extend((&self.#field_name).iter().copied());
+                });
+                value_binding_shadow_names_mut.push(quote! {
+                    result.extend((&mut self.#field_name).iter_mut());
+                });
+            } else if field.attrs.iter().any(|attr| {
+                attr.path == Ident::new("non_binding_shadow_name", Span::call_site()).into()
+            }) {
+                node_non_binding_shadow_names.push(quote! {
+                    result.push(&self.#field_name);
+                });
+                value_non_binding_shadow_names.push(quote! {
+                    result.push(self.#field_name);
+                });
+                value_non_binding_shadow_names_mut.push(quote! {
+                    result.push(&mut self.#field_name);
+                });
+            } else if field.attrs.iter().any(|attr| {
+                attr.path == Ident::new("non_binding_shadow_names", Span::call_site()).into()
+            }) {
+                node_non_binding_shadow_names.push(quote! {
+                    result.extend((&self.#field_name).iter());
+                });
+                value_non_binding_shadow_names.push(quote! {
+                    result.extend((&self.#field_name).iter().copied());
+                });
+                value_non_binding_shadow_names_mut.push(quote! {
+                    result.extend((&mut self.#field_name).iter_mut());
+                });
+            }
+        }
+    }
+
+    output.extend(quote! {
+        impl crate::expr::ExpressionVariant for #name<#node_generics> {
+            fn sub_expressions(&self) -> Vec<&Expr> {
+                let mut result = Vec::new();
+                #sub_expressions;
+                result
+            }
+
+            fn sub_expressions_mut(&mut self) -> Vec<&mut Expr> {
+                let mut result = Vec::new();
+                #sub_expressions_mut;
+                result
+            }
+
+            fn binding_shadow_names(&self) -> Vec<&Shadow<Name>> {
+                let mut result = Vec::new();
+                #node_binding_shadow_names;
+                result
+            }
+
+            fn non_binding_shadow_names(&self) -> Vec<&Shadow<Name>> {
+                let mut result = Vec::new();
+                #node_non_binding_shadow_names;
+                result
+            }
+        }
+
+        impl crate::expr::PartialValueVariant for #name<#value_generics> {
+            fn sub_values(&self) -> Vec<&PartialValue> {
+                let mut result = Vec::new();
+                #sub_values;
+                result
+            }
+
+            fn sub_values_mut(&mut self) -> Vec<&mut PartialValue> {
+                let mut result = Vec::new();
+                #sub_values_mut;
+                result
+            }
+
+            fn binding_shadow_names(&self) -> Vec<Shadow<Str>> {
+                let mut result = Vec::new();
+                #value_binding_shadow_names;
+                result
+            }
+
+            fn non_binding_shadow_names(&self) -> Vec<Shadow<Str>> {
+                let mut result = Vec::new();
+                #value_non_binding_shadow_names;
+                result
+            }
+
+            fn binding_shadow_names_mut(&mut self) -> Vec<&mut Shadow<Str>> {
+                let mut result = Vec::new();
+                #value_binding_shadow_names_mut;
+                result
+            }
+
+            fn non_binding_shadow_names_mut(&mut self) -> Vec<&mut Shadow<Str>> {
+                let mut result = Vec::new();
+                #value_non_binding_shadow_names_mut;
+                result
+            }
+        }
+    });
 
     // let result = output.into();
     // eprintln!("{}", result);
@@ -633,6 +725,13 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let mut process_sub_expressions_mut = Punctuated::<TokenStream, Token![,]>::new();
     let mut process_sub_values = Punctuated::<TokenStream, Token![,]>::new();
     let mut process_sub_values_mut = Punctuated::<TokenStream, Token![,]>::new();
+    let mut process_node_binding_shadow_names = Punctuated::<TokenStream, Token![,]>::new();
+    let mut process_node_non_binding_shadow_names = Punctuated::<TokenStream, Token![,]>::new();
+    let mut process_value_binding_shadow_names = Punctuated::<TokenStream, Token![,]>::new();
+    let mut process_value_non_binding_shadow_names = Punctuated::<TokenStream, Token![,]>::new();
+    let mut process_value_binding_shadow_names_mut = Punctuated::<TokenStream, Token![,]>::new();
+    let mut process_value_non_binding_shadow_names_mut =
+        Punctuated::<TokenStream, Token![,]>::new();
     for variant in &input.variants {
         let name = variant.name.clone();
         if variant.nullary {
@@ -648,6 +747,24 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             process_sub_values_mut.push(quote! {
                 Self::#name => Vec::new()
             });
+            process_node_binding_shadow_names.push(quote! {
+                Self::#name => Vec::new()
+            });
+            process_node_non_binding_shadow_names.push(quote! {
+                Self::#name => Vec::new()
+            });
+            process_value_binding_shadow_names.push(quote! {
+                Self::#name => Vec::new()
+            });
+            process_value_non_binding_shadow_names.push(quote! {
+                Self::#name => Vec::new()
+            });
+            process_value_binding_shadow_names_mut.push(quote! {
+                Self::#name => Vec::new()
+            });
+            process_value_non_binding_shadow_names_mut.push(quote! {
+                Self::#name => Vec::new()
+            });
         } else {
             process_sub_expressions.push(quote! {
                 Self::#name(val) => val.sub_expressions()
@@ -660,6 +777,24 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             });
             process_sub_values_mut.push(quote! {
                 Self::#name(val) => val.sub_values_mut()
+            });
+            process_node_binding_shadow_names.push(quote! {
+                Self::#name(val) => ExpressionVariant::binding_shadow_names(val)
+            });
+            process_node_non_binding_shadow_names.push(quote! {
+                Self::#name(val) => ExpressionVariant::non_binding_shadow_names(val)
+            });
+            process_value_binding_shadow_names.push(quote! {
+                Self::#name(val) => PartialValueVariant::binding_shadow_names(val)
+            });
+            process_value_non_binding_shadow_names.push(quote! {
+                Self::#name(val) => PartialValueVariant::non_binding_shadow_names(val)
+            });
+            process_value_binding_shadow_names_mut.push(quote! {
+                Self::#name(val) => PartialValueVariant::binding_shadow_names_mut(val)
+            });
+            process_value_non_binding_shadow_names_mut.push(quote! {
+                Self::#name(val) => PartialValueVariant::non_binding_shadow_names_mut(val)
             });
         };
     }
@@ -773,6 +908,18 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     #process_sub_expressions_mut
                 }
             }
+
+            pub fn binding_shadow_names(&self) -> Vec<&Shadow<Name>> {
+                match self {
+                    #process_node_binding_shadow_names
+                }
+            }
+
+            pub fn non_binding_shadow_names(&self) -> Vec<&Shadow<Name>> {
+                match self {
+                    #process_node_non_binding_shadow_names
+                }
+            }
         }
 
         impl PartialValue {
@@ -785,6 +932,30 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             pub fn sub_values_mut(&mut self) -> Vec<&mut PartialValue> {
                 match self {
                     #process_sub_values_mut
+                }
+            }
+
+            pub fn binding_shadow_names(&self) -> Vec<Shadow<Str>> {
+                match self {
+                    #process_value_binding_shadow_names
+                }
+            }
+
+            pub fn non_binding_shadow_names(&self) -> Vec<Shadow<Str>> {
+                match self {
+                    #process_value_non_binding_shadow_names
+                }
+            }
+
+            pub fn binding_shadow_names_mut(&mut self) -> Vec<&mut Shadow<Str>> {
+                match self {
+                    #process_value_binding_shadow_names_mut
+                }
+            }
+
+            pub fn non_binding_shadow_names_mut(&mut self) -> Vec<&mut Shadow<Str>> {
+                match self {
+                    #process_value_non_binding_shadow_names_mut
                 }
             }
         }
