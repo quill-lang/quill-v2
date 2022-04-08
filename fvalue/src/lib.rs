@@ -10,7 +10,7 @@ use std::{
 
 use fcommon::{Dr, Label, LabelType, Path, Report, ReportKind, Source, SourceType, Span, Str};
 use fnodes::{
-    basic_nodes::{Name, SourceSpan},
+    basic_nodes::{Name, Shadow, ShadowGenerator, SourceSpan},
     expr::*,
     DefaultInfos, Definition, ModuleParseResult, NodeId, NodeInfoContainer, SexprParserExt,
 };
@@ -224,22 +224,23 @@ fn infer_values(
 
 #[derive(Default)]
 struct LocalVariables<'a> {
-    map: HashMap<Str, PartialValue>,
-    provenance: HashMap<Str, &'a Name>,
+    map: HashMap<Shadow<Str>, PartialValue>,
+    provenance: HashMap<Shadow<Str>, &'a Shadow<Name>>,
 }
 
 impl<'a> LocalVariables<'a> {
-    pub fn insert_ty(&mut self, name: &'a Name, ty: PartialValue) {
-        if let Some(original_provenance) = self.provenance.insert(name.contents, name) {
+    pub fn insert_ty(&mut self, name: &'a Shadow<Name>, ty: PartialValue) {
+        let shadow_str = name.into();
+        if let Some(original_provenance) = self.provenance.insert(shadow_str, name) {
             panic!(
                 "variable name {:?} used twice: {:?} and {:?}",
-                name.contents, name, original_provenance
+                shadow_str, name, original_provenance
             );
         }
-        self.map.insert(name.contents, ty);
+        self.map.insert(shadow_str, ty);
     }
 
-    pub fn get_ty(&mut self, name: Str) -> &PartialValue {
+    pub fn get_ty(&mut self, name: Shadow<Str>) -> &PartialValue {
         &self.map[&name]
     }
 }
@@ -247,7 +248,6 @@ impl<'a> LocalVariables<'a> {
 /// Infers types of each sub-expression in a given definition.
 /// `known_local_types` is the set of types that we currently know about.
 /// In particular, any locally-defined definitions (in this module) have known types listed in this map.
-#[tracing::instrument(level = "trace")]
 fn infer_values_def(
     db: &dyn ValueInferenceEngine,
     source: Source,
@@ -256,13 +256,17 @@ fn infer_values_def(
     infos: &DefaultInfos,
 ) -> Dr<NodeInfoContainer<ExprContents, PartialExprTy>> {
     // To each expression we associate a type.
-    // TODO: use tys from node info in `res`
-    // TODO: variable ID generator should be initialised with non-clashing IDs from the expression, since it may have its own IDs already
     debug!("def was: {:#?}", def);
     let mut ctx = TyCtx {
         db,
         source,
         var_gen: VarGenerator::new(largest_unusable_var(&def.contents.expr, infos)),
+        shadow_gen: {
+            let mut gen = ShadowGenerator::new();
+            fill_shadow_gen(&mut gen, &def.contents.expr);
+            debug!("gen: {:#?}", gen);
+            gen
+        },
         known_local_types,
         print: PartialValuePrinter::new(db.up()),
         infos,
@@ -311,6 +315,18 @@ fn largest_unusable_var(expr: &Expr, infos: &DefaultInfos) -> Option<Var> {
                 .filter_map(|inner_expr| largest_unusable_var(inner_expr, infos)),
         )
         .max()
+}
+
+/// Work out which shadow IDs were used by the given expression.
+/// This will initialise the shadow generator such that it never produces a clashing ID.
+fn fill_shadow_gen(shadow_gen: &mut ShadowGenerator, expr: &Expr) {
+    for shadow in expr.contents.binding_shadow_names() {
+        shadow_gen.register_from_name(shadow);
+    }
+
+    for e in expr.contents.sub_expressions() {
+        fill_shadow_gen(shadow_gen, e);
+    }
 }
 
 /// Traverses the expression syntax tree, working out the *types* of each expression.
@@ -375,6 +391,7 @@ fn traverse_inner<'a, 'b: 'a>(
     match &expr.contents {
         ExprContents::IntroLocal(IntroLocal(n)) => Dr::ok(Unification::new_with_expr_type(
             expr,
+            // TODO: Make sure that we don't reuse variable names.
             locals.get_ty(*n).clone(),
         )),
         ExprContents::IntroU64(_) => {
@@ -746,6 +763,7 @@ fn traverse_inner<'a, 'b: 'a>(
             let (source_file, def_name) = ctx
                 .db
                 .split_path_last(ctx.db.qualified_name_to_path(qualified_name));
+            // TODO: Make sure that we don't reuse variable names.
             if source_file == ctx.source.path {
                 // This is a local definition.
                 // So its type should be present in `ctx.known_local_types`.
@@ -813,7 +831,7 @@ fn traverse_inner<'a, 'b: 'a>(
                     body_unif.expr_type(body),
                     |result, (name_to_bind, parameter)| {
                         PartialValue::FormFunc(FormFunc {
-                            parameter_name: name_to_bind.contents,
+                            parameter_name: Shadow::<Str>::from(name_to_bind),
                             parameter_ty: Box::new(parameter),
                             result: Box::new(result),
                         })
@@ -823,16 +841,18 @@ fn traverse_inner<'a, 'b: 'a>(
             })
         }
         ExprContents::Apply(Apply { function, argument }) => {
-            // Construct a new inference variable for the result type.
-            let result_ty = ctx.var_gen.gen();
-            let function_type = locals.get_ty(function.contents).clone();
-            let found_type = PartialValue::FormFunc(FormFunc {
-                parameter_name: argument.contents,
-                parameter_ty: Box::new(locals.get_ty(argument.contents).clone()),
-                result: Box::new(PartialValue::Var(result_ty)),
-            });
-            Unification::default()
-                .unify(
+            // Traverse the function's body.
+            traverse(function, ctx, locals).bind(|unif| {
+                // Construct a new inference variable for the result type.
+                let result_ty = ctx.var_gen.gen();
+                let function_type = unif.expr_type(function);
+                let parameter_name = Shadow::<Str>::from(argument);
+                let found_type = PartialValue::FormFunc(FormFunc {
+                    parameter_name,
+                    parameter_ty: Box::new(locals.get_ty(parameter_name).clone()),
+                    result: Box::new(PartialValue::Var(result_ty)),
+                });
+                unif.unify(
                     function_type,
                     found_type,
                     ctx,
@@ -849,10 +869,7 @@ fn traverse_inner<'a, 'b: 'a>(
                                     .with_order(0),
                             )
                             .with_label(
-                                if let PartialValue::FormFunc(FormFunc { parameter_ty, .. })
-                                | PartialValue::FormAnyFunc(FormAnyFunc {
-                                    parameter_ty, ..
-                                }) = found
+                                if let PartialValue::FormFunc(FormFunc { parameter_ty, .. }) = found
                                 {
                                     Label::new(ctx.source, function.span(), LabelType::Error)
                                         .with_message(format!(
@@ -873,7 +890,7 @@ fn traverse_inner<'a, 'b: 'a>(
             PartialValue::Var(*var),
         )),
         ExprContents::FormFunc(FormFunc {
-            parameter_name,
+            parameter_name: _,
             parameter_ty,
             result,
         }) => traverse(parameter_ty, ctx, locals)
@@ -881,7 +898,6 @@ fn traverse_inner<'a, 'b: 'a>(
                 traverse(result, ctx, locals).bind(|unif2| unif.with(unif2, ctx, expr.span()))
             })
             .map(|unif| unif.with_expr_type(expr, PartialValue::FormUniverse)),
-        ExprContents::FormAnyFunc(_) => todo!(),
         ExprContents::FormUniverse => Dr::ok(Unification::new_with_expr_type(
             expr,
             PartialValue::FormUniverse,

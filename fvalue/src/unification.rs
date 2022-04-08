@@ -1,3 +1,5 @@
+use fnodes::basic_nodes::ShadowGenerator;
+
 use crate::*;
 
 /// Do not mutate any values in `TyCtx` except for `print`, which may be used mutably.
@@ -5,6 +7,7 @@ pub struct TyCtx<'a> {
     pub db: &'a dyn ValueInferenceEngine,
     pub source: Source,
     pub var_gen: VarGenerator,
+    pub shadow_gen: ShadowGenerator,
     pub known_local_types: &'a NodeInfoContainer<ExprContents, PartialExprTy>,
     pub print: PartialValuePrinter<'a>,
     pub infos: &'a DefaultInfos,
@@ -235,7 +238,6 @@ impl Unification {
         expected: &PartialValue,
         found: &PartialValue,
     ) -> Vec<Label> {
-        // TODO: It's not trivial to unify local variables.
         match (expected, found) {
             (
                 PartialValue::FormFunc(FormFunc {
@@ -259,6 +261,8 @@ impl Unification {
                 let mut found_result = *found_result.clone();
                 self.canonicalise(&mut expected_result);
                 self.canonicalise(&mut found_result);
+                // Make sure that the function parameter names match.
+                found_result.alpha_convert(*found_parameter_name, *expected_parameter_name);
                 labels.extend(self.unify_recursive(ctx, span, &expected_result, &found_result));
 
                 labels
@@ -535,11 +539,10 @@ impl Unification {
                 parameter_ty,
                 result,
             }) => PartialValue::FormFunc(FormFunc {
-                parameter_name: parameter_name.contents,
+                parameter_name: Shadow::<Str>::from(parameter_name),
                 parameter_ty: Box::new(self.expr_to_value(parameter_ty, ctx)),
                 result: Box::new(self.expr_to_value(result, ctx)),
             }),
-            ExprContents::FormAnyFunc(_) => todo!(),
             ExprContents::FormUniverse => todo!(),
         }
     }
