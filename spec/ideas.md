@@ -186,4 +186,5 @@ Feather could also potentially have plugins for things like tactics, allowing "i
 
 # TODO
 
-Make the use of past/present tense and active/passive voice consistent within the compiler.
+Make the use of past/present tense and active/passive voice consistent within the compiler's messages.
+Also, we could make the use of "parameter" and "argument" more consistent?

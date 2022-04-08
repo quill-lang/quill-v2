@@ -1,9 +1,10 @@
 (module
     ()
     (def test ()
-        (let val
-            (inst (test test ret4))
-            (ap (lambda (x) (local x)) val)
+        (let val (inst (test test ret4))
+            (let id (lambda (x) (local x))
+                (ap id val)
+            )
         )
     )
     (def ret4 ()
@@ -25,9 +26,10 @@
         )
     )
     (def use_fst ()
-        (let pair
-            (inst (test test make_pair))
-            (ap (inst (test test fst)) pair)
+        (let pair (inst (test test make_pair))
+            (let instfst (inst (test test fst))
+                (ap instfst pair)
+            )
         )
     )
 

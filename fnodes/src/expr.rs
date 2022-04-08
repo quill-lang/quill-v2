@@ -323,11 +323,10 @@ pub struct Lambda<N, E> {
 
 #[derive(Debug, Clone, PartialEq, Eq, ListSexpr)]
 #[list_sexpr_keyword = "ap"]
-pub struct Apply<N, E> {
+pub struct Apply<N> {
     /// The function to be invoked.
-    #[list]
-    #[sub_expr]
-    pub function: Box<E>,
+    #[direct]
+    pub function: N,
     /// The argument to apply to the function.
     #[direct]
     pub argument: N,
@@ -444,7 +443,7 @@ gen_expr! {
     Inst<Q>,
     Let<N, E>,
     Lambda<N, E>,
-    Apply<N, E>,
+    Apply<N>,
     Var,
 
     FormFunc<N, E>,

@@ -764,6 +764,8 @@ fn traverse_inner<'a, 'b: 'a>(
                             .expr,
                     )
                     .unwrap();
+                // TODO: To ensure that we don't get name clashes with names in the actual function,
+                // we should first perform an alpha-equivalence transformation.
                 Dr::ok(Unification::new_with_expr_type(expr, ty.0.clone()))
             } else {
                 // This is a definition we've imported from somewhere else.
@@ -821,16 +823,16 @@ fn traverse_inner<'a, 'b: 'a>(
             })
         }
         ExprContents::Apply(Apply { function, argument }) => {
-            // Traverse the function's body.
-            traverse(function, ctx, locals).bind(|unif| {
-                // Construct a new inference variable for the result type.
-                let result_ty = ctx.var_gen.gen();
-                let function_type = unif.expr_type(function);
-                let found_type = PartialValue::FormAnyFunc(FormAnyFunc {
-                    parameter_ty: Box::new(locals.get_ty(argument.contents).clone()),
-                    result: Box::new(PartialValue::Var(result_ty)),
-                });
-                unif.unify(
+            // Construct a new inference variable for the result type.
+            let result_ty = ctx.var_gen.gen();
+            let function_type = locals.get_ty(function.contents).clone();
+            let found_type = PartialValue::FormFunc(FormFunc {
+                parameter_name: argument.contents,
+                parameter_ty: Box::new(locals.get_ty(argument.contents).clone()),
+                result: Box::new(PartialValue::Var(result_ty)),
+            });
+            Unification::default()
+                .unify(
                     function_type,
                     found_type,
                     ctx,
@@ -865,7 +867,6 @@ fn traverse_inner<'a, 'b: 'a>(
                     },
                 )
                 .map(|unif| unif.with_expr_type(expr, PartialValue::Var(result_ty)))
-            })
         }
         ExprContents::Var(var) => Dr::ok(Unification::new_with_expr_type(
             expr,
