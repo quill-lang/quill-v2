@@ -422,8 +422,9 @@ pub struct Lambda<N, E> {
 #[list_sexpr_keyword = "ap"]
 pub struct Apply<N> {
     /// The function to be invoked.
-    #[direct]
-    pub function: N,
+    #[list]
+    #[non_binding_shadow_name]
+    pub function: Shadow<N>,
     /// The argument to apply to the function.
     #[list]
     #[non_binding_shadow_name]

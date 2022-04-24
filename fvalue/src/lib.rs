@@ -842,17 +842,18 @@ fn traverse_inner<'a, 'b: 'a>(
         }
         ExprContents::Apply(Apply { function, argument }) => {
             // Traverse the function's body.
-            traverse(function, ctx, locals).bind(|unif| {
-                // Construct a new inference variable for the result type.
-                let result_ty = ctx.var_gen.gen();
-                let function_type = unif.expr_type(function);
-                let parameter_name = Shadow::<Str>::from(argument);
-                let found_type = PartialValue::FormFunc(FormFunc {
-                    parameter_name,
-                    parameter_ty: Box::new(locals.get_ty(parameter_name).clone()),
-                    result: Box::new(PartialValue::Var(result_ty)),
-                });
-                unif.unify(
+
+            // Construct a new inference variable for the result type.
+            let result_ty = ctx.var_gen.gen();
+            let function_type = locals.get_ty(Shadow::<Str>::from(function)).clone();
+            let parameter_name = Shadow::<Str>::from(argument);
+            let found_type = PartialValue::FormFunc(FormFunc {
+                parameter_name,
+                parameter_ty: Box::new(locals.get_ty(parameter_name).clone()),
+                result: Box::new(PartialValue::Var(result_ty)),
+            });
+            Unification::default()
+                .unify(
                     function_type,
                     found_type,
                     ctx,
@@ -861,7 +862,7 @@ fn traverse_inner<'a, 'b: 'a>(
                         Report::new(ReportKind::Error, ctx.source, expr.span().start)
                             .with_message("type mismatch when calling function")
                             .with_label(
-                                Label::new(ctx.source, function.span(), LabelType::Error)
+                                Label::new(ctx.source, function.value.span(), LabelType::Error)
                                     .with_message(format!(
                                         "the function had type {}",
                                         ctx.print.print(expected)
@@ -871,7 +872,7 @@ fn traverse_inner<'a, 'b: 'a>(
                             .with_label(
                                 if let PartialValue::FormFunc(FormFunc { parameter_ty, .. }) = found
                                 {
-                                    Label::new(ctx.source, function.span(), LabelType::Error)
+                                    Label::new(ctx.source, function.value.span(), LabelType::Error)
                                         .with_message(format!(
                                             "the argument had type {}",
                                             ctx.print.print(parameter_ty)
