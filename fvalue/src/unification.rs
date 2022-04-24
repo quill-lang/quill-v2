@@ -21,7 +21,7 @@ pub struct Unification {
     /// The known types of each expression, at this point in inference.
     expr_types: HashMap<NodeId, PartialValue>,
     /// A map converting a variable into a canonical representation.
-    var_types: HashMap<Var, PartialValue>,
+    var_values: HashMap<Var, PartialValue>,
 
     pending_coercions: Vec<PendingCoercion>,
 }
@@ -94,6 +94,7 @@ impl Unification {
         mut ty: PartialValue,
     ) -> Vec<Label> {
         trace!("inferring {:?} -> {:?}", var, ty);
+
         // Run an occurs check on `ty` to see if the variable occurs in its replacement.
         if matches!(ty, PartialValue::Var(_)) {
             // Skip the occurs check, it's trivial anyway.
@@ -108,7 +109,7 @@ impl Unification {
             ];
         }
         self.canonicalise(&mut ty);
-        if let Some(previous_inference) = self.var_types.insert(var, ty) {
+        if let Some(previous_inference) = self.var_values.insert(var, ty) {
             panic!(
                 "tried to set already-defined variable {:?} (was {:?})",
                 var, previous_inference
@@ -151,7 +152,7 @@ impl Unification {
     // TODO: This assumption isn't actually necessarily true...?
     pub fn with(mut self, other: Self, ctx: &mut TyCtx, span: Span) -> Dr<Self> {
         let mut labels = Vec::new();
-        for (var, ty) in other.var_types {
+        for (var, ty) in other.var_values {
             labels.extend(self.insert_var_type(ctx, span.clone(), var, ty));
         }
         for (node_id, mut val) in other.expr_types {
@@ -168,7 +169,7 @@ impl Unification {
     /// An idempotent operation reducing a value to a standard form.
     pub fn canonicalise(&self, val: &mut PartialValue) {
         match val {
-            PartialValue::Var(var) => match self.var_types.get(var) {
+            PartialValue::Var(var) => match self.var_values.get(var) {
                 // TODO: Is this operation really idempotent?
                 Some(PartialValue::Var(var2)) => *var = *var2,
                 Some(value) => {
@@ -202,7 +203,7 @@ impl Unification {
         report: R,
     ) -> Dr<Self>
     where
-        R: FnOnce(&mut TyCtx, &PartialValue, &PartialValue) -> Report,
+        R: FnOnce(&mut TyCtx, &Self, &PartialValue, &PartialValue) -> Report,
     {
         // Recall everything we currently know about the two values we're dealing with.
         self.canonicalise(&mut expected);
@@ -216,14 +217,12 @@ impl Unification {
         if labels.is_empty() {
             Dr::ok(self)
         } else {
-            Dr::ok_with(
-                self,
-                labels
-                    .into_iter()
-                    .fold(report(ctx, &expected, &found), |report, label| {
-                        report.with_label(label)
-                    }),
-            )
+            let labels = labels
+                .into_iter()
+                .fold(report(ctx, &self, &expected, &found), |report, label| {
+                    report.with_label(label)
+                });
+            Dr::ok_with(self, labels)
         }
         .bind(|unif| unif.process_pending_coercions(ctx))
     }
@@ -454,7 +453,7 @@ impl Unification {
                     coercion.value,
                     ctx,
                     coercion.cause.clone(),
-                    |ctx, expected, found| {
+                    |ctx, _, expected, found| {
                         Report::new(ReportKind::Error, ctx.source, coercion.cause.clone().start)
                             .with_message("type mismatch during type coercion")
                             .with_label(

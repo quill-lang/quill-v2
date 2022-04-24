@@ -115,4 +115,15 @@
             )
         )
     )
+
+    (def id ()
+        (lambda ((T 0))
+            (lambda ((x 0))
+                (expr
+                    (local (x 0))
+                    (ty (local (T 0)))
+                )
+            )
+        )
+    )
 )

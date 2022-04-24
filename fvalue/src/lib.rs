@@ -329,6 +329,30 @@ fn fill_shadow_gen(shadow_gen: &mut ShadowGenerator, expr: &Expr) {
     }
 }
 
+fn with_local_types(
+    mut report: Report,
+    ctx: &mut TyCtx<'_>,
+    unif: &Unification,
+    locals: &mut LocalVariables<'_>,
+) -> Report {
+    for (local, ty) in &locals.map {
+        if let Some(provenance) = locals.provenance.get(local) {
+            let mut ty = ty.clone();
+            unif.canonicalise(&mut ty);
+            report = report.with_label(
+                Label::new(ctx.source, provenance.value.span(), LabelType::Note).with_message(
+                    format!(
+                        "{} has type {}",
+                        local.display(ctx.db.up()),
+                        ctx.print.print(&ty)
+                    ),
+                ),
+            )
+        }
+    }
+    report
+}
+
 /// Traverses the expression syntax tree, working out the *types* of each expression.
 /// Once types are known, we can call [`Unification::expr_to_value`] to compute the value of each expression.
 ///
@@ -353,7 +377,7 @@ fn traverse<'a, 'b: 'a>(
                         ctx,
                         stated_type.span(),
                         |ctx, unif, expected, found| {
-                            let mut report = Report::new(
+                            let report = Report::new(
                                 ReportKind::Error,
                                 ctx.source,
                                 stated_type.span().start,
@@ -371,26 +395,7 @@ fn traverse<'a, 'b: 'a>(
                                         ctx.print.print(expected)
                                     )),
                             );
-                            for (local, ty) in &locals.map {
-                                if let Some(provenance) = locals.provenance.get(local) {
-                                    let mut ty = ty.clone();
-                                    unif.canonicalise(&mut ty);
-                                    report =
-                                        report.with_label(
-                                            Label::new(
-                                                ctx.source,
-                                                provenance.value.span(),
-                                                LabelType::Note,
-                                            )
-                                            .with_message(format!(
-                                                "{} has type {}",
-                                                local.display(ctx.db.up()),
-                                                ctx.print.print(&ty)
-                                            )),
-                                        )
-                                }
-                            }
-                            report
+                            with_local_types(report, ctx, unif, locals)
                         },
                     )
                 })
