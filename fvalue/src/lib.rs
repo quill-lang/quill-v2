@@ -352,23 +352,45 @@ fn traverse<'a, 'b: 'a>(
                         found_type,
                         ctx,
                         stated_type.span(),
-                        |ctx, expected, found| {
-                            Report::new(ReportKind::Error, ctx.source, stated_type.span().start)
-                                .with_message("stated type did not match expression type")
-                                .with_label(
-                                    Label::new(ctx.source, expr.span(), LabelType::Error)
-                                        .with_message(format!(
-                                            "this expression has type {}",
-                                            ctx.print.print(found)
-                                        )),
-                                )
-                                .with_label(
-                                    Label::new(ctx.source, stated_type.span(), LabelType::Error)
-                                        .with_message(format!(
-                                            "the expected type of the expression was {}",
-                                            ctx.print.print(expected)
-                                        )),
-                                )
+                        |ctx, unif, expected, found| {
+                            let mut report = Report::new(
+                                ReportKind::Error,
+                                ctx.source,
+                                stated_type.span().start,
+                            )
+                            .with_message("stated type did not match expression type")
+                            .with_label(
+                                Label::new(ctx.source, expr.span(), LabelType::Error).with_message(
+                                    format!("this expression has type {}", ctx.print.print(found)),
+                                ),
+                            )
+                            .with_label(
+                                Label::new(ctx.source, stated_type.span(), LabelType::Error)
+                                    .with_message(format!(
+                                        "the expected type of the expression was {}",
+                                        ctx.print.print(expected)
+                                    )),
+                            );
+                            for (local, ty) in &locals.map {
+                                if let Some(provenance) = locals.provenance.get(local) {
+                                    let mut ty = ty.clone();
+                                    unif.canonicalise(&mut ty);
+                                    report =
+                                        report.with_label(
+                                            Label::new(
+                                                ctx.source,
+                                                provenance.value.span(),
+                                                LabelType::Note,
+                                            )
+                                            .with_message(format!(
+                                                "{} has type {}",
+                                                local.display(ctx.db.up()),
+                                                ctx.print.print(&ty)
+                                            )),
+                                        )
+                                }
+                            }
+                            report
                         },
                     )
                 })
@@ -448,7 +470,7 @@ fn traverse_inner<'a, 'b: 'a>(
                                 found_type,
                                 ctx,
                                 field.contents.ty.span(),
-                                |ctx, _expected, found| {
+                                |ctx, _unif, _expected, found| {
                                     Report::new(
                                         ReportKind::Error,
                                         ctx.source,
@@ -503,7 +525,7 @@ fn traverse_inner<'a, 'b: 'a>(
                     product_type,
                     ctx,
                     expr.span(),
-                    |_ctx, _expected, _found| {
+                    |_ctx, _unif, _expected, _found| {
                         todo!("tried to invoke `mprod` on a non-product type")
                     },
                 )
@@ -556,7 +578,7 @@ fn traverse_inner<'a, 'b: 'a>(
                                 found_type,
                                 ctx,
                                 variant.contents.ty.span(),
-                                |ctx, _expected, found| {
+                                |ctx, _unif, _expected, found| {
                                     Report::new(
                                         ReportKind::Error,
                                         ctx.source,
@@ -649,7 +671,7 @@ fn traverse_inner<'a, 'b: 'a>(
                     coproduct_type,
                     ctx,
                     expr.span(),
-                    |_ctx, _expected, _found| {
+                    |_ctx, _unif, _expected, _found| {
                         todo!("tried to invoke `mcoprod` on a non-coproduct type")
                     },
                 )
@@ -684,7 +706,7 @@ fn traverse_inner<'a, 'b: 'a>(
                                             found_type,
                                             ctx,
                                             expr.span(),
-                                            |ctx, expected, found| {
+                                            |ctx, _unif, expected, found| {
                                                 Report::new(
                                                 ReportKind::Error,
                                                 ctx.source,
@@ -861,7 +883,7 @@ fn traverse_inner<'a, 'b: 'a>(
                     found_type,
                     ctx,
                     expr.span(),
-                    |ctx, expected, found| {
+                    |ctx, _unif, expected, found| {
                         Report::new(ReportKind::Error, ctx.source, expr.span().start)
                             .with_message("type mismatch when calling function")
                             .with_label(
