@@ -763,7 +763,6 @@ fn traverse_inner<'a, 'b: 'a>(
             let (source_file, def_name) = ctx
                 .db
                 .split_path_last(ctx.db.qualified_name_to_path(qualified_name));
-            // TODO: Make sure that we don't reuse variable names.
             if source_file == ctx.source.path {
                 // This is a local definition.
                 // So its type should be present in `ctx.known_local_types`.
@@ -782,9 +781,13 @@ fn traverse_inner<'a, 'b: 'a>(
                             .expr,
                     )
                     .unwrap();
-                // TODO: To ensure that we don't get name clashes with names in the actual function,
+                // To ensure that we don't get name clashes with names in the actual function,
                 // we should first perform an alpha-equivalence transformation.
-                Dr::ok(Unification::new_with_expr_type(expr, ty.0.clone()))
+                Dr::ok(Unification::new_with_expr_type(expr, {
+                    let mut t = ty.0.clone();
+                    ctx.shadow_gen.shadow_val(&mut t, &[]);
+                    t
+                }))
             } else {
                 // This is a definition we've imported from somewhere else.
                 // So we need to look into the database for its type.

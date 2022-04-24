@@ -5,7 +5,7 @@ use std::{
 
 use fcommon::{Path, PathData, Span, Str};
 
-use crate::*;
+use crate::{expr::PartialValue, *};
 
 impl ListSexpr for Span {
     const KEYWORD: Option<&'static str> = None;
@@ -249,6 +249,26 @@ impl ShadowGenerator {
                 vacant.insert(1);
                 Shadow { value: s, id: 1 }
             }
+        }
+    }
+
+    /// Convert all names to shadowed versions of the name.
+    /// This makes sure that this expression does not use any of the same names as an external expression.
+    /// Names in the given list are not reassigned.
+    pub fn shadow_val(
+        &mut self,
+        val: &mut PartialValue,
+        keep_names: &[Shadow<Str>],
+    ) {
+        let mut new_keep_names = Vec::from(keep_names);
+        for name in val.binding_shadow_names() {
+            // Calling `self.shadow` creates a new ID.
+            let new_id = self.shadow(name.value);
+            new_keep_names.push(new_id);
+            val.alpha_convert(name, new_id);
+        }
+        for value in val.sub_values_mut() {
+            self.shadow_val(value, &new_keep_names);
         }
     }
 

@@ -62,6 +62,14 @@ pub trait ExpressionVariant {
     fn binding_shadow_names(&self) -> Vec<&Shadow<Name>>;
     /// A list of the local names used in this expression that were bound somewhere else.
     fn non_binding_shadow_names(&self) -> Vec<&Shadow<Name>>;
+
+    /// Returns both binding and non-binding shadow names.
+    fn shadow_names(&mut self) -> Vec<&Shadow<Name>> {
+        self.binding_shadow_names()
+            .into_iter()
+            .chain(self.non_binding_shadow_names())
+            .collect()
+    }
 }
 
 pub trait PartialValueVariant {
@@ -76,6 +84,14 @@ pub trait PartialValueVariant {
     fn binding_shadow_names_mut(&mut self) -> Vec<&mut Shadow<Str>>;
     /// See [`PartialValueVariant::non_binding_names`].
     fn non_binding_shadow_names_mut(&mut self) -> Vec<&mut Shadow<Str>>;
+
+    /// Returns both binding and non-binding shadow names.
+    fn shadow_names(&mut self) -> Vec<Shadow<Str>> {
+        self.binding_shadow_names()
+            .into_iter()
+            .chain(self.non_binding_shadow_names())
+            .collect()
+    }
 }
 
 impl<'a> From<&'a Box<Expr>> for &'a Expr {
@@ -600,19 +616,16 @@ impl ListSexpr for Expr {
 }
 
 impl PartialValue {
-    /// Perform an α-conversion to convert any usage of the given name to the result name.
+    /// Perform an α-conversion to convert any (binding or non-binding) usage of the given name to the result name.
     /// This does *not* check for name collisions.
     pub fn alpha_convert(&mut self, name: Shadow<Str>, result: Shadow<Str>) {
-        match self {
-            PartialValue::IntroLocal(IntroLocal(local_name)) => {
-                if *local_name == name {
-                    *local_name = result;
-                }
+        for local_name in self.non_binding_shadow_names_mut() {
+            if *local_name == name {
+                *local_name = result;
             }
-            _ => self
-                .sub_values_mut()
-                .into_iter()
-                .for_each(|value| value.alpha_convert(name, result)),
+        }
+        for value in self.sub_values_mut() {
+            value.alpha_convert(name, result)
         }
     }
 }
