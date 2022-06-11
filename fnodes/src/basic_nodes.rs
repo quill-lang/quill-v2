@@ -5,7 +5,7 @@ use std::{
 
 use fcommon::{Path, PathData, Span, Str};
 
-use crate::{expr::PartialValue, *};
+use crate::*;
 
 impl ListSexpr for Span {
     const KEYWORD: Option<&'static str> = None;

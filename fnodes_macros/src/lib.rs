@@ -55,7 +55,7 @@ fn write_node_generic(generic: &GenericType) -> TokenStream {
         GenericType::Component => {
             quote! { crate::expr::Component<crate::expr::Name, crate::expr::Expr> }
         }
-        GenericType::Universe => quote! { crate::expr::Universe },
+        GenericType::Universe => quote! { crate::expr::UniverseExpr },
     }
 }
 
@@ -65,11 +65,11 @@ fn write_node_generics(generics: &[GenericType]) -> Punctuated<TokenStream, Toke
 
 fn write_value_generic(generic: &GenericType) -> TokenStream {
     match generic {
-        GenericType::Expr => quote! { crate::expr::PartialValue },
+        GenericType::Expr => quote! { crate::expr::Value },
         GenericType::Name => quote! { crate::expr::Str },
         GenericType::QualifiedName => quote! { ::fcommon::Path },
         GenericType::Component => {
-            quote! { crate::expr::ComponentContents<crate::expr::Str, crate::expr::PartialValue> }
+            quote! { crate::expr::ComponentContents<crate::expr::Str, crate::expr::Value> }
         }
         GenericType::Universe => quote! { crate::expr::UniverseValue },
     }
@@ -452,14 +452,14 @@ pub fn derive_expr_variant(input: proc_macro::TokenStream) -> proc_macro::TokenS
             }
         }
 
-        impl crate::expr::PartialValueVariant for #name<#value_generics> {
-            fn sub_values(&self) -> Vec<&PartialValue> {
+        impl crate::expr::ValueVariant for #name<#value_generics> {
+            fn sub_values(&self) -> Vec<&Value> {
                 let mut result = Vec::new();
                 #sub_values;
                 result
             }
 
-            fn sub_values_mut(&mut self) -> Vec<&mut PartialValue> {
+            fn sub_values_mut(&mut self) -> Vec<&mut Value> {
                 let mut result = Vec::new();
                 #sub_values_mut;
                 result
@@ -567,19 +567,19 @@ fn gen_direct_ty(field: &syn::Field, use_node_generics: bool) -> Box<dyn quote::
 
 struct ExprVariants {
     expr_contents_name: Ident,
-    partial_value_name: Ident,
+    value_name: Ident,
     variants: Punctuated<ExprVariant, Token![,]>,
 }
 
 impl Parse for ExprVariants {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let expr_contents_name = input.parse::<Ident>()?;
-        let partial_value_name = input.parse::<Ident>()?;
+        let value_name = input.parse::<Ident>()?;
         input
             .parse_terminated(ExprVariant::parse)
             .map(|variants| ExprVariants {
                 expr_contents_name,
-                partial_value_name,
+                value_name,
                 variants,
             })
     }
@@ -614,7 +614,7 @@ impl Parse for ExprVariant {
 pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as ExprVariants);
     let expr_contents_name = input.expr_contents_name;
-    let partial_value_name = input.partial_value_name;
+    let value_name = input.value_name;
 
     let mut node_variants = Punctuated::<TokenStream, Token![,]>::new();
     let mut value_variants = Punctuated::<TokenStream, Token![,]>::new();
@@ -799,16 +799,16 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 Self::#name(val) => ExpressionVariant::non_binding_shadow_names(val)
             });
             process_value_binding_shadow_names.push(quote! {
-                Self::#name(val) => PartialValueVariant::binding_shadow_names(val)
+                Self::#name(val) => ValueVariant::binding_shadow_names(val)
             });
             process_value_non_binding_shadow_names.push(quote! {
-                Self::#name(val) => PartialValueVariant::non_binding_shadow_names(val)
+                Self::#name(val) => ValueVariant::non_binding_shadow_names(val)
             });
             process_value_binding_shadow_names_mut.push(quote! {
-                Self::#name(val) => PartialValueVariant::binding_shadow_names_mut(val)
+                Self::#name(val) => ValueVariant::binding_shadow_names_mut(val)
             });
             process_value_non_binding_shadow_names_mut.push(quote! {
-                Self::#name(val) => PartialValueVariant::non_binding_shadow_names_mut(val)
+                Self::#name(val) => ValueVariant::non_binding_shadow_names_mut(val)
             });
         };
     }
@@ -824,7 +824,7 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         /// about is its value.
         /// It therefore contains no feather nodes, and is cloneable.
         #[derive(Debug, Clone, PartialEq, Eq)]
-        pub enum #partial_value_name {
+        pub enum #value_name {
             #value_variants
         }
 
@@ -838,7 +838,7 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         }
 
-        impl #partial_value_name {
+        impl #value_name {
             pub fn variant_keyword(&self) -> &'static str {
                 match self {
                     #value_variant_keywords
@@ -896,11 +896,11 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         }
 
-        impl ListSexpr for #partial_value_name {
+        impl ListSexpr for #value_name {
             const KEYWORD: Option<&'static str> = None;
 
             fn parse_list(ctx: &mut SexprParseContext, db: &dyn SexprParser, span: Span, mut args: Vec<SexprNode>) -> Result<Self, ParseError> {
-                todo!("partial value parse")
+                todo!("value parse")
             }
 
             fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
@@ -936,14 +936,14 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         }
 
-        impl #partial_value_name {
-            pub fn sub_values(&self) -> Vec<&PartialValue> {
+        impl #value_name {
+            pub fn sub_values(&self) -> Vec<&Value> {
                 match self {
                     #process_sub_values
                 }
             }
 
-            pub fn sub_values_mut(&mut self) -> Vec<&mut PartialValue> {
+            pub fn sub_values_mut(&mut self) -> Vec<&mut Value> {
                 match self {
                     #process_sub_values_mut
                 }

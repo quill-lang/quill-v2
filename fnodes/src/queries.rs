@@ -6,8 +6,9 @@ use upcast::{Upcast, UpcastFrom};
 use crate::{
     basic_nodes::{QualifiedName, SourceSpan},
     expr::{ExprContents, ExprTy},
-    parse_sexpr_from_string, ListSexprWrapper, Module, NodeIdGenerator, NodeInfoContainer,
-    SexprNode, SexprParsable, SexprParseContext,
+    module::Module,
+    parse_sexpr_from_string, ListSexprWrapper, NodeIdGenerator, NodeInfoContainer, SexprNode,
+    SexprParsable, SexprParseContext,
 };
 
 #[salsa::query_group(SexprParserStorage)]

@@ -11,13 +11,14 @@ use std::{
 
 use fcommon::{Span, Str};
 
-use crate::s_expr::*;
 use crate::{
     basic_nodes::Name,
     expr::{ComponentContents, Expr, ExprContents},
+    inductive::InductiveContents,
     serialise::*,
-    DefinitionContents, ModuleContents, SexprParser,
+    SexprParser,
 };
+use crate::{definition::DefinitionContents, module::ModuleContents, s_expr::*};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeId(u32);
@@ -339,6 +340,11 @@ pub struct SexprParseContext<'a> {
     def_infos: Vec<&'a mut dyn AbstractNodeInfoContainer<DefinitionContents>>,
     /// A list of all of the keywords for definition infos that were ignored (see [`Self::process_def_info`]).
     def_ignored_keywords: HashSet<String>,
+
+    /// Containers to be filled with inductive data type node info.
+    inductive_infos: Vec<&'a mut dyn AbstractNodeInfoContainer<InductiveContents>>,
+    /// A list of all of the keywords for inductive data type infos that were ignored (see [`Self::process_def_info`]).
+    inductive_ignored_keywords: HashSet<String>,
 }
 
 /// Contains references to all node info containers that contain information that we will serialise.
@@ -354,6 +360,8 @@ pub struct SexprSerialiseContext<'a> {
     module_infos: Vec<&'a dyn AbstractNodeInfoContainer<ModuleContents>>,
     /// Containers which contain definition node info.
     def_infos: Vec<&'a dyn AbstractNodeInfoContainer<DefinitionContents>>,
+    /// Containers which contain inductive data type node info.
+    inductive_infos: Vec<&'a dyn AbstractNodeInfoContainer<InductiveContents>>,
 }
 
 macro_rules! generate_process_functions {
@@ -486,6 +494,13 @@ generate_process_functions!(
     process_def_info,
     def_infos,
     def_ignored_keywords
+);
+generate_process_functions!(
+    InductiveContents,
+    register_inductive_info,
+    process_inductive_info,
+    inductive_infos,
+    inductive_ignored_keywords
 );
 
 impl<'a> SexprParseContext<'a> {

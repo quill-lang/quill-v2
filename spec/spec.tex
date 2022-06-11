@@ -1260,7 +1260,7 @@ Typically, a function call must be executed to evaluate the result of this expre
 \end{lstlisting}
 Superficially, the two above expressions perform a very similar function; they apply the \( \equiv \)-\textsc{conv}${}_1$ rule to alter the type of a variable to an equivalent type without altering its value.
 However, the way in which they perform their functions differ greatly.
-In \lstinline{reducety}, the partial value $A$ is evaluated, and its value is compared to $B$.
+In \lstinline{reducety}, the value $A$ is evaluated, and its value is compared to $B$.
 In particular, we gradually evaluate any part of $A$ that is different to $B$ until they match or we can see that the two types are irreconcilably different.
 This is an actual computation of a Feather expression, so we must take care to forbid infinite loops or otherwise arduous code execution.
 Conversely, in \lstinline{expandty}, $B$ is evaluated until it matches $A$.
@@ -1516,7 +1516,7 @@ In most programming languages, the phrase `constructs \( e \) in a type \( A \)'
 Note that an expression may be well-typed, yet it (or its constructor) may \textit{not respect ownership, borrowing or lifetimes}.
 The verification that the inference rules respect these constraints is to be carried out by later phases in the compiler, which will be detailed in subsequent sections.
 
-\subsection{Partial values}
+\subsection{values}
 
 The process of deducing the types of expressions does not happen instantaneously; a network of information is gradually built by the compiler, and is improved incrementally until expressions are deduced to be either well-typed or not well-typed.
 When evaluating types in many programming languages, it is useful to consider type variables, which are placeholders for types that are to be evaluated later.
@@ -1531,24 +1531,24 @@ We extend this notion to arbitrary expressions.
   The value is said to be in \textit{normal form}.
 \end{defn}
 \begin{defn}
-  A \textit{partial value} is a realisation of an object which may contain inference variables, and may be simplifiable.
-  If there exists a finite sequence of simplifications on a partial value that reduces it to normal form, we say that the partial value is \textit{weakly normalising}, or \textit{lazily computable}.
-  If all sequences of simplifications reduce the partial value to a normal form, the value is \textit{strongly normalising}, or \textit{(strictly) computable}.
+  A \textit{value} is a realisation of an object which may contain inference variables, and may be simplifiable.
+  If there exists a finite sequence of simplifications on a value that reduces it to normal form, we say that the value is \textit{weakly normalising}, or \textit{lazily computable}.
+  If all sequences of simplifications reduce the value to a normal form, the value is \textit{strongly normalising}, or \textit{(strictly) computable}.
 \end{defn}
 \begin{eg}
   The pseudocode expression \( 1 \) is a value.
-  The expression \( 1 + 1 \) is a partial value, which may be simplified into the value \( 2 \), so \( 1 + 1 \) is strongly normalising.
-  The expression \( \alpha \) is a partial value, where \( \alpha \) is an inference variable.
+  The expression \( 1 + 1 \) is a value, which may be simplified into the value \( 2 \), so \( 1 + 1 \) is strongly normalising.
+  The expression \( \alpha \) is a value, where \( \alpha \) is an inference variable.
   This is not computable.
 \end{eg}
-Partial values may include arbitrary self-reference, and need not be computable.
-For instance, let \( f(x) \mapsto f(x+1) \) for \( x \in \mathbb N \), then \( f(1) \) is not (lazily) computable, but it is a partial value.
+values may include arbitrary self-reference, and need not be computable.
+For instance, let \( f(x) \mapsto f(x+1) \) for \( x \in \mathbb N \), then \( f(1) \) is not (lazily) computable, but it is a value.
 The expression \( \proj 1((1, f(0))) \), where \( \proj 1 \) represents the projection of the first element of a pair, is lazily computable, since \( f(0) \) need not be evaluated.
 However, it is not strictly computable.
 
 Formally, we say that the Feather computation system does not have the weak normalisation property, in the sense of an abstract reduction system.
 \begin{lem}
-  Feather's computation system has the unique normal form property: for any partial value \( e \), if it has normal forms \( a, b \), then \( a \equiv b \).
+  Feather's computation system has the unique normal form property: for any value \( e \), if it has normal forms \( a, b \), then \( a \equiv b \).
 \end{lem}
 \begin{proof}
   This follows from the unique construction principle.
@@ -1558,11 +1558,11 @@ Formally, we say that the Feather computation system does not have the weak norm
 
 \subsection{Classes of computable functions}
 
-The Feather compiler cannot determine whether an arbitrary partial value is computable, since this would entail a solution to the halting problem.
+The Feather compiler cannot determine whether an arbitrary value is computable, since this would entail a solution to the halting problem.
 However, it can determine the computability of a large class of computable partial recursive functions, which here will be called \textit{hierarchically substructure recursive functions}.
 We do not aim to require that all Feather functions be hierarchically substructure recursive, for instance, a simple \lstinline{while} loop which waits for a particular user input would not satisfy this definition, as will be seen later.
 However, this is a sufficiently broad definition that `most useful functions' (under suitable assumptions) are hierarchically substructure recursive, for instance the Ackermann function.
-We require that any partial value computed at compile time be hierarchically substructure recursive, since this will guarantee that compilation will always terminate.
+We require that any value computed at compile time be hierarchically substructure recursive, since this will guarantee that compilation will always terminate.
 %Regardless of the knowledge that compilation will terminate, it may be undesirable for the compiler to freeze for large amounts of time, computing arbitrarily complex values.
 % A compiler may emit a warning and prompt the user to cancel the operation if the compilation time is sufficiently long, such as a duration of more than a few seconds for the evaluation of a single expression.
 
@@ -1625,8 +1625,8 @@ Thus, we can see that every non-\lstinline{inst} Feather expression has a unique
 \subsection{Constraint generation}
 
 \begin{defn}
-  An \textit{equality constraint} is a judgmental equality between two partial values.
-  A \textit{judgment constraint} is a judgment that one partial value is an element of the type represented by another partial value.
+  An \textit{equality constraint} is a judgmental equality between two values.
+  A \textit{judgment constraint} is a judgment that one value is an element of the type represented by another value.
   A constraint is \textit{satisfied} under a typing context \( \Gamma \) if \( \Gamma \) entails that the judgment or judgmental equality holds.
 \end{defn}
 \begin{defn}
@@ -1670,8 +1670,8 @@ In our type system, the expression \( \lam xx \) is not well-typed since we cann
 \subsection{Unification}
 
 \begin{defn}
-  A mapping \( m: \alpha_i \mapsto a_i \) of inference variables to partial values is called an \textit{unification map} if the inference variables in the domain of \( m \) do not appear anywhere in its codomain.
-  They can be applied to partial values, replacing all instances of that variable with their value under \( m \).
+  A mapping \( m: \alpha_i \mapsto a_i \) of inference variables to values is called an \textit{unification map} if the inference variables in the domain of \( m \) do not appear anywhere in its codomain.
+  They can be applied to values, replacing all instances of that variable with their value under \( m \).
   The condition of inference variables not appearing in the codomain ensures idempotence of \( m \).
 
   Let \( A \equiv B \) be an equality constraint.
@@ -1681,9 +1681,9 @@ In our type system, the expression \( \lam xx \) is not well-typed since we cann
   Then \( m(A) \) is the \textit{most general unifier} of \( A \) and \( B \).
 \end{defn}
 The most general unifier is unique up to relabelling inference variables.
-We can create an algorithm to explicitly construct the most general unifier of two partial values under certain conditions.
+We can create an algorithm to explicitly construct the most general unifier of two values under certain conditions.
 \begin{defn}
-  The function \( \mathsf{mgu} \) is a binary function on partial values.
+  The function \( \mathsf{mgu} \) is a binary function on values.
   In a success condition, it returns a unification map \( m \) which unifies \( A \) and \( B \).
   In a fail condition, it returns a description of the substructures of \( A \) and \( B \) that failed to unify.
   The function is generated by the following rules, with higher rules taking priority.

@@ -3,18 +3,18 @@
 //! # Adding variants
 //! When adding a new expression variant, make sure to derive [`ExprVariant`].
 //! This will automatically create implementations of [`ExpressionVariant`],
-//! [`PartialValueVariant`], and [`ListSexpr`], with suitable generic arguments.
+//! [`ValueVariant`], and [`ListSexpr`], with suitable generic arguments.
 //! Such types must always be structs.
 //!
 //! ### Generic argument names
 //! We restrict the possible generic argument names and their functions in [`ExprVariant`].
 //! Each generic argument may take one of two possible values, one for node-based expressions
-//! ([`Expr`]), and one for value-based expressions ([`PartialValue`]).
+//! ([`Expr`]), and one for value-based expressions ([`Value`]).
 //!
-//! - `E`: [`Expr`] or [`PartialValue`]
+//! - `E`: [`Expr`] or [`Value`]
 //! - `N`: [`Name`] or [`Str`]
 //! - `Q`: [`QualifiedName`] or [`fcommon::Path`]
-//! - `C`: [`Component<Name, Expr>`] or [`ComponentContents<Str, PartialValue>`]
+//! - `C`: [`Component<Name, Expr>`] or [`ComponentContents<Str, Value>`]
 //! - `U`: [`Universe`] or [`UniverseValue`].
 //!
 //! ### Serialisation keyword
@@ -49,7 +49,7 @@
 //!
 //! ## Sub-expressions
 //! Any use of `E` must be tagged with the attribute `#[sub_expr]` to show that it is a
-//! sub-expression (or sub-value, if `E` is [`PartialValue`]).
+//! sub-expression (or sub-value, if `E` is [`Value`]).
 //! Like with shadow names, `#[sub_exprs]` can be used to denote an iterable field with
 //! sub-expression values.
 use std::collections::HashMap;
@@ -77,17 +77,17 @@ pub trait ExpressionVariant {
     }
 }
 
-pub trait PartialValueVariant {
-    fn sub_values(&self) -> Vec<&PartialValue>;
-    fn sub_values_mut(&mut self) -> Vec<&mut PartialValue>;
+pub trait ValueVariant {
+    fn sub_values(&self) -> Vec<&Value>;
+    fn sub_values_mut(&mut self) -> Vec<&mut Value>;
     /// A list of the local names bound in this value.
     /// Not all binding names may a priori be visible to all sub-values.
     fn binding_shadow_names(&self) -> Vec<Shadow<Str>>;
     /// A list of the local names used in this expression that were bound somewhere else.
     fn non_binding_shadow_names(&self) -> Vec<Shadow<Str>>;
-    /// See [`PartialValueVariant::binding_names`].
+    /// See [`ValueVariant::binding_names`].
     fn binding_shadow_names_mut(&mut self) -> Vec<&mut Shadow<Str>>;
-    /// See [`PartialValueVariant::non_binding_names`].
+    /// See [`ValueVariant::non_binding_names`].
     fn non_binding_shadow_names_mut(&mut self) -> Vec<&mut Shadow<Str>>;
 
     /// Returns both binding and non-binding shadow names.
@@ -111,14 +111,14 @@ impl<'a> From<&'a mut Box<Expr>> for &'a mut Expr {
     }
 }
 
-impl<'a> From<&'a Box<PartialValue>> for &'a PartialValue {
-    fn from(boxed: &'a Box<PartialValue>) -> Self {
+impl<'a> From<&'a Box<Value>> for &'a Value {
+    fn from(boxed: &'a Box<Value>) -> Self {
         boxed
     }
 }
 
-impl<'a> From<&'a mut Box<PartialValue>> for &'a mut PartialValue {
-    fn from(boxed: &'a mut Box<PartialValue>) -> Self {
+impl<'a> From<&'a mut Box<Value>> for &'a mut Value {
+    fn from(boxed: &'a mut Box<Value>) -> Self {
         &mut *boxed
     }
 }
@@ -131,12 +131,12 @@ pub struct ComponentContents<N, E> {
     pub ty: E,
 }
 
-impl PartialValueVariant for ComponentContents<Str, PartialValue> {
-    fn sub_values(&self) -> Vec<&PartialValue> {
+impl ValueVariant for ComponentContents<Str, Value> {
+    fn sub_values(&self) -> Vec<&Value> {
         vec![&self.ty]
     }
 
-    fn sub_values_mut(&mut self) -> Vec<&mut PartialValue> {
+    fn sub_values_mut(&mut self) -> Vec<&mut Value> {
         vec![&mut self.ty]
     }
 
@@ -299,8 +299,6 @@ pub struct UniverseImpredicativeMax<U> {
     pub right: Box<U>,
 }
 
-// Because universe terms can't contain metavariables, we don't need to distinguish partial universe values and universe values.
-
 gen_expr! { UniverseContents UniverseValue
     UniverseNumber,
     UniverseVariable,
@@ -309,30 +307,17 @@ gen_expr! { UniverseContents UniverseValue
     UniverseImpredicativeMax<U>
 }
 
-pub type Universe = Node<UniverseContents>;
+pub type UniverseExpr = Node<UniverseContents>;
 
 // Now we do all non-universe expressions.
-
-/// A free variable is a local constant.
-/// These do not arise in functions, but are used internally.
-/// They represent things like local variables, once we're inside the scope of the local.
-/// Local variables outside their scope are called bound variables.
-#[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
-#[list_sexpr_keyword = "free"]
-pub struct Free<E> {
-    #[list]
-    #[non_binding_shadow_name]
-    pub name: Shadow<Str>,
-    #[list]
-    #[sub_expr]
-    pub ty: Box<E>,
-}
 
 /// A bound local variable inside an abstraction.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword = "bound"]
 pub struct Bound(#[atomic] pub DeBruijnIndex);
 
+/// Either a definition or an inductive data type.
+/// Parametrised by a list of universe parameters.
 #[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword = "inst"]
 pub struct Inst<Q, U> {
@@ -359,13 +344,53 @@ pub struct Let<N, E> {
     pub body: Box<E>,
 }
 
+/// How should the argument to this function be given?
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum BinderAnnotation {
+    /// The argument is to be given explicitly.
+    Explicit,
+    /// The argument is implicit, and is to be filled eagerly by the elaborator.
+    ImplicitEager,
+    /// The argument is implicit, and is to be filled by the elaborator only when another later parameter is given.
+    ImplicitWeak,
+    /// The argument is implicit, and is to be filled by the elaborator by typeclass resolution.
+    ImplicitTypeclass,
+}
+
+impl AtomicSexpr for BinderAnnotation {
+    fn parse_atom(_db: &dyn SexprParser, text: String) -> Result<Self, ParseErrorReason> {
+        match &*text {
+            "ex" => Ok(Self::Explicit),
+            "imp" => Ok(Self::ImplicitEager),
+            "weak" => Ok(Self::ImplicitWeak),
+            "class" => Ok(Self::ImplicitTypeclass),
+            _ => Err(ParseErrorReason::WrongKeyword {
+                expected: "ex | imp | weak | class",
+                found: text,
+            }),
+        }
+    }
+
+    fn serialise(&self, _ctx: &SexprSerialiseContext, _db: &dyn SexprParser) -> String {
+        match self {
+            BinderAnnotation::Explicit => "ex".to_string(),
+            BinderAnnotation::ImplicitEager => "imp".to_string(),
+            BinderAnnotation::ImplicitWeak => "weak".to_string(),
+            BinderAnnotation::ImplicitTypeclass => "class".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword = "lambda"]
 pub struct Lambda<N, E> {
-    /// The new variables to be bound in the body of the lambda.
+    /// The new variable to be bound in the body of the lambda.
     #[list]
-    #[binding_shadow_names]
-    pub names_to_bind: Vec<Shadow<N>>,
+    #[binding_shadow_name]
+    pub names_to_bind: Shadow<N>,
+    /// How the parameter should be filled when calling the function.
+    #[atomic]
+    pub binder_annotation: BinderAnnotation,
     /// The body of the lambda, also called the lambda term.
     #[list]
     #[sub_expr]
@@ -379,6 +404,9 @@ pub struct Pi<N, E> {
     #[list]
     #[binding_shadow_name]
     pub parameter_name: Shadow<N>,
+    /// How the parameter should be filled when calling the function.
+    #[atomic]
+    pub binder_annotation: BinderAnnotation,
     /// The type of the parameter.
     #[list]
     #[sub_expr]
@@ -405,14 +433,24 @@ pub struct Apply<N> {
 /// Represents the universe of types corresponding to the given universe.
 /// For example, if the universe is `0`, this is `Prop`, the type of propositions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, ExprVariant)]
-#[list_sexpr_keyword = "type"]
-pub struct TypeUniverse<U>(#[list] U);
+#[list_sexpr_keyword = "sort"]
+pub struct Sort<U>(#[list] U);
 
 /// An inference variable.
 /// May have theoretically any type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, ExprVariant)]
 #[list_sexpr_keyword = "var"]
 pub struct Metavariable(#[atomic] u32);
+
+/// Used for inference, should not be used in functions manually.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, ExprVariant)]
+#[list_sexpr_keyword = "localconst"]
+pub struct LocalConstant {
+    #[list]
+    #[sub_expr]
+    pub metavariable: Metavariable,
+    // pub binder_annotation: BinderAnnotation,
+}
 
 /// Generates unique inference variable names.
 pub struct MetavariableGenerator {
@@ -457,26 +495,26 @@ pub struct ExprTy(
 pub struct PartialExprTy(
     #[list]
     #[sub_expr]
-    pub PartialValue,
+    pub Value,
 );
 
-gen_expr! { ExprContents PartialValue
-    Free<E>,
+gen_expr! { ExprContents Value
     Bound,
     Inst<Q, U>,
     Let<N, E>,
     Lambda<N, E>,
     Pi<N, E>,
     Apply<N>,
-    TypeUniverse<U>,
+    Sort<U>,
     Metavariable,
+    LocalConstant,
 }
 
 // TODO: get rid of `nullary`
 
 pub type Expr = Node<ExprContents>;
 
-impl ListSexpr for Universe {
+impl ListSexpr for UniverseExpr {
     const KEYWORD: Option<&'static str> = None;
 
     fn parse_list(
@@ -554,9 +592,9 @@ impl ListSexpr for Expr {
     }
 }
 
-/// A utility for printing partial values to screen.
+/// A utility for printing values to screen.
 /// Works like the Display trait, but works better for printing type variable names.
-pub struct PartialValuePrinter<'a> {
+pub struct ValuePrinter<'a> {
     db: &'a dyn SexprParser,
     /// Maps inference variables to the names we use to render them.
     inference_variable_names: HashMap<Metavariable, String>,
@@ -565,7 +603,7 @@ pub struct PartialValuePrinter<'a> {
     type_variable_name: u32,
 }
 
-impl<'a> PartialValuePrinter<'a> {
+impl<'a> ValuePrinter<'a> {
     pub fn new(db: &'a dyn SexprParser) -> Self {
         Self {
             db,
@@ -574,7 +612,7 @@ impl<'a> PartialValuePrinter<'a> {
         }
     }
 
-    pub fn print(&mut self, val: &PartialValue) -> String {
+    pub fn print(&mut self, val: &Value) -> String {
         todo!()
     }
 
