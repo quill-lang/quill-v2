@@ -1,11 +1,13 @@
 use fcommon::{Span, Str};
 
 use crate::definition::Definition;
+use crate::inductive::Inductive;
 use crate::*;
 
 #[derive(Debug)]
 pub struct ModuleContents {
     pub defs: Vec<Definition>,
+    pub inductives: Vec<Inductive>,
 }
 
 pub type Module = Node<ModuleContents>;
@@ -29,7 +31,10 @@ impl ListSexpr for Module {
         let mut module = Node::new(
             ctx.node_id_gen.gen(),
             span.clone(),
-            ModuleContents { defs: Vec::new() },
+            ModuleContents {
+                defs: Vec::new(),
+                inductives: Vec::new(),
+            },
         );
         match args.remove(0).contents {
             SexprNodeContents::Atom(_) => {
@@ -46,10 +51,18 @@ impl ListSexpr for Module {
         }
 
         for arg in args {
-            module
-                .contents
-                .defs
-                .push(ListSexprWrapper::parse(ctx, db, arg)?)
+            let keyword = find_keyword_from_list(&arg);
+            if matches!(keyword.as_deref(), Ok("ind")) {
+                module
+                    .contents
+                    .inductives
+                    .push(ListSexprWrapper::parse(ctx, db, arg)?)
+            } else {
+                module
+                    .contents
+                    .defs
+                    .push(ListSexprWrapper::parse(ctx, db, arg)?)
+            }
         }
 
         // TODO: Check for duplicate definition names.

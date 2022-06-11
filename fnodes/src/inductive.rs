@@ -3,6 +3,7 @@ use fcommon::Span;
 use crate::{basic_nodes::Name, expr::*, *};
 
 /// An inductive data type.
+#[derive(Debug)]
 pub struct InductiveContents {
     /// The name of this inductive data type inside the current module.
     pub name: Name,
@@ -16,6 +17,7 @@ pub struct InductiveContents {
     pub constructors: Vec<TypeConstructor>,
 }
 
+#[derive(Debug)]
 pub struct TypeConstructor {
     /// The unique name of this type constructor.
     pub name: Name,
