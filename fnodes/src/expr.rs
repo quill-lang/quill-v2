@@ -10,10 +10,12 @@
 //! We restrict the possible generic argument names and their functions in [`ExprVariant`].
 //! Each generic argument may take one of two possible values, one for node-based expressions
 //! ([`Expr`]), and one for value-based expressions ([`PartialValue`]).
+//!
 //! - `E`: [`Expr`] or [`PartialValue`]
 //! - `N`: [`Name`] or [`Str`]
 //! - `Q`: [`QualifiedName`] or [`fcommon::Path`]
-//! - `C`: [`Component<Name, Expr>`] or [`ComponentContents<Str, PartialValue>`].
+//! - `C`: [`Component<Name, Expr>`] or [`ComponentContents<Str, PartialValue>`]
+//! - `U`: [`Universe`] or [`UniverseValue`].
 //!
 //! ### Serialisation keyword
 //! The `#[list_sexpr_keyword = "..."]` attribute must be provided to provide the keyword
@@ -24,9 +26,11 @@
 //! ### Field serialisation methods
 //! Each field must be serialisable.
 //! It must be tagged with one of the following three attributes:
+//!
 //! - `#[atomic]`: if this field implements [`AtomicSexpr`]
 //! - `#[list]`: if this field implements [`ListSexpr`]
-//! - `#[direct]`: if this field implements [`SexprParsable<Output = Self>`] and [`SexprSerialisable`]
+//! - `#[direct]`: if this field implements [`SexprParsable<Output = Self>`] and [`SexprSerialisable`].
+//!
 //! The choice of attribute will influence the serialisation method.
 //!
 //! ### Shadow names
@@ -34,6 +38,7 @@
 //! of `N`, which is a [`Name`] or a [`Str`].
 //! If it is used in a shadow context (i.e. writing [`Shadow<N>`] to denote [`Shadow<Name>`]
 //! or [`Shadow<Str>`]), then one of the following attributes should be used.
+//!
 //! - `#[binding_shadow_name]`: if this name is considered a binder (from any viewpoint)
 //! - `#[binding_shadow_names]`: if this can be iterated over,
 //!     and its elements are binders as in `#[binding_shadow_name]`
@@ -96,7 +101,7 @@ pub trait PartialValueVariant {
 
 impl<'a> From<&'a Box<Expr>> for &'a Expr {
     fn from(boxed: &'a Box<Expr>) -> Self {
-        &*boxed
+        boxed
     }
 }
 
@@ -108,7 +113,7 @@ impl<'a> From<&'a mut Box<Expr>> for &'a mut Expr {
 
 impl<'a> From<&'a Box<PartialValue>> for &'a PartialValue {
     fn from(boxed: &'a Box<PartialValue>) -> Self {
-        &*boxed
+        boxed
     }
 }
 
@@ -244,165 +249,98 @@ impl ExpressionVariant for Component<Name, Expr> {
     }
 }
 
+// Begin describing the expressions in Feather.
+// We start with universe expressions.
+
+/// A concrete universe level.
+/// Level `0` represents `Prop`, the type of (proof-irrelevant) propositions.
+/// Level `1` represents `Type`, the type of all (small) types.
+pub type UniverseLevel = u32;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ExprVariant)]
-#[list_sexpr_keyword = "local"]
-pub struct IntroLocal(
+#[list_sexpr_keyword = "univn"]
+pub struct UniverseNumber(#[atomic] pub UniverseLevel);
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ExprVariant)]
+#[list_sexpr_keyword = "univvar"]
+pub struct UniverseVariable(#[atomic] pub Str);
+
+#[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
+#[list_sexpr_keyword = "univadd"]
+pub struct UniverseAdd<U> {
+    #[list]
+    #[sub_expr]
+    pub term: Box<U>,
+    #[atomic]
+    pub addend: UniverseLevel,
+}
+
+/// Takes the larger universe of `left` and `right`.
+#[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
+#[list_sexpr_keyword = "univmax"]
+pub struct UniverseMax<U> {
+    #[list]
+    #[sub_expr]
+    pub left: Box<U>,
+    #[list]
+    #[sub_expr]
+    pub right: Box<U>,
+}
+
+/// Takes the larger universe of `left` and `right`, but if `right == 0`, then this just gives `0`.
+#[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
+#[list_sexpr_keyword = "univimax"]
+pub struct UniverseImpredicativeMax<U> {
+    #[list]
+    #[sub_expr]
+    pub left: Box<U>,
+    #[list]
+    #[sub_expr]
+    pub right: Box<U>,
+}
+
+// Because universe terms can't contain metavariables, we don't need to distinguish partial universe values and universe values.
+
+gen_expr! { UniverseContents UniverseValue
+    UniverseNumber,
+    UniverseVariable,
+    UniverseAdd<U>,
+    UniverseMax<U>,
+    UniverseImpredicativeMax<U>
+}
+
+pub type Universe = Node<UniverseContents>;
+
+// Now we do all non-universe expressions.
+
+/// A free variable is a local constant.
+/// These do not arise in functions, but are used internally.
+/// They represent things like local variables, once we're inside the scope of the local.
+/// Local variables outside their scope are called bound variables.
+#[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
+#[list_sexpr_keyword = "free"]
+pub struct Free<E> {
     #[list]
     #[non_binding_shadow_name]
-    pub Shadow<Str>,
-);
+    pub name: Shadow<Str>,
+    #[list]
+    #[sub_expr]
+    pub ty: Box<E>,
+}
 
+/// A bound local variable inside an abstraction.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ExprVariant)]
-#[list_sexpr_keyword = "ifalse"]
-pub struct IntroFalse;
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ExprVariant)]
-#[list_sexpr_keyword = "itrue"]
-pub struct IntroTrue;
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ExprVariant)]
-#[list_sexpr_keyword = "iunit"]
-pub struct IntroUnit;
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ExprVariant)]
-#[list_sexpr_keyword = "fu64"]
-pub struct FormU64;
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ExprVariant)]
-#[list_sexpr_keyword = "fbool"]
-pub struct FormBool;
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ExprVariant)]
-#[list_sexpr_keyword = "funit"]
-pub struct FormUnit;
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ExprVariant)]
-#[list_sexpr_keyword = "iu64"]
-pub struct IntroU64(#[atomic] pub u64);
-
-/// This derives [`ExprVariant`] even though it's not really an expression variant.
-/// This is simply for ease of use, and we don't register it as a 'real' enum variant.
-#[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
-#[list_sexpr_keyword]
-pub struct NameWithExpr<N, E> {
-    #[direct]
-    pub name: N,
-    #[list]
-    #[sub_expr]
-    pub expr: E,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, ExprVariant)]
-#[list_sexpr_keyword = "iprod"]
-pub struct IntroProduct<N, E> {
-    #[list_flatten]
-    #[sub_exprs_flatten]
-    pub fields: Vec<NameWithExpr<N, E>>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, ExprVariant)]
-#[list_sexpr_keyword = "fprod"]
-pub struct FormProduct<C> {
-    #[list_flatten]
-    #[sub_exprs_flatten]
-    pub fields: Vec<C>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, ExprVariant)]
-#[list_sexpr_keyword = "mprod"]
-pub struct MatchProduct<N, E> {
-    /// Should have the same length as `fields`.
-    #[list]
-    #[binding_shadow_names]
-    pub names_to_bind: Vec<Shadow<N>>,
-    #[list]
-    pub fields: Vec<N>,
-    #[list]
-    #[sub_expr]
-    pub product: Box<E>,
-    #[list]
-    #[sub_expr]
-    pub body: Box<E>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, ExprVariant)]
-#[list_sexpr_keyword = "icoprod"]
-pub struct IntroCoproduct<N, E> {
-    #[list]
-    #[sub_expr_flatten]
-    pub variant: Box<NameWithExpr<N, E>>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, ExprVariant)]
-#[list_sexpr_keyword = "fcoprod"]
-pub struct FormCoproduct<C> {
-    #[list_flatten]
-    #[sub_exprs_flatten]
-    pub variants: Vec<C>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, ExprVariant)]
-#[list_sexpr_keyword = "mcoprod"]
-pub struct MatchCoproduct<N, E> {
-    /// Should have the same length as `variants`.
-    #[list]
-    #[binding_shadow_names]
-    pub names_to_bind: Vec<Shadow<N>>,
-    /// The type of the result.
-    #[list]
-    #[sub_expr]
-    pub coprod: Box<E>,
-    /// The different blocks to execute depending on the variant of this coproduct.
-    #[list]
-    #[sub_exprs_flatten]
-    pub variants: Vec<NameWithExpr<N, E>>,
-}
-
-/// A type that can be coerced into `fcoprod`, once we know the actual variants.
-/// This is mainly used during type inference.
-#[derive(Debug, PartialEq, Eq, Clone, ExprVariant)]
-#[list_sexpr_keyword = "fanycoprod"]
-pub struct FormAnyCoproduct<C> {
-    #[list]
-    #[sub_expr_flatten]
-    pub known_variant: Box<C>,
-}
-
-/// Change a variable's type to an equivalent type
-/// that can be found by evaluating the body's type.
-/// This is an instance of the ===-conv1 rule.
-///
-/// Together with [`ExpandTy`], we can convert between all equivalent types.
-#[derive(Debug, PartialEq, Eq, Clone, ExprVariant)]
-#[list_sexpr_keyword = "reducety"]
-pub struct ReduceTy<E> {
-    #[list]
-    #[sub_expr]
-    pub body: Box<E>,
-    #[list]
-    #[sub_expr]
-    pub target_ty: Box<E>,
-}
-
-/// Change a variable's type to an equivalent type,
-/// such that if this type is evaluated, we find the body's type.
-/// This is an instance of the ===-conv1 rule.
-///
-/// Together with [`ReduceTy`], we can convert between all equivalent types.
-#[derive(Debug, PartialEq, Eq, Clone, ExprVariant)]
-#[list_sexpr_keyword = "expandty"]
-pub struct ExpandTy<E> {
-    #[list]
-    #[sub_expr]
-    pub body: Box<E>,
-    #[list]
-    #[sub_expr]
-    pub target_ty: Box<E>,
-}
+#[list_sexpr_keyword = "bound"]
+pub struct Bound(#[atomic] pub DeBruijnIndex);
 
 #[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword = "inst"]
-pub struct Inst<Q>(#[list] pub Q);
+pub struct Inst<Q, U> {
+    #[list]
+    pub name: Q,
+    #[list]
+    pub universes: Vec<U>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword = "let"]
@@ -435,55 +373,8 @@ pub struct Lambda<N, E> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
-#[list_sexpr_keyword = "ap"]
-pub struct Apply<N> {
-    /// The function to be invoked.
-    #[list]
-    #[non_binding_shadow_name]
-    pub function: Shadow<N>,
-    /// The argument to apply to the function.
-    #[list]
-    #[non_binding_shadow_name]
-    pub argument: Shadow<N>,
-}
-
-/// An inference variable.
-/// May have theoretically any type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, ExprVariant)]
-#[list_sexpr_keyword = "var"]
-pub struct Var(#[atomic] u32);
-
-/// Generates unique inference variable names.
-pub struct VarGenerator {
-    next_var: Var,
-}
-
-impl Default for VarGenerator {
-    fn default() -> Self {
-        Self { next_var: Var(0) }
-    }
-}
-
-impl VarGenerator {
-    /// Creates a new variable generator.
-    /// Its variables will all be greater than the provided "largest unusable" variable name.
-    /// If one was not provided, no guarantees are made about name clashing.
-    pub fn new(largest_unusable: Option<Var>) -> Self {
-        Self {
-            next_var: Var(largest_unusable.map_or(0, |x| x.0 + 1)),
-        }
-    }
-
-    pub fn gen(&mut self) -> Var {
-        let result = self.next_var;
-        self.next_var.0 += 1;
-        result
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
-#[list_sexpr_keyword = "ffunc"]
-pub struct FormFunc<N, E> {
+#[list_sexpr_keyword = "pi"]
+pub struct Pi<N, E> {
     /// The name of the parameter.
     #[list]
     #[binding_shadow_name]
@@ -498,9 +389,60 @@ pub struct FormFunc<N, E> {
     pub result: Box<E>,
 }
 
-#[derive(Debug, PartialEq, Eq, ExprVariant)]
-#[list_sexpr_keyword = "funiverse"]
-pub struct FormUniverse;
+#[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
+#[list_sexpr_keyword = "ap"]
+pub struct Apply<N> {
+    /// The function to be invoked.
+    #[list]
+    #[non_binding_shadow_name]
+    pub function: Shadow<N>,
+    /// The argument to apply to the function.
+    #[list]
+    #[non_binding_shadow_name]
+    pub argument: Shadow<N>,
+}
+
+/// Represents the universe of types corresponding to the given universe.
+/// For example, if the universe is `0`, this is `Prop`, the type of propositions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, ExprVariant)]
+#[list_sexpr_keyword = "type"]
+pub struct TypeUniverse<U>(#[list] U);
+
+/// An inference variable.
+/// May have theoretically any type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, ExprVariant)]
+#[list_sexpr_keyword = "var"]
+pub struct Metavariable(#[atomic] u32);
+
+/// Generates unique inference variable names.
+pub struct MetavariableGenerator {
+    next_var: Metavariable,
+}
+
+impl Default for MetavariableGenerator {
+    fn default() -> Self {
+        Self {
+            next_var: Metavariable(0),
+        }
+    }
+}
+
+impl MetavariableGenerator {
+    /// Creates a new variable generator.
+    /// Its variables will all be greater than the provided "largest unusable" variable name.
+    /// If one was not provided, no guarantees are made about name clashing.
+    pub fn new(largest_unusable: Option<Metavariable>) -> Self {
+        Self {
+            next_var: Metavariable(largest_unusable.map_or(0, |x| x.0 + 1)),
+        }
+    }
+
+    pub fn gen(&mut self) -> Metavariable {
+        let result = self.next_var;
+        self.next_var.0 += 1;
+        result
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword = "ty"]
@@ -518,42 +460,39 @@ pub struct PartialExprTy(
     pub PartialValue,
 );
 
-gen_expr! {
-    IntroLocal,
-
-    IntroU64,
-    nullary IntroFalse,
-    nullary IntroTrue,
-    nullary IntroUnit,
-
-    nullary FormU64,
-    nullary FormBool,
-    nullary FormUnit,
-
-    IntroProduct<N, E>,
-    FormProduct<C>,
-    MatchProduct<N, E>,
-
-    IntroCoproduct<N, E>,
-    FormCoproduct<C>,
-    FormAnyCoproduct<C>,
-    MatchCoproduct<N, E>,
-
-    ReduceTy<E>,
-    ExpandTy<E>,
-
-    Inst<Q>,
+gen_expr! { ExprContents PartialValue
+    Free<E>,
+    Bound,
+    Inst<Q, U>,
     Let<N, E>,
     Lambda<N, E>,
+    Pi<N, E>,
     Apply<N>,
-    Var,
-
-    FormFunc<N, E>,
-
-    nullary FormUniverse,
+    TypeUniverse<U>,
+    Metavariable,
 }
 
+// TODO: get rid of `nullary`
+
 pub type Expr = Node<ExprContents>;
+
+impl ListSexpr for Universe {
+    const KEYWORD: Option<&'static str> = None;
+
+    fn parse_list(
+        ctx: &mut SexprParseContext,
+        db: &dyn SexprParser,
+        span: Span,
+        args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        UniverseContents::parse_list(ctx, db, span.clone(), args)
+            .map(|univ_contents| Node::new(ctx.node_id_gen.gen(), span, univ_contents))
+    }
+
+    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
+        self.contents.serialise(ctx, db)
+    }
+}
 
 impl ListSexpr for Expr {
     const KEYWORD: Option<&'static str> = None;
@@ -615,27 +554,12 @@ impl ListSexpr for Expr {
     }
 }
 
-impl PartialValue {
-    /// Perform an α-conversion to convert any (binding or non-binding) usage of the given name to the result name.
-    /// This does *not* check for name collisions.
-    pub fn alpha_convert(&mut self, name: Shadow<Str>, result: Shadow<Str>) {
-        for local_name in self.non_binding_shadow_names_mut() {
-            if *local_name == name {
-                *local_name = result;
-            }
-        }
-        for value in self.sub_values_mut() {
-            value.alpha_convert(name, result)
-        }
-    }
-}
-
 /// A utility for printing partial values to screen.
 /// Works like the Display trait, but works better for printing type variable names.
 pub struct PartialValuePrinter<'a> {
     db: &'a dyn SexprParser,
     /// Maps inference variables to the names we use to render them.
-    inference_variable_names: HashMap<Var, String>,
+    inference_variable_names: HashMap<Metavariable, String>,
     /// When we see a new inference variable that we've not named yet, what name should we give it?
     /// This monotonically increasing counter is used to work out what the name should be.
     type_variable_name: u32,
@@ -651,80 +575,10 @@ impl<'a> PartialValuePrinter<'a> {
     }
 
     pub fn print(&mut self, val: &PartialValue) -> String {
-        match val {
-            PartialValue::IntroLocal(IntroLocal(shadow)) => shadow.display(self.db),
-            PartialValue::IntroU64(_) => todo!(),
-            PartialValue::IntroFalse => todo!(),
-            PartialValue::IntroTrue => todo!(),
-            PartialValue::IntroUnit => todo!(),
-            PartialValue::FormU64 => "U64".to_string(),
-            PartialValue::FormBool => todo!(),
-            PartialValue::FormUnit => "Unit".to_string(),
-            PartialValue::IntroProduct(_) => todo!(),
-            PartialValue::FormProduct(FormProduct { fields }) => {
-                let fields = fields
-                    .iter()
-                    .map(|comp| {
-                        format!(
-                            "{}: {}",
-                            self.db.lookup_intern_string_data(comp.name),
-                            self.print(&comp.ty)
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("{{{}}}", fields)
-            }
-            PartialValue::MatchProduct(_) => todo!(),
-            PartialValue::IntroCoproduct(_) => todo!(),
-            PartialValue::FormCoproduct(FormCoproduct { variants }) => {
-                let variants = variants
-                    .iter()
-                    .map(|comp| {
-                        format!(
-                            "{}: {}",
-                            self.db.lookup_intern_string_data(comp.name),
-                            self.print(&comp.ty)
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" | ");
-                format!("coprod {{{}}}", variants)
-            }
-            PartialValue::FormAnyCoproduct(FormAnyCoproduct { known_variant }) => {
-                format!(
-                    "coprod {{... {}: {} ...}}",
-                    self.db.lookup_intern_string_data(known_variant.name),
-                    self.print(&known_variant.ty)
-                )
-            }
-            PartialValue::MatchCoproduct(_) => todo!(),
-            PartialValue::ReduceTy(_) => todo!(),
-            PartialValue::ExpandTy(_) => todo!(),
-            PartialValue::Inst(Inst(path)) => self.db.path_to_string(*path),
-            PartialValue::Let(_) => todo!(),
-            PartialValue::Lambda(_) => todo!(),
-            PartialValue::Apply(_) => todo!(),
-            PartialValue::Var(var) => self.get_name(*var),
-            PartialValue::FormFunc(FormFunc {
-                parameter_name,
-                parameter_ty,
-                result,
-            }) => {
-                // TODO: Check precedence with (->) symbol.
-                // Perhaps unify this with some generic node pretty printer?
-                format!(
-                    "({}: {}) -> {}",
-                    parameter_name.display(self.db),
-                    self.print(parameter_ty),
-                    self.print(result)
-                )
-            }
-            PartialValue::FormUniverse => "Universe".to_string(),
-        }
+        todo!()
     }
 
-    fn get_name(&mut self, var: Var) -> String {
+    fn get_name(&mut self, var: Metavariable) -> String {
         if let Some(result) = self.inference_variable_names.get(&var) {
             result.clone()
         } else {

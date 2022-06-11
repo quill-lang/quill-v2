@@ -24,6 +24,7 @@ enum GenericType {
     Name,
     QualifiedName,
     Component,
+    Universe,
 }
 
 fn convert_generics(generics: &Generics) -> Vec<GenericType> {
@@ -36,8 +37,9 @@ fn convert_generics(generics: &Generics) -> Vec<GenericType> {
                 "N" => GenericType::Name,
                 "Q" => GenericType::QualifiedName,
                 "C" => GenericType::Component,
+                "U" => GenericType::Universe,
                 _ => panic!(
-                    "generics must be named `E`, `N`, `Q`, or `C`, for expression, name, qualified name, or component"
+                    "generics must be named `E`, `N`, `Q`, `C`, or `U`, for expression, name, qualified name, component, or universe"
                 ),
             },
             _ => panic!("the only generics allowed when deriving `ListSexpr` are types"),
@@ -53,6 +55,7 @@ fn write_node_generic(generic: &GenericType) -> TokenStream {
         GenericType::Component => {
             quote! { crate::expr::Component<crate::expr::Name, crate::expr::Expr> }
         }
+        GenericType::Universe => quote! { crate::expr::Universe },
     }
 }
 
@@ -68,6 +71,7 @@ fn write_value_generic(generic: &GenericType) -> TokenStream {
         GenericType::Component => {
             quote! { crate::expr::ComponentContents<crate::expr::Str, crate::expr::PartialValue> }
         }
+        GenericType::Universe => quote! { crate::expr::UniverseValue },
     }
 }
 
@@ -562,14 +566,22 @@ fn gen_direct_ty(field: &syn::Field, use_node_generics: bool) -> Box<dyn quote::
 }
 
 struct ExprVariants {
+    expr_contents_name: Ident,
+    partial_value_name: Ident,
     variants: Punctuated<ExprVariant, Token![,]>,
 }
 
 impl Parse for ExprVariants {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let expr_contents_name = input.parse::<Ident>()?;
+        let partial_value_name = input.parse::<Ident>()?;
         input
             .parse_terminated(ExprVariant::parse)
-            .map(|variants| ExprVariants { variants })
+            .map(|variants| ExprVariants {
+                expr_contents_name,
+                partial_value_name,
+                variants,
+            })
     }
 }
 
@@ -601,6 +613,8 @@ impl Parse for ExprVariant {
 #[proc_macro]
 pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as ExprVariants);
+    let expr_contents_name = input.expr_contents_name;
+    let partial_value_name = input.partial_value_name;
 
     let mut node_variants = Punctuated::<TokenStream, Token![,]>::new();
     let mut value_variants = Punctuated::<TokenStream, Token![,]>::new();
@@ -627,31 +641,31 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         let ty = quote!(#name<#generics>);
         if variant.nullary {
             gen_from_impls.extend(quote!{
-                impl TryFrom<ExprContents> for #ty {
+                impl TryFrom<#expr_contents_name> for #ty {
                     type Error = &'static str;
-                    fn try_from(value: ExprContents) -> Result<Self, Self::Error> {
-                        if let ExprContents::#name = value { Ok(#name) } else { Err(value.variant_keyword()) }
+                    fn try_from(value: #expr_contents_name) -> Result<Self, Self::Error> {
+                        if let #expr_contents_name::#name = value { Ok(#name) } else { Err(value.variant_keyword()) }
                     }
                 }
 
-                impl From<#ty> for ExprContents {
-                    fn from(value: #ty) -> ExprContents {
-                        ExprContents::#name
+                impl From<#ty> for #expr_contents_name {
+                    fn from(value: #ty) -> #expr_contents_name {
+                        #expr_contents_name::#name
                     }
                 }
             });
         } else {
             gen_from_impls.extend(quote!{
-                impl TryFrom<ExprContents> for #ty {
+                impl TryFrom<#expr_contents_name> for #ty {
                     type Error = &'static str;
-                    fn try_from(value: ExprContents) -> Result<Self, Self::Error> {
-                        if let ExprContents::#name(x) = value { Ok(x) } else { Err(value.variant_keyword()) }
+                    fn try_from(value: #expr_contents_name) -> Result<Self, Self::Error> {
+                        if let #expr_contents_name::#name(x) = value { Ok(x) } else { Err(value.variant_keyword()) }
                     }
                 }
 
-                impl From<#ty> for ExprContents {
-                    fn from(value: #ty) -> ExprContents {
-                        ExprContents::#name(value)
+                impl From<#ty> for #expr_contents_name {
+                    fn from(value: #ty) -> #expr_contents_name {
+                        #expr_contents_name::#name(value)
                     }
                 }
             });
@@ -801,7 +815,7 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let expr = quote! {
         #[derive(Debug, PartialEq, Eq)]
-        pub enum ExprContents {
+        pub enum #expr_contents_name {
             #node_variants
         }
 
@@ -810,13 +824,13 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         /// about is its value.
         /// It therefore contains no feather nodes, and is cloneable.
         #[derive(Debug, Clone, PartialEq, Eq)]
-        pub enum PartialValue {
+        pub enum #partial_value_name {
             #value_variants
         }
 
         #gen_from_impls
 
-        impl ExprContents {
+        impl #expr_contents_name {
             pub fn variant_keyword(&self) -> &'static str {
                 match self {
                     #node_variant_keywords
@@ -824,7 +838,7 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         }
 
-        impl PartialValue {
+        impl #partial_value_name {
             pub fn variant_keyword(&self) -> &'static str {
                 match self {
                     #value_variant_keywords
@@ -832,7 +846,7 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         }
 
-        impl ListSexpr for ExprContents {
+        impl ListSexpr for #expr_contents_name {
             const KEYWORD: Option<&'static str> = None;
 
             fn parse_list(ctx: &mut SexprParseContext, db: &dyn SexprParser, span: Span, mut args: Vec<SexprNode>) -> Result<Self, ParseError> {
@@ -882,7 +896,7 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         }
 
-        impl ListSexpr for PartialValue {
+        impl ListSexpr for #partial_value_name {
             const KEYWORD: Option<&'static str> = None;
 
             fn parse_list(ctx: &mut SexprParseContext, db: &dyn SexprParser, span: Span, mut args: Vec<SexprNode>) -> Result<Self, ParseError> {
@@ -896,7 +910,7 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         }
 
-        impl ExprContents {
+        impl #expr_contents_name {
             pub fn sub_expressions(&self) -> Vec<&Expr> {
                 match self {
                     #process_sub_expressions
@@ -922,7 +936,7 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         }
 
-        impl PartialValue {
+        impl #partial_value_name {
             pub fn sub_values(&self) -> Vec<&PartialValue> {
                 match self {
                     #process_sub_values
