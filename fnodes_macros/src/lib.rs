@@ -94,6 +94,7 @@ fn write_value_generics(generics: &[GenericType]) -> Punctuated<TokenStream, Tok
         binding_shadow_names,
         non_binding_shadow_name,
         non_binding_shadow_names,
+        no_to_value_impl,
     )
 )]
 pub fn derive_expr_variant(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -425,6 +426,49 @@ pub fn derive_expr_variant(input: proc_macro::TokenStream) -> proc_macro::TokenS
         }
     }
 
+    let mut to_value_fields = Punctuated::<TokenStream, Token![,]>::new();
+    for (field_index, field) in data.fields.iter().enumerate() {
+        let field_name = field
+            .ident
+            .as_ref()
+            .map(|name| quote!(#name))
+            .unwrap_or_else(|| {
+                let field_index = syn::Index::from(field_index);
+                quote!(#field_index)
+            });
+        fn ty_has_parameter(ty: &syn::Type) -> bool {
+            if let syn::Type::Path(path) = ty {
+                let segment = path.path.segments.last().unwrap();
+                if segment.ident.to_string().len() == 1 {
+                    // This is probably a type parameter.
+                    return true;
+                }
+                match &segment.arguments {
+                    syn::PathArguments::None => false,
+                    syn::PathArguments::AngleBracketed(args) => args.args.iter().any(|x| {
+                        if let syn::GenericArgument::Type(ty) = x {
+                            ty_has_parameter(ty)
+                        } else {
+                            false
+                        }
+                    }),
+                    _ => unimplemented!(),
+                }
+            } else {
+                false
+            }
+        }
+        if ty_has_parameter(&field.ty) {
+            to_value_fields.push(quote! {
+                #field_name: self.#field_name.to_value(db)
+            });
+        } else {
+            to_value_fields.push(quote! {
+                #field_name: self.#field_name
+            });
+        }
+    }
+
     output.extend(quote! {
         impl crate::expr::ExpressionVariant for #name<#node_generics> {
             fn sub_expressions(&self) -> Vec<&Expr> {
@@ -490,6 +534,23 @@ pub fn derive_expr_variant(input: proc_macro::TokenStream) -> proc_macro::TokenS
             }
         }
     });
+
+    if !input
+        .attrs
+        .iter()
+        .any(|a| a.path.segments.len() == 1 && a.path.segments[0].ident == "no_to_value_impl")
+    {
+        output.extend(quote! {
+            impl ToValue for #name<#node_generics> {
+                type Value = #name<#value_generics>;
+                fn to_value(&self, db: &dyn InternExt) -> Self::Value {
+                    Self::Value {
+                        #to_value_fields
+                    }
+                }
+            }
+        });
+    }
 
     // let result = output.into();
     // eprintln!("{}", result);
@@ -813,6 +874,20 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         };
     }
 
+    let mut process_from_expr_contents = Punctuated::<TokenStream, Token![,]>::new();
+    for variant in &input.variants {
+        let name = variant.name.clone();
+        if variant.nullary {
+            process_from_expr_contents.push(quote! {
+                #expr_contents_name::#name => #value_name::#name
+            });
+        } else {
+            process_from_expr_contents.push(quote! {
+                #expr_contents_name::#name(val) => #value_name::#name(val.to_value(db))
+            });
+        }
+    }
+
     let expr = quote! {
         #[derive(Debug, PartialEq, Eq)]
         pub enum #expr_contents_name {
@@ -971,6 +1046,22 @@ pub fn gen_expr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 match self {
                     #process_value_non_binding_shadow_names_mut
                 }
+            }
+        }
+
+        impl ToValue for #expr_contents_name {
+            type Value = #value_name;
+            fn to_value(&self, db: &dyn InternExt) -> Self::Value {
+                match self {
+                    #process_from_expr_contents
+                }
+            }
+        }
+
+        impl ToValue for Node<#expr_contents_name> {
+            type Value = #value_name;
+            fn to_value(&self, db: &dyn InternExt) -> Self::Value {
+                self.contents.to_value(db)
             }
         }
     };

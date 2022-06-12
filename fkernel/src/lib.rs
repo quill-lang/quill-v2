@@ -9,20 +9,29 @@ pub fn add(left: usize, right: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fcommon::FileReader;
     use fcommon::SourceType;
+    use fnodes::expr::ToValue;
+    use fnodes::{expr::ValuePrinter, SexprParser};
     use test_db::*;
 
     #[test]
     fn test_sexpr() {
         let contents = "
-        (def id () (u)
-            (pi (T 0) imp (sort (univn 0))
-            (pi (x 0) ex (bound 0)
-            (bound 0)))
+        (module
+            ()
+            (def id () (u)
+                (pi (T 0) imp (sort (univn 0))
+                (pi (x 0) ex (bound 0)
+                (bound 0)))
+            )
         )
         ";
         let (db, source) = database_with_file(vec!["test", "sexpr"], SourceType::Feather, contents);
-        panic!("{:#?}", db.source(source));
+        let module = db.module_from_feather_source(source).unwrap();
+        let mut v = ValuePrinter::new(&db);
+        panic!(
+            "{}",
+            v.print(&module.module.contents.defs[0].contents.expr.to_value(&db))
+        );
     }
 }

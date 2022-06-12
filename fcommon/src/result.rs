@@ -485,6 +485,32 @@ impl<T> Dr<T> {
             reports: self.reports.clone(),
         }
     }
+
+    /// If there were any errors, panic.
+    /// Useful for tests.
+    pub fn assert_ok(&self) {
+        if self.errored() {
+            panic!("diagnostic result contained errors: {:#?}", self.reports);
+        }
+    }
+
+    /// If there were no errors, return the underlying value.
+    /// Useful for tests.
+    pub fn unwrap(self) -> T {
+        self.assert_ok();
+        self.value.unwrap()
+    }
+
+    /// If there were no errors, panic.
+    /// Useful for tests.
+    pub fn assert_errored(&self) {
+        if !self.errored() {
+            panic!(
+                "diagnostic result was supposed to contain errors, reports were: {:#?}",
+                self.reports
+            );
+        }
+    }
 }
 
 impl<T> FromIterator<Dr<T>> for Dr<Vec<T>> {

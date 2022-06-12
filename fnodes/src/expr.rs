@@ -56,7 +56,7 @@ use std::collections::HashMap;
 
 use crate::basic_nodes::*;
 use crate::*;
-use fcommon::{Span, Str};
+use fcommon::{InternExt, Path, PathData, Span, Str};
 use fnodes_macros::*;
 
 pub trait ExpressionVariant {
@@ -74,6 +74,51 @@ pub trait ExpressionVariant {
             .into_iter()
             .chain(self.non_binding_shadow_names())
             .collect()
+    }
+}
+
+/// Utility trait for converting expression types into value types.
+pub trait ToValue {
+    type Value;
+    fn to_value(&self, db: &dyn InternExt) -> Self::Value;
+}
+
+impl<T> ToValue for Box<T>
+where
+    T: ToValue,
+{
+    type Value = Box<T::Value>;
+    fn to_value(&self, db: &dyn InternExt) -> Self::Value {
+        Box::new(self.as_ref().to_value(db))
+    }
+}
+
+impl<T> ToValue for Vec<T>
+where
+    T: ToValue,
+{
+    type Value = Vec<T::Value>;
+    fn to_value(&self, db: &dyn InternExt) -> Self::Value {
+        self.iter().map(|x| x.to_value(db)).collect()
+    }
+}
+
+impl ToValue for QualifiedName {
+    type Value = Path;
+
+    fn to_value(&self, db: &dyn InternExt) -> Self::Value {
+        db.intern_path_data(PathData(self.0.iter().map(|x| x.contents).collect()))
+    }
+}
+
+impl ToValue for Shadow<Name> {
+    type Value = Shadow<Str>;
+
+    fn to_value(&self, _: &dyn InternExt) -> Self::Value {
+        Shadow {
+            value: self.value.contents,
+            id: self.id,
+        }
     }
 }
 
@@ -484,6 +529,7 @@ impl MetavariableGenerator {
 
 #[derive(Debug, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword = "ty"]
+#[no_to_value_impl]
 pub struct ExprTy(
     #[list]
     #[sub_expr]
@@ -492,6 +538,7 @@ pub struct ExprTy(
 
 #[derive(Debug, PartialEq, Eq, ExprVariant)]
 #[list_sexpr_keyword = "pty"]
+#[no_to_value_impl]
 pub struct PartialExprTy(
     #[list]
     #[sub_expr]
