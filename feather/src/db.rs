@@ -67,15 +67,13 @@ impl FeatherDatabase {
     /// although receiving file update events may still be desirable in certain cases.
     pub fn new() -> (Self, mpsc::Receiver<notify::DebouncedEvent>) {
         let (tx, rx) = mpsc::channel();
-
-        (
-            Self {
-                storage: Default::default(),
-                watcher: Arc::new(Mutex::new(
-                    notify::watcher(tx, Duration::from_secs(1)).unwrap(),
-                )),
-            },
-            rx,
-        )
+        let mut this = Self {
+            storage: Default::default(),
+            watcher: Arc::new(Mutex::new(
+                notify::watcher(tx, Duration::from_secs(1)).unwrap(),
+            )),
+        };
+        this.set_no_read_from_disk_with_durability(false, salsa::Durability::HIGH);
+        (this, rx)
     }
 }

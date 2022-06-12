@@ -113,6 +113,7 @@ name = "feather"
 version = "0.0.0"
 dependencies = [
  "fcommon",
+ "fkernel",
  "fnodes",
  "fvalue",
  "notify",
@@ -131,6 +132,15 @@ dependencies = [
  "libc",
  "redox_syscall",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "fkernel"
+version = "0.0.0"
+dependencies = [
+ "fcommon",
+ "fnodes",
+ "salsa",
 ]
 
 [[package]]

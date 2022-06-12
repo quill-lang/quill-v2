@@ -15,7 +15,7 @@
 //! - `N`: [`Name`] or [`Str`]
 //! - `Q`: [`QualifiedName`] or [`fcommon::Path`]
 //! - `C`: [`Component<Name, Expr>`] or [`ComponentContents<Str, Value>`]
-//! - `U`: [`Universe`] or [`UniverseValue`].
+//! - `U`: [`UniverseExpr`] or [`UniverseValue`].
 //!
 //! ### Serialisation keyword
 //! The `#[list_sexpr_keyword = "..."]` attribute must be provided to provide the keyword
