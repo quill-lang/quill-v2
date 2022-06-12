@@ -427,19 +427,23 @@ impl AtomicSexpr for BinderAnnotation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
-#[list_sexpr_keyword = "lambda"]
+#[list_sexpr_keyword = "lam"]
 pub struct Lambda<N, E> {
-    /// The new variable to be bound in the body of the lambda.
+    /// The name of the parameter.
     #[list]
     #[binding_shadow_name]
-    pub names_to_bind: Shadow<N>,
+    pub parameter_name: Shadow<N>,
     /// How the parameter should be filled when calling the function.
     #[atomic]
     pub binder_annotation: BinderAnnotation,
+    /// The type of the parameter.
+    #[list]
+    #[sub_expr]
+    pub parameter_ty: Box<E>,
     /// The body of the lambda, also called the lambda term.
     #[list]
     #[sub_expr]
-    pub body: Box<E>,
+    pub result: Box<E>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
@@ -659,8 +663,67 @@ impl<'a> ValuePrinter<'a> {
         }
     }
 
+    pub fn print_universe(&mut self, val: &UniverseValue) -> String {
+        match val {
+            UniverseValue::UniverseNumber(n) => n.0.to_string(),
+            UniverseValue::UniverseVariable(var) => self.db.lookup_intern_string_data(var.0),
+            UniverseValue::UniverseAdd(add) => {
+                format!("{} + {}", self.print_universe(&add.term), add.addend)
+            }
+            UniverseValue::UniverseMax(max) => format!(
+                "max ({}) ({})",
+                self.print_universe(&max.left),
+                self.print_universe(&max.right)
+            ),
+            UniverseValue::UniverseImpredicativeMax(imax) => {
+                format!(
+                    "imax ({}) ({})",
+                    self.print_universe(&imax.left),
+                    self.print_universe(&imax.right)
+                )
+            }
+        }
+    }
+
     pub fn print(&mut self, val: &Value) -> String {
-        todo!()
+        match val {
+            Value::Bound(bound) => bound.0.to_string(),
+            Value::Lambda(lambda) => {
+                let contents = format!(
+                    "{}: {}",
+                    self.db
+                        .lookup_intern_string_data(lambda.parameter_name.value),
+                    self.print(&*lambda.parameter_ty)
+                );
+                let binder = match lambda.binder_annotation {
+                    BinderAnnotation::Explicit => format!("({})", contents),
+                    BinderAnnotation::ImplicitEager => format!("{{{}}}", contents),
+                    BinderAnnotation::ImplicitWeak => format!("{{{{{}}}}}", contents),
+                    BinderAnnotation::ImplicitTypeclass => format!("[{}]", contents),
+                };
+                format!("λ {}, {}", binder, self.print(&*lambda.result))
+            }
+            Value::Pi(pi) => {
+                let contents = format!(
+                    "{}: {}",
+                    self.db.lookup_intern_string_data(pi.parameter_name.value),
+                    self.print(&*pi.parameter_ty)
+                );
+                let binder = match pi.binder_annotation {
+                    BinderAnnotation::Explicit => format!("({})", contents),
+                    BinderAnnotation::ImplicitEager => format!("{{{}}}", contents),
+                    BinderAnnotation::ImplicitWeak => format!("{{{{{}}}}}", contents),
+                    BinderAnnotation::ImplicitTypeclass => format!("[{}]", contents),
+                };
+                format!("Π {}, {}", binder, self.print(&*pi.result))
+            }
+            Value::Sort(Sort(universe)) => match universe {
+                UniverseValue::UniverseNumber(UniverseNumber(0)) => "Prop".to_string(),
+                UniverseValue::UniverseNumber(UniverseNumber(1)) => "Type".to_string(),
+                _ => format!("Sort {}", self.print_universe(universe)),
+            },
+            _ => unimplemented!(),
+        }
     }
 
     fn get_name(&mut self, var: Metavariable) -> String {
