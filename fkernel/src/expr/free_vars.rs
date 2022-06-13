@@ -68,12 +68,12 @@ mod tests {
         (module
             ()
             (def id (u)
-                (lam T imp (sort (univn 0))
+                (lam T imp (sort (univzero))
                 (lam x ex (bound 0)
                 (bound 0)))
             )
             (def id_mistake (u)
-                (lam T imp (sort (univn 0))
+                (lam T imp (sort (univzero))
                 (lam x ex (bound 0)
                 (bound 1)))
             )
@@ -95,7 +95,7 @@ mod tests {
         (module
             ()
             (def id_broken (u)
-                (lam T imp (sort (univn 0))
+                (lam T imp (sort (univzero))
                 (lam x ex (bound 0)
                 (bound 2)))
             )

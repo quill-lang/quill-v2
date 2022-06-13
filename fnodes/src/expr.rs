@@ -56,9 +56,10 @@
 //! sub-expression values.
 use std::collections::HashMap;
 
-use crate::basic_nodes::*;
+use crate::universe::{Metauniverse, UniverseContents};
 use crate::*;
-use fcommon::{Span, Str};
+use crate::{basic_nodes::*, universe::Universe};
+use fcommon::Span;
 use fnodes_macros::*;
 
 pub trait ExpressionVariant {
@@ -158,180 +159,6 @@ impl ExpressionVariant for Component<Name, Expr> {
 }*/
 
 // Begin describing the expressions in Feather.
-// We start with universe expressions.
-
-/// A concrete universe level.
-/// Level `0` represents `Prop`, the type of (proof-irrelevant) propositions.
-/// Level `1` represents `Type`, the type of all (small) types.
-pub type UniverseLevel = u32;
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
-#[list_sexpr_keyword = "univn"]
-pub struct UniverseNumber(#[atomic] pub UniverseLevel);
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
-#[list_sexpr_keyword = "univvar"]
-pub struct UniverseVariable(#[atomic] pub Str);
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
-#[list_sexpr_keyword = "univadd"]
-pub struct UniverseAdd {
-    #[list]
-    pub term: Box<Universe>,
-    #[atomic]
-    pub addend: UniverseLevel,
-}
-
-/// Takes the larger universe of `left` and `right`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
-#[list_sexpr_keyword = "univmax"]
-pub struct UniverseMax {
-    #[list]
-    pub left: Box<Universe>,
-    #[list]
-    pub right: Box<Universe>,
-}
-
-/// Takes the larger universe of `left` and `right`, but if `right == 0`, then this just gives `0`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
-#[list_sexpr_keyword = "univimax"]
-pub struct UniverseImpredicativeMax {
-    #[list]
-    pub left: Box<Universe>,
-    #[list]
-    pub right: Box<Universe>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum UniverseContents {
-    UniverseNumber(UniverseNumber),
-    UniverseVariable(UniverseVariable),
-    UniverseAdd(UniverseAdd),
-    UniverseMax(UniverseMax),
-    UniverseImpredicativeMax(UniverseImpredicativeMax),
-}
-
-impl UniverseContents {
-    fn variant_keyword(&self) -> &'static str {
-        match self {
-            Self::UniverseNumber(_) => UniverseNumber::KEYWORD.unwrap(),
-            Self::UniverseVariable(_) => UniverseVariable::KEYWORD.unwrap(),
-            Self::UniverseAdd(_) => UniverseAdd::KEYWORD.unwrap(),
-            Self::UniverseMax(_) => UniverseMax::KEYWORD.unwrap(),
-            Self::UniverseImpredicativeMax(_) => UniverseImpredicativeMax::KEYWORD.unwrap(),
-        }
-    }
-}
-
-impl ListSexpr for UniverseContents {
-    const KEYWORD: Option<&'static str> = None;
-
-    fn parse_list(
-        db: &dyn SexprParser,
-        span: Span,
-        mut args: Vec<SexprNode>,
-    ) -> Result<Self, ParseError> {
-        if args.is_empty() {
-            return Err(ParseError {
-                span,
-                reason: ParseErrorReason::ExpectedKeywordFoundEmpty {
-                    expected: "<any universe>",
-                },
-            });
-        }
-
-        let first = args.remove(0);
-        let keyword = if let SexprNodeContents::Atom(value) = &first.contents {
-            value.as_str()
-        } else {
-            return Err(ParseError {
-                span: first.span.clone(),
-                reason: ParseErrorReason::ExpectedKeywordFoundList {
-                    expected: "<any universe>",
-                },
-            });
-        };
-
-        // Reduce the span to only contain the arguments, not the keyword.
-        let span = (first.span.end + 1)..span.end - 1;
-
-        Ok(match Some(keyword) {
-            UniverseNumber::KEYWORD => {
-                Self::UniverseNumber(UniverseNumber::parse_list(db, span, args)?)
-            }
-            UniverseVariable::KEYWORD => {
-                Self::UniverseVariable(UniverseVariable::parse_list(db, span, args)?)
-            }
-            UniverseAdd::KEYWORD => Self::UniverseAdd(UniverseAdd::parse_list(db, span, args)?),
-            UniverseMax::KEYWORD => Self::UniverseMax(UniverseMax::parse_list(db, span, args)?),
-            UniverseImpredicativeMax::KEYWORD => Self::UniverseImpredicativeMax(
-                UniverseImpredicativeMax::parse_list(db, span, args)?,
-            ),
-            _ => {
-                return Err(ParseError {
-                    span: first.span.clone(),
-                    reason: ParseErrorReason::WrongKeyword {
-                        expected: "<any universe>",
-                        found: keyword.to_string(),
-                    },
-                })
-            }
-        })
-    }
-
-    fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
-        // TODO: expr infos
-        let mut result = match self {
-            Self::UniverseNumber(val) => val.serialise(db),
-            Self::UniverseVariable(val) => val.serialise(db),
-            Self::UniverseAdd(val) => val.serialise(db),
-            Self::UniverseMax(val) => val.serialise(db),
-            Self::UniverseImpredicativeMax(val) => val.serialise(db),
-        };
-        result.insert(
-            0,
-            SexprNode {
-                contents: SexprNodeContents::Atom(self.variant_keyword().to_owned()),
-                span: 0..0,
-            },
-        );
-        result
-    }
-}
-
-#[derive(Clone, PartialEq, Eq, Hash)]
-pub struct Universe {
-    provenance: Provenance,
-    pub contents: UniverseContents,
-}
-
-impl std::fmt::Debug for Universe {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if f.alternate() {
-            write!(f, "{:?}@{:#?}", self.provenance, self.contents)
-        } else {
-            write!(f, "{:?}@{:?}", self.provenance, self.contents)
-        }
-    }
-}
-
-impl Universe {
-    pub fn new_in_sexpr(span: Span, contents: UniverseContents) -> Self {
-        Self {
-            provenance: Provenance::Sexpr { span },
-            contents,
-        }
-    }
-
-    pub fn new_synthetic(contents: UniverseContents) -> Self {
-        Self {
-            provenance: Provenance::Synthetic,
-            contents,
-        }
-    }
-}
-
-// Now we do all non-universe expressions.
 
 /// A bound local variable inside an abstraction.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
@@ -455,12 +282,12 @@ pub struct Apply {
 /// For example, if the universe is `0`, this is `Prop`, the type of propositions.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
 #[list_sexpr_keyword = "sort"]
-pub struct Sort(#[list] Universe);
+pub struct Sort(#[list] pub Universe);
 
 /// An inference variable.
 /// May have theoretically any type.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, ExprVariant)]
-#[list_sexpr_keyword = "var"]
+#[list_sexpr_keyword = "meta"]
 pub struct Metavariable(#[atomic] u32);
 
 /// Used for inference, should not be used in functions manually.
@@ -677,22 +504,41 @@ impl Expr {
             ty: None,
         }
     }
-}
 
-impl ListSexpr for Universe {
-    const KEYWORD: Option<&'static str> = None;
+    /// Compares two expressions for equality, ignoring the provenance data.
+    pub fn eq_ignoring_provenance(&self, other: &Expr) -> bool {
+        let result = match (&self.contents, &other.contents) {
+            (ExprContents::Bound(left), ExprContents::Bound(right)) => left.0 == right.0,
+            (ExprContents::Inst(left), ExprContents::Inst(right)) => todo!(),
+            (ExprContents::Let(left), ExprContents::Let(right)) => todo!(),
+            (ExprContents::Lambda(left), ExprContents::Lambda(right)) => {
+                left.parameter_name
+                    .eq_ignoring_provenance(&right.parameter_name)
+                    && left.binder_annotation == right.binder_annotation
+                    && left
+                        .parameter_ty
+                        .eq_ignoring_provenance(&right.parameter_ty)
+                    && left.result.eq_ignoring_provenance(&right.result)
+            }
+            (ExprContents::Pi(left), ExprContents::Pi(right)) => todo!(),
+            (ExprContents::Apply(left), ExprContents::Apply(right)) => {
+                left.argument.eq_ignoring_provenance(&right.argument)
+                    && left.function.eq_ignoring_provenance(&right.function)
+            }
+            (ExprContents::Sort(left), ExprContents::Sort(right)) => {
+                left.0.eq_ignoring_provenance(&right.0)
+            }
+            (ExprContents::Metavariable(left), ExprContents::Metavariable(right)) => todo!(),
+            (ExprContents::LocalConstant(left), ExprContents::LocalConstant(right)) => todo!(),
+            _ => false,
+        };
 
-    fn parse_list(
-        db: &dyn SexprParser,
-        span: Span,
-        args: Vec<SexprNode>,
-    ) -> Result<Self, ParseError> {
-        UniverseContents::parse_list(db, span.clone(), args)
-            .map(|univ_contents| Universe::new_in_sexpr(span, univ_contents))
-    }
-
-    fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
-        self.contents.serialise(db)
+        result
+            && match (&self.ty, &other.ty) {
+                (None, None) => true,
+                (Some(left), Some(right)) => left.eq_ignoring_provenance(right),
+                _ => false,
+            }
     }
 }
 
@@ -764,6 +610,10 @@ pub struct ExprPrinter<'a> {
     /// When we see a new inference variable that we've not named yet, what name should we give it?
     /// This monotonically increasing counter is used to work out what the name should be.
     next_metavariable_name: u32,
+    /// Like [`Self::metavariable_names`] but for universes.
+    metauniverse_names: HashMap<Metauniverse, String>,
+    /// Like [`Self::next_metavariable_name`] but for universes.
+    next_metauniverse_name: u32,
 }
 
 impl<'a> ExprPrinter<'a> {
@@ -772,15 +622,17 @@ impl<'a> ExprPrinter<'a> {
             db,
             metavariable_names: HashMap::new(),
             next_metavariable_name: 0,
+            metauniverse_names: HashMap::new(),
+            next_metauniverse_name: 0,
         }
     }
 
     pub fn print_universe(&mut self, val: &Universe) -> String {
         match &val.contents {
-            UniverseContents::UniverseNumber(n) => n.0.to_string(),
+            UniverseContents::UniverseZero => "0".to_string(),
             UniverseContents::UniverseVariable(var) => self.db.lookup_intern_string_data(var.0),
-            UniverseContents::UniverseAdd(add) => {
-                format!("{} + {}", self.print_universe(&add.term), add.addend)
+            UniverseContents::UniverseSucc(succ) => {
+                format!("{} + 1", self.print_universe(&succ.0))
             }
             UniverseContents::UniverseMax(max) => format!(
                 "max ({}) ({})",
@@ -793,6 +645,9 @@ impl<'a> ExprPrinter<'a> {
                     self.print_universe(&imax.left),
                     self.print_universe(&imax.right)
                 )
+            }
+            UniverseContents::Metauniverse(metauniverse) => {
+                format!("universe_{}", self.get_metauniverse_name(*metauniverse))
             }
         }
     }
@@ -830,26 +685,49 @@ impl<'a> ExprPrinter<'a> {
                 };
                 format!("Π {}, {}", binder, self.print(&*pi.result))
             }
-            ExprContents::Sort(Sort(universe)) => match &universe.contents {
-                UniverseContents::UniverseNumber(UniverseNumber(0)) => "Prop".to_string(),
-                UniverseContents::UniverseNumber(UniverseNumber(1)) => "Type".to_string(),
-                _ => format!("Sort {}", self.print_universe(universe)),
-            },
+            ExprContents::Apply(apply) => {
+                format!(
+                    "({}) ({})",
+                    self.print(&apply.function),
+                    self.print(&apply.argument)
+                )
+            }
+            ExprContents::Sort(Sort(universe)) => {
+                if let Some(n) = universe.to_explicit_universe() {
+                    match n {
+                        0 => "Prop".to_string(),
+                        1 => "Type".to_string(),
+                        _ => format!("Type {}", n - 1),
+                    }
+                } else {
+                    format!("Sort {}", self.print_universe(universe))
+                }
+            }
             _ => unimplemented!(),
         }
     }
 
-    fn get_name(&mut self, var: Metavariable) -> String {
+    fn get_metavariable_name(&mut self, var: Metavariable) -> String {
         if let Some(result) = self.metavariable_names.get(&var) {
             result.clone()
         } else {
-            let name = self.new_name();
+            let name = self.new_metavariable_name();
             self.metavariable_names.insert(var, name.clone());
             name
         }
     }
 
-    fn new_name(&mut self) -> String {
+    fn get_metauniverse_name(&mut self, var: Metauniverse) -> String {
+        if let Some(result) = self.metauniverse_names.get(&var) {
+            result.clone()
+        } else {
+            let name = self.new_metauniverse_name();
+            self.metauniverse_names.insert(var, name.clone());
+            name
+        }
+    }
+
+    fn new_metavariable_name(&mut self) -> String {
         let id = self.next_metavariable_name;
         self.next_metavariable_name += 1;
 
@@ -863,5 +741,11 @@ impl<'a> ExprPrinter<'a> {
         } else {
             format!("{}", name)
         }
+    }
+
+    fn new_metauniverse_name(&mut self) -> String {
+        let id = self.next_metauniverse_name;
+        self.next_metauniverse_name += 1;
+        id.to_string()
     }
 }
