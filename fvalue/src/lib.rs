@@ -6,7 +6,7 @@ use std::{
 };
 
 use fcommon::{Dr, Path, Source, Str};
-use fnodes::{basic_nodes::SourceSpan, expr::*, module::Module, SexprParserExt};
+use fnodes::{expr::*, module::Module, SexprParserExt};
 use tracing::debug;
 
 #[salsa::query_group(ValueInferenceStorage)]
@@ -69,10 +69,9 @@ fn find_expr_def_deps(db: &dyn ValueInferenceEngine, expr: &Expr, deps: &mut BTr
             }
         }
     }
-    // TODO: when we declare an expression's type, we should traverse it here
-    // if let Some(ExprTy(ty)) = infos.expr_ty.get(expr) {
-    //     find_expr_def_deps(db, ty, deps);
-    // }
+    if let Some(ty) = &expr.ty {
+        find_expr_def_deps(db, ty, deps);
+    }
 }
 
 #[tracing::instrument(level = "trace")]

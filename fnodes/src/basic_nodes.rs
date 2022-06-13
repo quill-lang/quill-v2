@@ -1,6 +1,7 @@
 use std::{
     collections::{hash_map::Entry, HashMap},
     fmt::Display,
+    ops::Add,
 };
 
 use fcommon::{Path, PathData, Span, Str};
@@ -421,7 +422,7 @@ impl ListSexpr for SourceSpan {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DeBruijnIndex(pub u32);
+pub struct DeBruijnIndex(u32);
 
 impl AtomicSexpr for DeBruijnIndex {
     fn parse_atom(db: &dyn SexprParser, text: String) -> Result<Self, ParseErrorReason> {
@@ -436,6 +437,47 @@ impl AtomicSexpr for DeBruijnIndex {
 impl Display for DeBruijnIndex {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "#{}", self.0)
+    }
+}
+
+impl DeBruijnIndex {
+    /// The lowest de Bruijn index.
+    pub fn zero() -> DeBruijnIndex {
+        Self(0)
+    }
+
+    /// The next (higher) de Bruijn index.
+    pub fn succ(self) -> DeBruijnIndex {
+        Self(self.0 + 1)
+    }
+
+    /// The previous (lower) de Bruijn index, or zero if one does not exist.
+    pub fn pred(self) -> DeBruijnIndex {
+        Self(self.0.saturating_sub(1))
+    }
+}
+
+/// An offset for de Bruijn indices, which can be used to calculate relative indices.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DeBruijnOffset(u32);
+
+impl DeBruijnOffset {
+    /// The zero offset.
+    pub fn zero() -> DeBruijnOffset {
+        Self(0)
+    }
+
+    /// Increase the offset by one.
+    pub fn succ(self) -> DeBruijnOffset {
+        Self(self.0 + 1)
+    }
+}
+
+impl Add<DeBruijnOffset> for DeBruijnIndex {
+    type Output = DeBruijnIndex;
+
+    fn add(self, rhs: DeBruijnOffset) -> Self::Output {
+        Self(self.0 + rhs.0)
     }
 }
 

@@ -1,5 +1,7 @@
 //! All types of expression and value are defined here.
 //!
+//! TODO: This is out of date.
+//!
 //! # Adding variants
 //! When adding a new expression variant, make sure to derive [`ExprVariant`].
 //! This will automatically create implementations of [`ExpressionVariant`],
@@ -200,12 +202,101 @@ pub struct UniverseImpredicativeMax {
     pub right: Box<Universe>,
 }
 
-gen_expr! { UniverseContents
-    UniverseNumber,
-    UniverseVariable,
-    UniverseAdd,
-    UniverseMax,
-    UniverseImpredicativeMax
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum UniverseContents {
+    UniverseNumber(UniverseNumber),
+    UniverseVariable(UniverseVariable),
+    UniverseAdd(UniverseAdd),
+    UniverseMax(UniverseMax),
+    UniverseImpredicativeMax(UniverseImpredicativeMax),
+}
+
+impl UniverseContents {
+    fn variant_keyword(&self) -> &'static str {
+        match self {
+            Self::UniverseNumber(_) => UniverseNumber::KEYWORD.unwrap(),
+            Self::UniverseVariable(_) => UniverseVariable::KEYWORD.unwrap(),
+            Self::UniverseAdd(_) => UniverseAdd::KEYWORD.unwrap(),
+            Self::UniverseMax(_) => UniverseMax::KEYWORD.unwrap(),
+            Self::UniverseImpredicativeMax(_) => UniverseImpredicativeMax::KEYWORD.unwrap(),
+        }
+    }
+}
+
+impl ListSexpr for UniverseContents {
+    const KEYWORD: Option<&'static str> = None;
+
+    fn parse_list(
+        db: &dyn SexprParser,
+        span: Span,
+        mut args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        if args.is_empty() {
+            return Err(ParseError {
+                span,
+                reason: ParseErrorReason::ExpectedKeywordFoundEmpty {
+                    expected: "<any universe>",
+                },
+            });
+        }
+
+        let first = args.remove(0);
+        let keyword = if let SexprNodeContents::Atom(value) = &first.contents {
+            value.as_str()
+        } else {
+            return Err(ParseError {
+                span: first.span.clone(),
+                reason: ParseErrorReason::ExpectedKeywordFoundList {
+                    expected: "<any universe>",
+                },
+            });
+        };
+
+        // Reduce the span to only contain the arguments, not the keyword.
+        let span = (first.span.end + 1)..span.end - 1;
+
+        Ok(match Some(keyword) {
+            UniverseNumber::KEYWORD => {
+                Self::UniverseNumber(UniverseNumber::parse_list(db, span, args)?)
+            }
+            UniverseVariable::KEYWORD => {
+                Self::UniverseVariable(UniverseVariable::parse_list(db, span, args)?)
+            }
+            UniverseAdd::KEYWORD => Self::UniverseAdd(UniverseAdd::parse_list(db, span, args)?),
+            UniverseMax::KEYWORD => Self::UniverseMax(UniverseMax::parse_list(db, span, args)?),
+            UniverseImpredicativeMax::KEYWORD => Self::UniverseImpredicativeMax(
+                UniverseImpredicativeMax::parse_list(db, span, args)?,
+            ),
+            _ => {
+                return Err(ParseError {
+                    span: first.span.clone(),
+                    reason: ParseErrorReason::WrongKeyword {
+                        expected: "<any universe>",
+                        found: keyword.to_string(),
+                    },
+                })
+            }
+        })
+    }
+
+    fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
+        // TODO: expr infos
+        let mut result = match self {
+            Self::UniverseNumber(val) => val.serialise(db),
+            Self::UniverseVariable(val) => val.serialise(db),
+            Self::UniverseAdd(val) => val.serialise(db),
+            Self::UniverseMax(val) => val.serialise(db),
+            Self::UniverseImpredicativeMax(val) => val.serialise(db),
+        };
+        result.insert(
+            0,
+            SexprNode {
+                contents: SexprNodeContents::Atom(self.variant_keyword().to_owned()),
+                span: 0..0,
+            },
+        );
+        result
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -411,20 +502,143 @@ impl MetavariableGenerator {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
-#[list_sexpr_keyword = "ty"]
-pub struct ExprTy(#[list] pub Expr);
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ExprContents {
+    Bound(Bound),
+    Inst(Inst),
+    Let(Let),
+    Lambda(Lambda),
+    Pi(Pi),
+    Apply(Apply),
+    Sort(Sort),
+    Metavariable(Metavariable),
+    LocalConstant(LocalConstant),
+}
 
-gen_expr! { ExprContents
-    Bound,
-    Inst,
-    Let,
-    Lambda,
-    Pi,
-    Apply,
-    Sort,
-    Metavariable,
-    LocalConstant,
+impl ExprContents {
+    fn variant_keyword(&self) -> &'static str {
+        match self {
+            Self::Bound(_) => Bound::KEYWORD.unwrap(),
+            Self::Inst(_) => Inst::KEYWORD.unwrap(),
+            Self::Let(_) => Let::KEYWORD.unwrap(),
+            Self::Lambda(_) => Lambda::KEYWORD.unwrap(),
+            Self::Pi(_) => Pi::KEYWORD.unwrap(),
+            Self::Apply(_) => Apply::KEYWORD.unwrap(),
+            Self::Sort(_) => Sort::KEYWORD.unwrap(),
+            Self::Metavariable(_) => Metavariable::KEYWORD.unwrap(),
+            Self::LocalConstant(_) => LocalConstant::KEYWORD.unwrap(),
+        }
+    }
+}
+
+impl ListSexpr for ExprContents {
+    const KEYWORD: Option<&'static str> = None;
+
+    fn parse_list(
+        db: &dyn SexprParser,
+        span: Span,
+        mut args: Vec<SexprNode>,
+    ) -> Result<Self, ParseError> {
+        if args.is_empty() {
+            return Err(ParseError {
+                span,
+                reason: ParseErrorReason::ExpectedKeywordFoundEmpty {
+                    expected: "<any expression>",
+                },
+            });
+        }
+
+        let first = args.remove(0);
+        let keyword = if let SexprNodeContents::Atom(value) = &first.contents {
+            value.as_str()
+        } else {
+            return Err(ParseError {
+                span: first.span.clone(),
+                reason: ParseErrorReason::ExpectedKeywordFoundList {
+                    expected: "<any expression>",
+                },
+            });
+        };
+
+        // Reduce the span to only contain the arguments, not the keyword.
+        let span = (first.span.end + 1)..span.end - 1;
+
+        Ok(match Some(keyword) {
+            Bound::KEYWORD => Self::Bound(Bound::parse_list(db, span, args)?),
+            Inst::KEYWORD => Self::Inst(Inst::parse_list(db, span, args)?),
+            Let::KEYWORD => Self::Let(Let::parse_list(db, span, args)?),
+            Lambda::KEYWORD => Self::Lambda(Lambda::parse_list(db, span, args)?),
+            Pi::KEYWORD => Self::Pi(Pi::parse_list(db, span, args)?),
+            Apply::KEYWORD => Self::Apply(Apply::parse_list(db, span, args)?),
+            Sort::KEYWORD => Self::Sort(Sort::parse_list(db, span, args)?),
+            Metavariable::KEYWORD => Self::Metavariable(Metavariable::parse_list(db, span, args)?),
+            LocalConstant::KEYWORD => {
+                Self::LocalConstant(LocalConstant::parse_list(db, span, args)?)
+            }
+            _ => {
+                return Err(ParseError {
+                    span: first.span.clone(),
+                    reason: ParseErrorReason::WrongKeyword {
+                        expected: "<any expression>",
+                        found: keyword.to_string(),
+                    },
+                })
+            }
+        })
+    }
+
+    fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
+        // TODO: expr infos
+        let mut result = match self {
+            Self::Bound(val) => val.serialise(db),
+            Self::Inst(val) => val.serialise(db),
+            Self::Let(val) => val.serialise(db),
+            Self::Lambda(val) => val.serialise(db),
+            Self::Pi(val) => val.serialise(db),
+            Self::Apply(val) => val.serialise(db),
+            Self::Sort(val) => val.serialise(db),
+            Self::Metavariable(val) => val.serialise(db),
+            Self::LocalConstant(val) => val.serialise(db),
+        };
+        result.insert(
+            0,
+            SexprNode {
+                contents: SexprNodeContents::Atom(self.variant_keyword().to_owned()),
+                span: 0..0,
+            },
+        );
+        result
+    }
+}
+
+impl ExprContents {
+    pub fn sub_expressions(&self) -> Vec<&Expr> {
+        match self {
+            Self::Bound(val) => val.sub_expressions(),
+            Self::Inst(val) => val.sub_expressions(),
+            Self::Let(val) => val.sub_expressions(),
+            Self::Lambda(val) => val.sub_expressions(),
+            Self::Pi(val) => val.sub_expressions(),
+            Self::Apply(val) => val.sub_expressions(),
+            Self::Sort(val) => val.sub_expressions(),
+            Self::Metavariable(val) => val.sub_expressions(),
+            Self::LocalConstant(val) => val.sub_expressions(),
+        }
+    }
+
+    pub fn sub_expressions_mut(&mut self) -> Vec<&mut Expr> {
+        match self {
+            Self::Bound(val) => val.sub_expressions_mut(),
+            Self::Inst(val) => val.sub_expressions_mut(),
+            Self::Let(val) => val.sub_expressions_mut(),
+            Self::Lambda(val) => val.sub_expressions_mut(),
+            Self::Pi(val) => val.sub_expressions_mut(),
+            Self::Apply(val) => val.sub_expressions_mut(),
+            Self::Sort(val) => val.sub_expressions_mut(),
+            Self::Metavariable(val) => val.sub_expressions_mut(),
+            Self::LocalConstant(val) => val.sub_expressions_mut(),
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -433,6 +647,8 @@ pub struct Expr {
     provenance: Provenance,
     /// The actual contents of this expression.
     pub contents: ExprContents,
+    /// If the expression has a type annotation, the type is given here.
+    pub ty: Option<Box<Expr>>,
 }
 
 impl std::fmt::Debug for Expr {
@@ -450,6 +666,7 @@ impl Expr {
         Self {
             provenance: Provenance::Sexpr { span },
             contents,
+            ty: None,
         }
     }
 
@@ -457,6 +674,7 @@ impl Expr {
         Self {
             provenance: Provenance::Synthetic,
             contents,
+            ty: None,
         }
     }
 }
@@ -539,21 +757,21 @@ impl ListSexpr for Expr {
 
 /// A utility for printing values to screen.
 /// Works like the Display trait, but works better for printing type variable names.
-pub struct ValuePrinter<'a> {
+pub struct ExprPrinter<'a> {
     db: &'a dyn SexprParser,
     /// Maps inference variables to the names we use to render them.
-    inference_variable_names: HashMap<Metavariable, String>,
+    metavariable_names: HashMap<Metavariable, String>,
     /// When we see a new inference variable that we've not named yet, what name should we give it?
     /// This monotonically increasing counter is used to work out what the name should be.
-    type_variable_name: u32,
+    next_metavariable_name: u32,
 }
 
-impl<'a> ValuePrinter<'a> {
+impl<'a> ExprPrinter<'a> {
     pub fn new(db: &'a dyn SexprParser) -> Self {
         Self {
             db,
-            inference_variable_names: Default::default(),
-            type_variable_name: Default::default(),
+            metavariable_names: HashMap::new(),
+            next_metavariable_name: 0,
         }
     }
 
@@ -622,18 +840,18 @@ impl<'a> ValuePrinter<'a> {
     }
 
     fn get_name(&mut self, var: Metavariable) -> String {
-        if let Some(result) = self.inference_variable_names.get(&var) {
+        if let Some(result) = self.metavariable_names.get(&var) {
             result.clone()
         } else {
             let name = self.new_name();
-            self.inference_variable_names.insert(var, name.clone());
+            self.metavariable_names.insert(var, name.clone());
             name
         }
     }
 
     fn new_name(&mut self) -> String {
-        let id = self.type_variable_name;
-        self.type_variable_name += 1;
+        let id = self.next_metavariable_name;
+        self.next_metavariable_name += 1;
 
         // Assign a new lowercase Greek letter to this type.
         // There are 24 letters to choose from.
