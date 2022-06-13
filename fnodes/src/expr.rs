@@ -56,150 +56,20 @@ use std::collections::HashMap;
 
 use crate::basic_nodes::*;
 use crate::*;
-use fcommon::{InternExt, Path, PathData, Span, Str};
+use fcommon::{Span, Str};
 use fnodes_macros::*;
 
 pub trait ExpressionVariant {
     fn sub_expressions(&self) -> Vec<&Expr>;
     fn sub_expressions_mut(&mut self) -> Vec<&mut Expr>;
-    /// A list of the local names bound in this expression.
-    /// Not all binding names may a priori be visible to all sub-expressions.
-    fn binding_shadow_names(&self) -> Vec<&Shadow<Name>>;
-    /// A list of the local names used in this expression that were bound somewhere else.
-    fn non_binding_shadow_names(&self) -> Vec<&Shadow<Name>>;
-
-    /// Returns both binding and non-binding shadow names.
-    fn shadow_names(&mut self) -> Vec<&Shadow<Name>> {
-        self.binding_shadow_names()
-            .into_iter()
-            .chain(self.non_binding_shadow_names())
-            .collect()
-    }
-}
-
-/// Utility trait for converting expression types into value types.
-pub trait ToValue {
-    type Value;
-    fn to_value(&self, db: &dyn InternExt) -> Self::Value;
-}
-
-impl<T> ToValue for Box<T>
-where
-    T: ToValue,
-{
-    type Value = Box<T::Value>;
-    fn to_value(&self, db: &dyn InternExt) -> Self::Value {
-        Box::new(self.as_ref().to_value(db))
-    }
-}
-
-impl<T> ToValue for Vec<T>
-where
-    T: ToValue,
-{
-    type Value = Vec<T::Value>;
-    fn to_value(&self, db: &dyn InternExt) -> Self::Value {
-        self.iter().map(|x| x.to_value(db)).collect()
-    }
-}
-
-impl ToValue for QualifiedName {
-    type Value = Path;
-
-    fn to_value(&self, db: &dyn InternExt) -> Self::Value {
-        db.intern_path_data(PathData(self.0.iter().map(|x| x.contents).collect()))
-    }
-}
-
-impl ToValue for Shadow<Name> {
-    type Value = Shadow<Str>;
-
-    fn to_value(&self, _: &dyn InternExt) -> Self::Value {
-        Shadow {
-            value: self.value.contents,
-            id: self.id,
-        }
-    }
-}
-
-pub trait ValueVariant {
-    fn sub_values(&self) -> Vec<&Value>;
-    fn sub_values_mut(&mut self) -> Vec<&mut Value>;
-    /// A list of the local names bound in this value.
-    /// Not all binding names may a priori be visible to all sub-values.
-    fn binding_shadow_names(&self) -> Vec<Shadow<Str>>;
-    /// A list of the local names used in this expression that were bound somewhere else.
-    fn non_binding_shadow_names(&self) -> Vec<Shadow<Str>>;
-    /// See [`ValueVariant::binding_names`].
-    fn binding_shadow_names_mut(&mut self) -> Vec<&mut Shadow<Str>>;
-    /// See [`ValueVariant::non_binding_names`].
-    fn non_binding_shadow_names_mut(&mut self) -> Vec<&mut Shadow<Str>>;
-
-    /// Returns both binding and non-binding shadow names.
-    fn shadow_names(&mut self) -> Vec<Shadow<Str>> {
-        self.binding_shadow_names()
-            .into_iter()
-            .chain(self.non_binding_shadow_names())
-            .collect()
-    }
-}
-
-impl<'a> From<&'a Box<Expr>> for &'a Expr {
-    fn from(boxed: &'a Box<Expr>) -> Self {
-        boxed
-    }
-}
-
-impl<'a> From<&'a mut Box<Expr>> for &'a mut Expr {
-    fn from(boxed: &'a mut Box<Expr>) -> Self {
-        &mut *boxed
-    }
-}
-
-impl<'a> From<&'a Box<Value>> for &'a Value {
-    fn from(boxed: &'a Box<Value>) -> Self {
-        boxed
-    }
-}
-
-impl<'a> From<&'a mut Box<Value>> for &'a mut Value {
-    fn from(boxed: &'a mut Box<Value>) -> Self {
-        &mut *boxed
-    }
 }
 
 // TODO: Check for duplicates in each component-related thing.
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+/*#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ComponentContents<N, E> {
     pub name: N,
     pub ty: E,
-}
-
-impl ValueVariant for ComponentContents<Str, Value> {
-    fn sub_values(&self) -> Vec<&Value> {
-        vec![&self.ty]
-    }
-
-    fn sub_values_mut(&mut self) -> Vec<&mut Value> {
-        vec![&mut self.ty]
-    }
-
-    fn binding_shadow_names(&self) -> Vec<Shadow<Str>> {
-        Vec::new()
-    }
-
-    fn non_binding_shadow_names(&self) -> Vec<Shadow<Str>> {
-        Vec::new()
-    }
-
-    fn binding_shadow_names_mut(&mut self) -> Vec<&mut Shadow<Str>> {
-        Vec::new()
-    }
-
-    fn non_binding_shadow_names_mut(&mut self) -> Vec<&mut Shadow<Str>> {
-        Vec::new()
-    }
 }
 
 pub type Component<N, E> = Node<ComponentContents<N, E>>;
@@ -208,7 +78,6 @@ impl ListSexpr for Component<Name, Expr> {
     const KEYWORD: Option<&'static str> = None;
 
     fn parse_list(
-        ctx: &mut SexprParseContext,
         db: &dyn SexprParser,
         span: Span,
         mut args: Vec<SexprNode>,
@@ -222,22 +91,23 @@ impl ListSexpr for Component<Name, Expr> {
                 },
             });
         }
-        let name = Name::parse(ctx, db, args.remove(0))?;
-        let ty = ListSexprWrapper::parse(ctx, db, args.remove(0))?;
-        let component = Node::new(ctx.node_id_gen.gen(), span, ComponentContents { name, ty });
+        let name = Name::parse(db, args.remove(0))?;
+        let ty = ListSexprWrapper::parse(db, args.remove(0))?;
+        let component =
+            Node::new_in_sexpr(ctx.node_id_gen.gen(), span, ComponentContents { name, ty });
         for info in args {
             ctx.process_component_info(db, &component, info)?;
         }
         Ok(component)
     }
 
-    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
+    fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
         let mut infos = ctx.process_component_info(db, self, ctx);
         infos.insert(
             0,
-            ListSexprWrapper::serialise_into_node(ctx, db, &self.contents.ty),
+            ListSexprWrapper::serialise_into_node(db, &self.contents.ty),
         );
-        infos.insert(0, self.contents.name.serialise(ctx, db));
+        infos.insert(0, self.contents.name.serialise(db));
         infos
     }
 }
@@ -249,7 +119,6 @@ where
     const KEYWORD: Option<&'static str> = None;
 
     fn parse_list(
-        ctx: &mut SexprParseContext,
         db: &dyn SexprParser,
         span: Span,
         mut args: Vec<SexprNode>,
@@ -263,15 +132,15 @@ where
                 },
             });
         }
-        let name = AtomicSexprWrapper::parse(ctx, db, args.remove(0))?;
-        let ty = ListSexprWrapper::parse(ctx, db, args.remove(0))?;
+        let name = AtomicSexprWrapper::parse(db, args.remove(0))?;
+        let ty = ListSexprWrapper::parse(db, args.remove(0))?;
         Ok(ComponentContents { name, ty })
     }
 
-    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
+    fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
         vec![
-            AtomicSexprWrapper::serialise_into_node(ctx, db, &self.name),
-            ListSexprWrapper::serialise_into_node(ctx, db, &self.ty),
+            AtomicSexprWrapper::serialise_into_node(db, &self.name),
+            ListSexprWrapper::serialise_into_node(db, &self.ty),
         ]
     }
 }
@@ -284,15 +153,7 @@ impl ExpressionVariant for Component<Name, Expr> {
     fn sub_expressions_mut(&mut self) -> Vec<&mut Expr> {
         vec![&mut self.contents.ty]
     }
-
-    fn binding_shadow_names(&self) -> Vec<&Shadow<Name>> {
-        Vec::new()
-    }
-
-    fn non_binding_shadow_names(&self) -> Vec<&Shadow<Name>> {
-        Vec::new()
-    }
-}
+}*/
 
 // Begin describing the expressions in Feather.
 // We start with universe expressions.
@@ -302,91 +163,115 @@ impl ExpressionVariant for Component<Name, Expr> {
 /// Level `1` represents `Type`, the type of all (small) types.
 pub type UniverseLevel = u32;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ExprVariant)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
 #[list_sexpr_keyword = "univn"]
 pub struct UniverseNumber(#[atomic] pub UniverseLevel);
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ExprVariant)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
 #[list_sexpr_keyword = "univvar"]
 pub struct UniverseVariable(#[atomic] pub Str);
 
-#[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
 #[list_sexpr_keyword = "univadd"]
-pub struct UniverseAdd<U> {
+pub struct UniverseAdd {
     #[list]
-    #[sub_expr]
-    pub term: Box<U>,
+    pub term: Box<Universe>,
     #[atomic]
     pub addend: UniverseLevel,
 }
 
 /// Takes the larger universe of `left` and `right`.
-#[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
 #[list_sexpr_keyword = "univmax"]
-pub struct UniverseMax<U> {
+pub struct UniverseMax {
     #[list]
-    #[sub_expr]
-    pub left: Box<U>,
+    pub left: Box<Universe>,
     #[list]
-    #[sub_expr]
-    pub right: Box<U>,
+    pub right: Box<Universe>,
 }
 
 /// Takes the larger universe of `left` and `right`, but if `right == 0`, then this just gives `0`.
-#[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
 #[list_sexpr_keyword = "univimax"]
-pub struct UniverseImpredicativeMax<U> {
+pub struct UniverseImpredicativeMax {
     #[list]
-    #[sub_expr]
-    pub left: Box<U>,
+    pub left: Box<Universe>,
     #[list]
-    #[sub_expr]
-    pub right: Box<U>,
+    pub right: Box<Universe>,
 }
 
-gen_expr! { UniverseContents UniverseValue
+gen_expr! { UniverseContents
     UniverseNumber,
     UniverseVariable,
-    UniverseAdd<U>,
-    UniverseMax<U>,
-    UniverseImpredicativeMax<U>
+    UniverseAdd,
+    UniverseMax,
+    UniverseImpredicativeMax
 }
 
-pub type UniverseExpr = Node<UniverseContents>;
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct Universe {
+    provenance: Provenance,
+    pub contents: UniverseContents,
+}
+
+impl std::fmt::Debug for Universe {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if f.alternate() {
+            write!(f, "{:?}@{:#?}", self.provenance, self.contents)
+        } else {
+            write!(f, "{:?}@{:?}", self.provenance, self.contents)
+        }
+    }
+}
+
+impl Universe {
+    pub fn new_in_sexpr(span: Span, contents: UniverseContents) -> Self {
+        Self {
+            provenance: Provenance::Sexpr { span },
+            contents,
+        }
+    }
+
+    pub fn new_synthetic(contents: UniverseContents) -> Self {
+        Self {
+            provenance: Provenance::Synthetic,
+            contents,
+        }
+    }
+}
 
 // Now we do all non-universe expressions.
 
 /// A bound local variable inside an abstraction.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ExprVariant)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
 #[list_sexpr_keyword = "bound"]
 pub struct Bound(#[atomic] pub DeBruijnIndex);
 
 /// Either a definition or an inductive data type.
 /// Parametrised by a list of universe parameters.
-#[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
 #[list_sexpr_keyword = "inst"]
-pub struct Inst<Q, U> {
+pub struct Inst {
     #[list]
-    pub name: Q,
+    pub name: QualifiedName,
     #[list]
-    pub universes: Vec<U>,
+    pub universes: Vec<Universe>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
 #[list_sexpr_keyword = "let"]
-pub struct Let<N, E> {
+pub struct Let {
     /// The name of the local variable to bind.
-    #[list]
-    #[binding_shadow_name]
-    pub name_to_assign: Shadow<N>,
+    #[direct]
+    pub name_to_assign: Name,
     /// The value to assign to the new bound variable.
     #[list]
     #[sub_expr]
-    pub to_assign: Box<E>,
+    pub to_assign: Box<Expr>,
     /// The main body of the expression to be executed after assigning the value.
     #[list]
     #[sub_expr]
-    pub body: Box<E>,
+    pub body: Box<Expr>,
 }
 
 /// How should the argument to this function be given?
@@ -416,7 +301,7 @@ impl AtomicSexpr for BinderAnnotation {
         }
     }
 
-    fn serialise(&self, _ctx: &SexprSerialiseContext, _db: &dyn SexprParser) -> String {
+    fn serialise(&self, __db: &dyn SexprParser) -> String {
         match self {
             BinderAnnotation::Explicit => "ex".to_string(),
             BinderAnnotation::ImplicitEager => "imp".to_string(),
@@ -426,77 +311,72 @@ impl AtomicSexpr for BinderAnnotation {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
 #[list_sexpr_keyword = "lam"]
-pub struct Lambda<N, E> {
+pub struct Lambda {
     /// The name of the parameter.
-    #[list]
-    #[binding_shadow_name]
-    pub parameter_name: Shadow<N>,
+    #[direct]
+    pub parameter_name: Name,
     /// How the parameter should be filled when calling the function.
     #[atomic]
     pub binder_annotation: BinderAnnotation,
     /// The type of the parameter.
     #[list]
     #[sub_expr]
-    pub parameter_ty: Box<E>,
+    pub parameter_ty: Box<Expr>,
     /// The body of the lambda, also called the lambda term.
     #[list]
     #[sub_expr]
-    pub result: Box<E>,
+    pub result: Box<Expr>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
 #[list_sexpr_keyword = "pi"]
-pub struct Pi<N, E> {
+pub struct Pi {
     /// The name of the parameter.
-    #[list]
-    #[binding_shadow_name]
-    pub parameter_name: Shadow<N>,
+    #[direct]
+    pub parameter_name: Name,
     /// How the parameter should be filled when calling the function.
     #[atomic]
     pub binder_annotation: BinderAnnotation,
     /// The type of the parameter.
     #[list]
     #[sub_expr]
-    pub parameter_ty: Box<E>,
+    pub parameter_ty: Box<Expr>,
     /// The type of the result.
     #[list]
     #[sub_expr]
-    pub result: Box<E>,
+    pub result: Box<Expr>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, ExprVariant)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
 #[list_sexpr_keyword = "ap"]
-pub struct Apply<N> {
+pub struct Apply {
     /// The function to be invoked.
     #[list]
-    #[non_binding_shadow_name]
-    pub function: Shadow<N>,
+    pub function: Box<Expr>,
     /// The argument to apply to the function.
     #[list]
-    #[non_binding_shadow_name]
-    pub argument: Shadow<N>,
+    pub argument: Box<Expr>,
 }
 
 /// Represents the universe of types corresponding to the given universe.
 /// For example, if the universe is `0`, this is `Prop`, the type of propositions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, ExprVariant)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
 #[list_sexpr_keyword = "sort"]
-pub struct Sort<U>(#[list] U);
+pub struct Sort(#[list] Universe);
 
 /// An inference variable.
 /// May have theoretically any type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, ExprVariant)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, ExprVariant)]
 #[list_sexpr_keyword = "var"]
 pub struct Metavariable(#[atomic] u32);
 
 /// Used for inference, should not be used in functions manually.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, ExprVariant)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
 #[list_sexpr_keyword = "localconst"]
 pub struct LocalConstant {
     #[list]
-    #[sub_expr]
     pub metavariable: Metavariable,
     // pub binder_annotation: BinderAnnotation,
 }
@@ -531,55 +411,70 @@ impl MetavariableGenerator {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, ExprVariant)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
 #[list_sexpr_keyword = "ty"]
-#[no_to_value_impl]
-pub struct ExprTy(
-    #[list]
-    #[sub_expr]
-    pub Expr,
-);
+pub struct ExprTy(#[list] pub Expr);
 
-#[derive(Debug, PartialEq, Eq, ExprVariant)]
-#[list_sexpr_keyword = "pty"]
-#[no_to_value_impl]
-pub struct PartialExprTy(
-    #[list]
-    #[sub_expr]
-    pub Value,
-);
-
-gen_expr! { ExprContents Value
+gen_expr! { ExprContents
     Bound,
-    Inst<Q, U>,
-    Let<N, E>,
-    Lambda<N, E>,
-    Pi<N, E>,
-    Apply<N>,
-    Sort<U>,
+    Inst,
+    Let,
+    Lambda,
+    Pi,
+    Apply,
+    Sort,
     Metavariable,
     LocalConstant,
 }
 
-// TODO: get rid of `nullary`
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct Expr {
+    /// The origin of the expression.
+    provenance: Provenance,
+    /// The actual contents of this expression.
+    pub contents: ExprContents,
+}
 
-pub type Expr = Node<ExprContents>;
+impl std::fmt::Debug for Expr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if f.alternate() {
+            write!(f, "{:?}@{:#?}", self.provenance, self.contents)
+        } else {
+            write!(f, "{:?}@{:?}", self.provenance, self.contents)
+        }
+    }
+}
 
-impl ListSexpr for UniverseExpr {
+impl Expr {
+    pub fn new_in_sexpr(span: Span, contents: ExprContents) -> Self {
+        Self {
+            provenance: Provenance::Sexpr { span },
+            contents,
+        }
+    }
+
+    pub fn new_synthetic(contents: ExprContents) -> Self {
+        Self {
+            provenance: Provenance::Synthetic,
+            contents,
+        }
+    }
+}
+
+impl ListSexpr for Universe {
     const KEYWORD: Option<&'static str> = None;
 
     fn parse_list(
-        ctx: &mut SexprParseContext,
         db: &dyn SexprParser,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
-        UniverseContents::parse_list(ctx, db, span.clone(), args)
-            .map(|univ_contents| Node::new(ctx.node_id_gen.gen(), span, univ_contents))
+        UniverseContents::parse_list(db, span.clone(), args)
+            .map(|univ_contents| Universe::new_in_sexpr(span, univ_contents))
     }
 
-    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
-        self.contents.serialise(ctx, db)
+    fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
+        self.contents.serialise(db)
     }
 }
 
@@ -587,7 +482,6 @@ impl ListSexpr for Expr {
     const KEYWORD: Option<&'static str> = None;
 
     fn parse_list(
-        ctx: &mut SexprParseContext,
         db: &dyn SexprParser,
         span: Span,
         mut args: Vec<SexprNode>,
@@ -612,34 +506,34 @@ impl ListSexpr for Expr {
                 });
             }
             let _expr_keyword = args.remove(0);
-            let expr_contents = ListSexprWrapper::<ExprContents>::parse(ctx, db, args.remove(0))?;
-            let expr = Node::new(ctx.node_id_gen.gen(), span, expr_contents);
-            for info in args {
-                ctx.process_expr_info(db, &expr, info)?;
-            }
+            let expr_contents = ListSexprWrapper::<ExprContents>::parse(db, args.remove(0))?;
+            let expr = Expr::new_in_sexpr(span, expr_contents);
+            // for info in args {
+            //     ctx.process_expr_info(db, &expr, info)?;
+            // }
             Ok(expr)
         } else {
             // This is of the form `ExprContents`.
-            ExprContents::parse_list(ctx, db, span.clone(), args)
-                .map(|expr_contents| Node::new(ctx.node_id_gen.gen(), span, expr_contents))
+            ExprContents::parse_list(db, span.clone(), args)
+                .map(|expr_contents| Expr::new_in_sexpr(span, expr_contents))
         }
     }
 
-    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
-        let mut infos = ctx.process_expr_info(db, self, ctx);
-        if infos.is_empty() {
-            self.contents.serialise(ctx, db)
-        } else {
-            infos.insert(
-                0,
-                ListSexprWrapper::serialise_into_node(ctx, db, &self.contents),
-            );
-            infos.insert(
-                0,
-                AtomicSexprWrapper::serialise_into_node(ctx, db, &"expr".to_string()),
-            );
-            infos
-        }
+    fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
+        // let mut infos = ctx.process_expr_info(db, self, ctx);
+        // if infos.is_empty() {
+        self.contents.serialise(db)
+        // } else {
+        //     infos.insert(
+        //         0,
+        //         ListSexprWrapper::serialise_into_node(db, &self.contents),
+        //     );
+        //     infos.insert(
+        //         0,
+        //         AtomicSexprWrapper::serialise_into_node(db, &"expr".to_string()),
+        //     );
+        //     infos
+        // }
     }
 }
 
@@ -663,19 +557,19 @@ impl<'a> ValuePrinter<'a> {
         }
     }
 
-    pub fn print_universe(&mut self, val: &UniverseValue) -> String {
-        match val {
-            UniverseValue::UniverseNumber(n) => n.0.to_string(),
-            UniverseValue::UniverseVariable(var) => self.db.lookup_intern_string_data(var.0),
-            UniverseValue::UniverseAdd(add) => {
+    pub fn print_universe(&mut self, val: &Universe) -> String {
+        match &val.contents {
+            UniverseContents::UniverseNumber(n) => n.0.to_string(),
+            UniverseContents::UniverseVariable(var) => self.db.lookup_intern_string_data(var.0),
+            UniverseContents::UniverseAdd(add) => {
                 format!("{} + {}", self.print_universe(&add.term), add.addend)
             }
-            UniverseValue::UniverseMax(max) => format!(
+            UniverseContents::UniverseMax(max) => format!(
                 "max ({}) ({})",
                 self.print_universe(&max.left),
                 self.print_universe(&max.right)
             ),
-            UniverseValue::UniverseImpredicativeMax(imax) => {
+            UniverseContents::UniverseImpredicativeMax(imax) => {
                 format!(
                     "imax ({}) ({})",
                     self.print_universe(&imax.left),
@@ -685,14 +579,14 @@ impl<'a> ValuePrinter<'a> {
         }
     }
 
-    pub fn print(&mut self, val: &Value) -> String {
-        match val {
-            Value::Bound(bound) => bound.0.to_string(),
-            Value::Lambda(lambda) => {
+    pub fn print(&mut self, val: &Expr) -> String {
+        match &val.contents {
+            ExprContents::Bound(bound) => bound.0.to_string(),
+            ExprContents::Lambda(lambda) => {
                 let contents = format!(
                     "{}: {}",
                     self.db
-                        .lookup_intern_string_data(lambda.parameter_name.value),
+                        .lookup_intern_string_data(lambda.parameter_name.contents),
                     self.print(&*lambda.parameter_ty)
                 );
                 let binder = match lambda.binder_annotation {
@@ -703,10 +597,11 @@ impl<'a> ValuePrinter<'a> {
                 };
                 format!("λ {}, {}", binder, self.print(&*lambda.result))
             }
-            Value::Pi(pi) => {
+            ExprContents::Pi(pi) => {
                 let contents = format!(
                     "{}: {}",
-                    self.db.lookup_intern_string_data(pi.parameter_name.value),
+                    self.db
+                        .lookup_intern_string_data(pi.parameter_name.contents),
                     self.print(&*pi.parameter_ty)
                 );
                 let binder = match pi.binder_annotation {
@@ -717,9 +612,9 @@ impl<'a> ValuePrinter<'a> {
                 };
                 format!("Π {}, {}", binder, self.print(&*pi.result))
             }
-            Value::Sort(Sort(universe)) => match universe {
-                UniverseValue::UniverseNumber(UniverseNumber(0)) => "Prop".to_string(),
-                UniverseValue::UniverseNumber(UniverseNumber(1)) => "Type".to_string(),
+            ExprContents::Sort(Sort(universe)) => match &universe.contents {
+                UniverseContents::UniverseNumber(UniverseNumber(0)) => "Prop".to_string(),
+                UniverseContents::UniverseNumber(UniverseNumber(1)) => "Type".to_string(),
                 _ => format!("Sort {}", self.print_universe(universe)),
             },
             _ => unimplemented!(),

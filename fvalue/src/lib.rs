@@ -6,10 +6,7 @@ use std::{
 };
 
 use fcommon::{Dr, Path, Source, Str};
-use fnodes::{
-    basic_nodes::SourceSpan, expr::*, DefaultInfos, ModuleParseResult, NodeInfoContainer,
-    SexprParserExt,
-};
+use fnodes::{basic_nodes::SourceSpan, expr::*, module::Module, SexprParserExt};
 use tracing::debug;
 
 #[salsa::query_group(ValueInferenceStorage)]
@@ -30,30 +27,19 @@ pub trait ValueInferenceEngine: SexprParserExt {
     /// Compute values and types where possible.
     /// If a variable's type could not be deduced, or an error was encountered during type/value inference,
     /// an error will be returned.
-    fn infer_values(&self, source: Source) -> Dr<Arc<ModuleParseResult<TypedInfos>>>;
-}
-
-/// A set of infos that may be useful to any feather compiler component.
-/// This is an adapted version of the information contained in [`DefaultInfos`],
-/// by including the known, semantically correct, types of each value.
-#[derive(Default, Debug, PartialEq, Eq)]
-pub struct TypedInfos {
-    pub expr_at: NodeInfoContainer<ExprContents, SourceSpan>,
-    pub expr_ty: NodeInfoContainer<ExprContents, PartialExprTy>,
-    pub name_at: NodeInfoContainer<Str, SourceSpan>,
+    fn infer_values(&self, source: Source) -> Dr<Arc<Module>>;
 }
 
 #[tracing::instrument(level = "trace")]
 fn def_deps(db: &dyn ValueInferenceEngine, source: Source) -> Dr<BTreeMap<Str, BTreeSet<Path>>> {
     db.module_from_feather_source(source).map(|res| {
-        res.module
-            .contents
+        res.contents
             .defs
             .iter()
             .map(|def| {
                 (def.contents.name.contents, {
                     let mut result = BTreeSet::new();
-                    find_expr_def_deps(db, &def.contents.expr, &res.infos, &mut result);
+                    find_expr_def_deps(db, &def.contents.expr, &mut result);
                     debug!(
                         "def {} depends on [{}]",
                         db.lookup_intern_string_data(def.contents.name.contents),
@@ -72,25 +58,21 @@ fn def_deps(db: &dyn ValueInferenceEngine, source: Source) -> Dr<BTreeMap<Str, B
 
 /// Work out which definitions this expression references.
 /// For each `inst` expression, add it to the list of deps.
-fn find_expr_def_deps(
-    db: &dyn ValueInferenceEngine,
-    expr: &Expr,
-    infos: &DefaultInfos,
-    deps: &mut BTreeSet<Path>,
-) {
+fn find_expr_def_deps(db: &dyn ValueInferenceEngine, expr: &Expr, deps: &mut BTreeSet<Path>) {
     match &expr.contents {
         ExprContents::Inst(inst) => {
             deps.insert(db.qualified_name_to_path(&inst.name));
         }
         _ => {
             for sub_expr in expr.contents.sub_expressions() {
-                find_expr_def_deps(db, sub_expr, infos, deps);
+                find_expr_def_deps(db, sub_expr, deps);
             }
         }
     }
-    if let Some(ExprTy(ty)) = infos.expr_ty.get(expr) {
-        find_expr_def_deps(db, ty, infos, deps);
-    }
+    // TODO: when we declare an expression's type, we should traverse it here
+    // if let Some(ExprTy(ty)) = infos.expr_ty.get(expr) {
+    //     find_expr_def_deps(db, ty, deps);
+    // }
 }
 
 #[tracing::instrument(level = "trace")]
@@ -177,10 +159,7 @@ fn compute_inference_order(db: &dyn ValueInferenceEngine, source: Source) -> Dr<
 }
 
 #[tracing::instrument(level = "trace")]
-fn infer_values(
-    db: &dyn ValueInferenceEngine,
-    source: Source,
-) -> Dr<Arc<ModuleParseResult<TypedInfos>>> {
+fn infer_values(db: &dyn ValueInferenceEngine, source: Source) -> Dr<Arc<Module>> {
     db.compute_inference_order(source).bind(|order| {
         // We need to call `db.module_from_feather_source` a second time, even though we already did that in `compute_inference_order`.
         // Of course, due to `salsa`, we don't actually do the parse twice, but we need to be careful not to doubly-include diagnostics.
@@ -190,20 +169,9 @@ fn infer_values(
             .0
             .unwrap();
 
-        let mut result_types = Dr::ok(NodeInfoContainer::new());
         for def in order {
             // Update result_types with inferred information.
         }
-        result_types.map(|final_types| {
-            Arc::new(ModuleParseResult {
-                module: Arc::clone(&res.module),
-                node_id_gen: res.node_id_gen.clone(),
-                infos: TypedInfos {
-                    expr_at: res.infos.expr_at.clone(),
-                    expr_ty: final_types,
-                    name_at: res.infos.name_at.clone(),
-                },
-            })
-        })
+        res.into()
     })
 }

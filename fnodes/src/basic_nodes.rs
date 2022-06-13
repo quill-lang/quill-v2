@@ -11,7 +11,6 @@ impl ListSexpr for Span {
     const KEYWORD: Option<&'static str> = None;
 
     fn parse_list(
-        ctx: &mut SexprParseContext,
         db: &dyn SexprParser,
         span: Span,
         args: Vec<SexprNode>,
@@ -20,18 +19,25 @@ impl ListSexpr for Span {
 
         // For the sake of compatibility across platforms, we enforce that spans are decoded as `u32`s first.
 
-        let start = AtomicSexprWrapper::<u32>::parse(ctx, db, start)?;
-        let end = AtomicSexprWrapper::<u32>::parse(ctx, db, end)?;
+        let start = AtomicSexprWrapper::<u32>::parse(db, start)?;
+        let end = AtomicSexprWrapper::<u32>::parse(db, end)?;
 
         Ok((start as usize)..(end as usize))
     }
 
-    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
+    fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
         vec![
-            AtomicSexprWrapper::serialise_into_node(ctx, db, &(self.start as u32)),
-            AtomicSexprWrapper::serialise_into_node(ctx, db, &(self.end as u32)),
+            AtomicSexprWrapper::serialise_into_node(db, &(self.start as u32)),
+            AtomicSexprWrapper::serialise_into_node(db, &(self.end as u32)),
         ]
     }
+}
+
+/// The place the node came from.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Provenance {
+    Sexpr { span: Span },
+    Synthetic,
 }
 
 impl AtomicSexpr for String {
@@ -39,7 +45,7 @@ impl AtomicSexpr for String {
         Ok(text)
     }
 
-    fn serialise(&self, _ctx: &SexprSerialiseContext, _db: &dyn SexprParser) -> String {
+    fn serialise(&self, _db: &dyn SexprParser) -> String {
         self.clone()
     }
 }
@@ -49,7 +55,7 @@ impl AtomicSexpr for Str {
         Ok(db.intern_string_data(text))
     }
 
-    fn serialise(&self, _ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> String {
+    fn serialise(&self, db: &dyn SexprParser) -> String {
         db.lookup_intern_string_data(*self)
     }
 }
@@ -58,47 +64,49 @@ impl AtomicSexpr for Str {
 impl SexprParsable for Str {
     type Output = Str;
 
-    fn parse(
-        ctx: &mut SexprParseContext,
-        db: &dyn SexprParser,
-        node: SexprNode,
-    ) -> Result<Self::Output, ParseError> {
-        AtomicSexprWrapper::parse(ctx, db, node)
+    fn parse(db: &dyn SexprParser, node: SexprNode) -> Result<Self::Output, ParseError> {
+        AtomicSexprWrapper::parse(db, node)
     }
 }
 
 /// This impl is provided for symmetry with the impls of [`Name`].
 impl SexprSerialisable for Str {
-    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> SexprNode {
-        AtomicSexprWrapper::serialise_into_node(ctx, db, self)
+    fn serialise(&self, db: &dyn SexprParser) -> SexprNode {
+        AtomicSexprWrapper::serialise_into_node(db, self)
     }
 }
 
 /// A single indivisible lexical unit in an identifier, variable, or so on.
-pub type Name = Node<Str>;
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct Name {
+    /// The origin of the expression.
+    provenance: Provenance,
+    /// The actual contents of this expression.
+    pub contents: Str,
+}
+
+impl std::fmt::Debug for Name {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}@{:?}", self.provenance, self.contents)
+    }
+}
 
 impl SexprParsable for Name {
     type Output = Self;
 
-    fn parse(
-        ctx: &mut SexprParseContext,
-        db: &dyn SexprParser,
-        node: SexprNode,
-    ) -> Result<Self, ParseError> {
+    fn parse(db: &dyn SexprParser, node: SexprNode) -> Result<Self, ParseError> {
         match node.contents {
-            SexprNodeContents::Atom(text) => Ok(Node::new(
-                ctx.node_id_gen.gen(),
-                node.span,
-                db.intern_string_data(text),
-            )),
+            SexprNodeContents::Atom(text) => Ok(Name {
+                provenance: Provenance::Sexpr { span: node.span },
+                contents: db.intern_string_data(text),
+            }),
             SexprNodeContents::List(entries) => {
                 let name = if let Some(first) = entries.first() {
                     match &first.contents {
-                        SexprNodeContents::Atom(text) => Node::new(
-                            ctx.node_id_gen.gen(),
-                            node.span,
-                            db.intern_string_data(text.to_string()),
-                        ),
+                        SexprNodeContents::Atom(text) => Name {
+                            provenance: Provenance::Sexpr { span: node.span },
+                            contents: db.intern_string_data(text.to_string()),
+                        },
                         SexprNodeContents::List(_) => {
                             return Err(ParseError {
                                 span: node.span.clone(),
@@ -118,7 +126,8 @@ impl SexprParsable for Name {
                 };
 
                 for info in entries.into_iter().skip(1) {
-                    ctx.process_name_info(db, &name, info)?;
+                    // TODO: node info
+                    // ctx.process_name_info(db, &name, info)?;
                 }
 
                 Ok(name)
@@ -128,18 +137,19 @@ impl SexprParsable for Name {
 }
 
 impl SexprSerialisable for Name {
-    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> SexprNode {
-        let mut infos = ctx.process_name_info(db, self, ctx);
-        let serialised = AtomicSexprWrapper::serialise_into_node(ctx, db, &self.contents);
-        if infos.is_empty() {
-            serialised
-        } else {
-            infos.insert(0, serialised);
-            SexprNode {
-                contents: SexprNodeContents::List(infos),
-                span: 0..0,
-            }
-        }
+    fn serialise(&self, db: &dyn SexprParser) -> SexprNode {
+        // TODO: node info
+        // let mut infos = ctx.process_name_info(db, self, ctx);
+        let serialised = AtomicSexprWrapper::serialise_into_node(db, &self.contents);
+        // if infos.is_empty() {
+        serialised
+        // } else {
+        //     infos.insert(0, serialised);
+        //     SexprNode {
+        //         contents: SexprNodeContents::List(infos),
+        //         span: 0..0,
+        //     }
+        // }
     }
 }
 
@@ -165,22 +175,21 @@ where
     const KEYWORD: Option<&'static str> = None;
 
     fn parse_list(
-        ctx: &mut SexprParseContext,
         db: &dyn SexprParser,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
         let [value, id] = force_arity(span, args)?;
         Ok(Shadow {
-            value: T::parse(ctx, db, value)?,
-            id: AtomicSexprWrapper::parse(ctx, db, id)?,
+            value: T::parse(db, value)?,
+            id: AtomicSexprWrapper::parse(db, id)?,
         })
     }
 
-    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
+    fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
         vec![
-            self.value.serialise(ctx, db),
-            AtomicSexprWrapper::serialise_into_node(ctx, db, &self.id),
+            self.value.serialise(db),
+            AtomicSexprWrapper::serialise_into_node(db, &self.id),
         ]
     }
 }
@@ -271,19 +280,18 @@ where
     const KEYWORD: Option<&'static str> = None;
 
     fn parse_list(
-        ctx: &mut SexprParseContext,
         db: &dyn SexprParser,
         _span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
         args.into_iter()
-            .map(|arg| ListSexprWrapper::parse(ctx, db, arg))
+            .map(|arg| ListSexprWrapper::parse(db, arg))
             .collect()
     }
 
-    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
+    fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
         self.iter()
-            .map(|name| ListSexprWrapper::serialise_into_node(ctx, db, name))
+            .map(|name| ListSexprWrapper::serialise_into_node(db, name))
             .collect()
     }
 }
@@ -292,19 +300,18 @@ impl ListSexpr for Vec<Str> {
     const KEYWORD: Option<&'static str> = None;
 
     fn parse_list(
-        ctx: &mut SexprParseContext,
         db: &dyn SexprParser,
         _span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
         args.into_iter()
-            .map(|arg| AtomicSexprWrapper::parse(ctx, db, arg))
+            .map(|arg| AtomicSexprWrapper::parse(db, arg))
             .collect()
     }
 
-    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
+    fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
         self.iter()
-            .map(|name| AtomicSexprWrapper::serialise_into_node(ctx, db, name))
+            .map(|name| AtomicSexprWrapper::serialise_into_node(db, name))
             .collect()
     }
 }
@@ -313,40 +320,50 @@ impl ListSexpr for Vec<Name> {
     const KEYWORD: Option<&'static str> = None;
 
     fn parse_list(
-        ctx: &mut SexprParseContext,
         db: &dyn SexprParser,
         _span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
-        args.into_iter()
-            .map(|arg| Name::parse(ctx, db, arg))
-            .collect()
+        args.into_iter().map(|arg| Name::parse(db, arg)).collect()
     }
 
-    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
-        self.iter().map(|name| name.serialise(ctx, db)).collect()
+    fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
+        self.iter().map(|name| name.serialise(db)).collect()
     }
 }
 
 /// A qualified name that may have been written in code, rather than one simply stored internally
 /// that was never written in code (see [`fcommon::Path`] for that use case).
-#[derive(Debug, PartialEq, Eq)]
-pub struct QualifiedName(pub Vec<Name>);
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct QualifiedName {
+    /// The origin of the expression.
+    provenance: Provenance,
+    /// The segments of the name, e.g. `["foo", "bar"]` in `foo::bar`.
+    pub segments: Vec<Name>,
+}
+
+impl std::fmt::Debug for QualifiedName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}@{:?}", self.provenance, self.segments)
+    }
+}
 
 impl ListSexpr for QualifiedName {
     const KEYWORD: Option<&'static str> = None;
 
     fn parse_list(
-        ctx: &mut SexprParseContext,
         db: &dyn SexprParser,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
-        ListSexpr::parse_list(ctx, db, span, args).map(Self)
+        ListSexpr::parse_list(db, span.clone(), args).map(|list| Self {
+            provenance: Provenance::Sexpr { span },
+            segments: list,
+        })
     }
 
-    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
-        self.0.serialise(ctx, db)
+    fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
+        self.segments.serialise(db)
     }
 }
 
@@ -354,16 +371,15 @@ impl ListSexpr for Path {
     const KEYWORD: Option<&'static str> = None;
 
     fn parse_list(
-        ctx: &mut SexprParseContext,
         db: &dyn SexprParser,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
-        ListSexpr::parse_list(ctx, db, span, args).map(|list| db.intern_path_data(PathData(list)))
+        ListSexpr::parse_list(db, span, args).map(|list| db.intern_path_data(PathData(list)))
     }
 
-    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
-        db.lookup_intern_path_data(*self).0.serialise(ctx, db)
+    fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
+        db.lookup_intern_path_data(*self).0.serialise(db)
     }
 }
 
@@ -391,17 +407,16 @@ impl ListSexpr for SourceSpan {
     const KEYWORD: Option<&'static str> = Some("at");
 
     fn parse_list(
-        ctx: &mut SexprParseContext,
         db: &dyn SexprParser,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
         let [value] = force_arity(span, args)?;
-        ListSexprWrapper::parse(ctx, db, value).map(Self)
+        ListSexprWrapper::parse(db, value).map(Self)
     }
 
-    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
-        vec![ListSexprWrapper::serialise_into_node(ctx, db, &self.0)]
+    fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
+        vec![ListSexprWrapper::serialise_into_node(db, &self.0)]
     }
 }
 
@@ -413,8 +428,8 @@ impl AtomicSexpr for DeBruijnIndex {
         u32::parse_atom(db, text).map(Self)
     }
 
-    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> String {
-        self.0.serialise(ctx, db)
+    fn serialise(&self, db: &dyn SexprParser) -> String {
+        self.0.serialise(db)
     }
 }
 
@@ -433,16 +448,15 @@ impl ListSexpr for Documentation {
     const KEYWORD: Option<&'static str> = Some("doc");
 
     fn parse_list(
-        ctx: &mut SexprParseContext,
         db: &dyn SexprParser,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
         let [value] = force_arity(span, args)?;
-        Name::parse(ctx, db, value).map(Self)
+        Name::parse(db, value).map(Self)
     }
 
-    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
-        vec![self.0.serialise(ctx, db)]
+    fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
+        vec![self.0.serialise(db)]
     }
 }

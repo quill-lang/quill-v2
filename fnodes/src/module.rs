@@ -1,22 +1,34 @@
 use fcommon::{Span, Str};
 
+use crate::basic_nodes::Provenance;
 use crate::definition::Definition;
 use crate::inductive::Inductive;
 use crate::*;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct ModuleContents {
     pub defs: Vec<Definition>,
     pub inductives: Vec<Inductive>,
 }
 
-pub type Module = Node<ModuleContents>;
+#[derive(PartialEq, Eq, Hash)]
+pub struct Module {
+    /// The origin of the module in code.
+    provenance: Provenance,
+    /// The contents of the module.
+    pub contents: ModuleContents,
+}
+
+impl std::fmt::Debug for Module {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "module {:?}:\n{:?}", self.provenance, self.contents)
+    }
+}
 
 impl ListSexpr for Module {
     const KEYWORD: Option<&'static str> = Some("module");
 
     fn parse_list(
-        ctx: &mut SexprParseContext,
         db: &dyn SexprParser,
         span: Span,
         mut args: Vec<SexprNode>,
@@ -28,14 +40,13 @@ impl ListSexpr for Module {
                 reason: ParseErrorReason::Empty,
             });
         }
-        let mut module = Node::new(
-            ctx.node_id_gen.gen(),
-            span.clone(),
-            ModuleContents {
+        let mut module = Module {
+            provenance: Provenance::Sexpr { span: span.clone() },
+            contents: ModuleContents {
                 defs: Vec::new(),
                 inductives: Vec::new(),
             },
-        );
+        };
         match args.remove(0).contents {
             SexprNodeContents::Atom(_) => {
                 return Err(ParseError {
@@ -45,7 +56,7 @@ impl ListSexpr for Module {
             }
             SexprNodeContents::List(infos) => {
                 for info in infos {
-                    ctx.process_module_info(db, &module, info)?;
+                    // ctx.process_module_info(db, &module, info)?;
                 }
             }
         }
@@ -56,12 +67,9 @@ impl ListSexpr for Module {
                 module
                     .contents
                     .inductives
-                    .push(ListSexprWrapper::parse(ctx, db, arg)?)
+                    .push(ListSexprWrapper::parse(db, arg)?)
             } else {
-                module
-                    .contents
-                    .defs
-                    .push(ListSexprWrapper::parse(ctx, db, arg)?)
+                module.contents.defs.push(ListSexprWrapper::parse(db, arg)?)
             }
         }
 
@@ -70,19 +78,20 @@ impl ListSexpr for Module {
         Ok(module)
     }
 
-    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
-        let infos = SexprNodeContents::List(ctx.process_module_info(db, self, ctx));
-        std::iter::once(SexprNode {
-            contents: infos,
-            span: 0..0,
-        })
-        .chain(
-            self.contents
-                .defs
-                .iter()
-                .map(|def| ListSexprWrapper::serialise_into_node(ctx, db, def)),
-        )
-        .collect()
+    fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
+        // TODO: node infos
+        // let infos = SexprNodeContents::List(ctx.process_module_info(db, self, ctx));
+        // std::iter::once(SexprNode {
+        //     contents: infos,
+        //     span: 0..0,
+        // })
+        // .chain(
+        self.contents
+            .defs
+            .iter()
+            .map(|def| ListSexprWrapper::serialise_into_node(db, def))
+            // )
+            .collect()
     }
 }
 

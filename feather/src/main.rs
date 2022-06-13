@@ -1,7 +1,7 @@
 use std::{collections::HashSet, path::PathBuf, sync::Arc};
 
 use fcommon::{FileReader, Intern, InternExt, PathData, Source, SourceType};
-use fnodes::{ListSexprWrapper, PrettyPrintSettings, SexprSerialiseContext, SexprSerialiseExt};
+use fnodes::{ListSexprWrapper, PrettyPrintSettings, SexprSerialiseExt};
 use fvalue::ValueInferenceEngine;
 use salsa::Durability;
 use tracing::info;
@@ -39,11 +39,7 @@ fn main() {
     }
 
     if let Some(result) = result.value() {
-        let mut ctx = SexprSerialiseContext::default();
-        ctx.register_expr_info(&result.infos.expr_at);
-        ctx.register_expr_info(&result.infos.expr_ty);
-        ctx.register_name_info(&result.infos.name_at);
-        let node = ListSexprWrapper::serialise_into_node(&ctx, &db, &*result.module);
+        let node = ListSexprWrapper::serialise_into_node(&db, &**result);
         let pretty_print = PrettyPrintSettings {
             no_indent_for: {
                 let mut map = HashSet::new();

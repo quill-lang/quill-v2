@@ -5,7 +5,7 @@
 
 use std::{marker::PhantomData, num::ParseIntError};
 
-use crate::{s_expr::*, SexprParseContext, SexprParser, SexprSerialiseContext};
+use crate::{s_expr::*, SexprParser};
 use fcommon::{Label, LabelType, Report, ReportKind, Source, Span};
 
 /// An error type used when parsing S-expressions into Feather expressions.
@@ -99,7 +99,6 @@ impl ParseError {
 pub trait SexprParsable: Sized {
     type Output;
     fn parse(
-        ctx: &mut SexprParseContext,
         db: &dyn SexprParser,
         node: SexprNode,
     ) -> Result<Self::Output, ParseError>;
@@ -109,7 +108,7 @@ pub trait SexprParsable: Sized {
 /// If [`crate::SexprParsable`], [`crate::AtomicSexpr`], or [`crate::ListSexpr`] is implemented,
 /// values of this type should be invariant under serialisation and then deserialisation.
 pub trait SexprSerialisable {
-    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> SexprNode;
+    fn serialise(&self, db: &dyn SexprParser) -> SexprNode;
 }
 
 /// Provides the ability to convert between an atomic S-expression (a string) and this type.
@@ -117,7 +116,7 @@ pub trait SexprSerialisable {
 /// [`SexprParsable`] and [`SexprSerialisable`].
 pub trait AtomicSexpr: Sized {
     fn parse_atom(db: &dyn SexprParser, text: String) -> Result<Self, ParseErrorReason>;
-    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> String;
+    fn serialise(&self, db: &dyn SexprParser) -> String;
 }
 
 /// See [`AtomicSexpr`].
@@ -132,7 +131,6 @@ where
     type Output = P;
 
     fn parse(
-        _ctx: &mut SexprParseContext,
         db: &dyn SexprParser,
         SexprNode { span, contents }: SexprNode,
     ) -> Result<P, ParseError> {
@@ -158,13 +156,12 @@ pub trait ListSexpr: Sized {
     /// The provided span is the span of the entire list S-expression, including parentheses and
     /// the initial keyword if present.
     fn parse_list(
-        ctx: &mut SexprParseContext,
         db: &dyn SexprParser,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError>;
     /// The keyword should be prepended to the returned list by the caller if present.
-    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode>;
+    fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode>;
 }
 
 impl<T> ListSexpr for Box<T>
@@ -174,16 +171,15 @@ where
     const KEYWORD: Option<&'static str> = T::KEYWORD;
 
     fn parse_list(
-        ctx: &mut SexprParseContext,
         db: &dyn SexprParser,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
-        T::parse_list(ctx, db, span, args).map(Box::new)
+        T::parse_list(db, span, args).map(Box::new)
     }
 
-    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
-        (&**self).serialise(ctx, db)
+    fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
+        (&**self).serialise(db)
     }
 }
 
@@ -199,7 +195,6 @@ where
     type Output = P;
 
     fn parse(
-        ctx: &mut SexprParseContext,
         db: &dyn SexprParser,
         SexprNode { span, contents }: SexprNode,
     ) -> Result<P, ParseError> {
@@ -244,7 +239,7 @@ where
                         });
                     }
                 };
-                P::parse_list(ctx, db, span, list)
+                P::parse_list(db, span, list)
             }
         }
     }
@@ -255,11 +250,7 @@ pub trait SexprSerialiseExt {
     /// Serialise this expression into a node.
     /// Typically this will be implemented automatically on [`AtomicSexprWrapper`] or [`ListSexprWrapper`]
     /// if [`AtomicSexpr`] or [`ListSexpr`] is implemented.
-    fn serialise_into_node(
-        ctx: &SexprSerialiseContext,
-        db: &dyn SexprParser,
-        value: &Self::Input,
-    ) -> SexprNode;
+    fn serialise_into_node(db: &dyn SexprParser, value: &Self::Input) -> SexprNode;
 }
 
 impl<T> SexprSerialiseExt for AtomicSexprWrapper<T>
@@ -268,13 +259,9 @@ where
 {
     type Input = T;
 
-    fn serialise_into_node(
-        ctx: &SexprSerialiseContext,
-        db: &dyn SexprParser,
-        value: &T,
-    ) -> SexprNode {
+    fn serialise_into_node(db: &dyn SexprParser, value: &T) -> SexprNode {
         SexprNode {
-            contents: SexprNodeContents::Atom(value.serialise(ctx, db)),
+            contents: SexprNodeContents::Atom(value.serialise(db)),
             span: 0..0,
         }
     }
@@ -286,14 +273,10 @@ where
 {
     type Input = T;
 
-    fn serialise_into_node(
-        ctx: &SexprSerialiseContext,
-        db: &dyn SexprParser,
-        value: &T,
-    ) -> SexprNode {
+    fn serialise_into_node(db: &dyn SexprParser, value: &T) -> SexprNode {
         SexprNode {
             contents: SexprNodeContents::List({
-                let mut list = value.serialise(ctx, db);
+                let mut list = value.serialise(db);
                 if let Some(kwd) = T::KEYWORD {
                     list.insert(
                         0,
@@ -317,7 +300,7 @@ macro_rules! gen_int_parsable {
                 text.parse()
                     .map_err(|err| ParseErrorReason::ParseIntError { text, err })
             }
-            fn serialise(&self, _ctx: &SexprSerialiseContext, _db: &dyn SexprParser) -> String {
+            fn serialise(&self, _db: &dyn SexprParser) -> String {
                 self.to_string()
             }
         }

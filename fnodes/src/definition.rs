@@ -1,8 +1,12 @@
 use fcommon::Span;
 
-use crate::{basic_nodes::Name, expr::Expr, *};
+use crate::{
+    basic_nodes::{Name, Provenance},
+    expr::Expr,
+    *,
+};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct DefinitionContents {
     /// The name of this definition inside the current module.
     pub name: Name,
@@ -11,54 +15,65 @@ pub struct DefinitionContents {
     pub expr: Expr,
 }
 
-pub type Definition = Node<DefinitionContents>;
+#[derive(PartialEq, Eq, Hash)]
+pub struct Definition {
+    /// The origin of the expression.
+    provenance: Provenance,
+    /// The actual contents of this expression.
+    pub contents: DefinitionContents,
+}
+
+impl std::fmt::Debug for Definition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}@{:?}", self.provenance, self.contents)
+    }
+}
 
 impl ListSexpr for Definition {
     const KEYWORD: Option<&'static str> = Some("def");
 
     fn parse_list(
-        ctx: &mut SexprParseContext,
         db: &dyn SexprParser,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
-        let [name, infos, universe_params, expr] = force_arity(span.clone(), args)?;
+        let [name, /* infos, */ universe_params, expr] = force_arity(span.clone(), args)?;
 
-        let def = Node::new(
-            ctx.node_id_gen.gen(),
-            span.clone(),
-            DefinitionContents {
-                name: Name::parse(ctx, db, name)?,
-                universe_params: ListSexprWrapper::parse(ctx, db, universe_params)?,
-                expr: ListSexprWrapper::parse(ctx, db, expr)?,
+        let def = Definition {
+            provenance: Provenance::Sexpr { span: span.clone() },
+            contents: DefinitionContents {
+                name: Name::parse(db, name)?,
+                universe_params: ListSexprWrapper::parse(db, universe_params)?,
+                expr: ListSexprWrapper::parse(db, expr)?,
             },
-        );
-        match infos.contents {
-            SexprNodeContents::Atom(_) => {
-                return Err(ParseError {
-                    span,
-                    reason: ParseErrorReason::ExpectedList,
-                })
-            }
-            SexprNodeContents::List(infos) => {
-                for info in infos {
-                    ctx.process_def_info(db, &def, info)?;
-                }
-            }
-        }
+        };
+        // match infos.contents {
+        //     SexprNodeContents::Atom(_) => {
+        //         return Err(ParseError {
+        //             span,
+        //             reason: ParseErrorReason::ExpectedList,
+        //         })
+        //     }
+        //     SexprNodeContents::List(infos) => {
+        //         for info in infos {
+        //             ctx.process_def_info(db, &def, info)?;
+        //         }
+        //     }
+        // }
         Ok(def)
     }
 
-    fn serialise(&self, ctx: &SexprSerialiseContext, db: &dyn SexprParser) -> Vec<SexprNode> {
-        let infos = SexprNodeContents::List(ctx.process_def_info(db, self, ctx));
+    fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
+        // TODO: node infos
+        // let infos = SexprNodeContents::List(ctx.process_def_info(db, self, ctx));
         vec![
-            self.contents.name.serialise(ctx, db),
-            SexprNode {
-                contents: infos,
-                span: 0..0,
-            },
-            ListSexprWrapper::serialise_into_node(ctx, db, &self.contents.universe_params),
-            ListSexprWrapper::serialise_into_node(ctx, db, &self.contents.expr),
+            self.contents.name.serialise(db),
+            // SexprNode {
+            //     contents: infos,
+            //     span: 0..0,
+            // },
+            ListSexprWrapper::serialise_into_node(db, &self.contents.universe_params),
+            ListSexprWrapper::serialise_into_node(db, &self.contents.expr),
         ]
     }
 }
