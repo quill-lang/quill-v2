@@ -150,7 +150,7 @@ impl ListSexpr for UniverseContents {
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Universe {
-    provenance: Provenance,
+    pub provenance: Provenance,
     pub contents: UniverseContents,
 }
 
@@ -186,13 +186,23 @@ impl Universe {
             (UniverseContents::UniverseVariable(_), UniverseContents::UniverseVariable(_)) => {
                 todo!()
             }
-            (UniverseContents::UniverseSucc(_), UniverseContents::UniverseSucc(_)) => todo!(),
-            (UniverseContents::UniverseMax(_), UniverseContents::UniverseMax(_)) => todo!(),
+            (UniverseContents::UniverseSucc(arg1), UniverseContents::UniverseSucc(arg2)) => {
+                arg1.0.eq_ignoring_provenance(&arg2.0)
+            }
+            (UniverseContents::UniverseMax(arg1), UniverseContents::UniverseMax(arg2)) => {
+                arg1.left.eq_ignoring_provenance(&arg2.left)
+                    && arg1.right.eq_ignoring_provenance(&arg2.right)
+            }
             (
-                UniverseContents::UniverseImpredicativeMax(_),
-                UniverseContents::UniverseImpredicativeMax(_),
-            ) => todo!(),
-            (UniverseContents::Metauniverse(_), UniverseContents::Metauniverse(_)) => todo!(),
+                UniverseContents::UniverseImpredicativeMax(arg1),
+                UniverseContents::UniverseImpredicativeMax(arg2),
+            ) => {
+                arg1.left.eq_ignoring_provenance(&arg2.left)
+                    && arg1.right.eq_ignoring_provenance(&arg2.right)
+            }
+            (UniverseContents::Metauniverse(arg1), UniverseContents::Metauniverse(arg2)) => {
+                arg1.0 == arg2.0
+            }
             _ => false,
         }
     }
