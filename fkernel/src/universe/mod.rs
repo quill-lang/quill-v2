@@ -214,6 +214,47 @@ fn normalise_max(mut max: UniverseMax) -> Universe {
     }
 }
 
+enum ReplaceResult {
+    /// The expression should not be replaced.
+    Skip,
+    /// The expression should be replaced with the given value.
+    ReplaceWith(Universe),
+}
+
+fn replace_in_universe(u: &mut Universe, replace_fn: impl Clone + Fn(&Universe) -> ReplaceResult) {
+    match replace_fn.clone()(u) {
+        ReplaceResult::Skip => match &mut u.contents {
+            UniverseContents::UniverseZero => {}
+            UniverseContents::UniverseVariable(_) => {}
+            UniverseContents::UniverseSucc(inner) => replace_in_universe(&mut inner.0, replace_fn),
+            UniverseContents::UniverseMax(max) => {
+                replace_in_universe(&mut max.left, replace_fn);
+                replace_in_universe(&mut max.right, replace_fn);
+            }
+            UniverseContents::UniverseImpredicativeMax(imax) => {
+                replace_in_universe(&mut imax.left, replace_fn);
+                replace_in_universe(&mut imax.right, replace_fn);
+            }
+            UniverseContents::Metauniverse(_) => {}
+        },
+        ReplaceResult::ReplaceWith(replacement) => *u = replacement,
+    }
+}
+
+/// Replace the given metauniverse with the provided replacement.
+pub fn instantiate_universe(u: &mut Universe, meta: Metauniverse, replacement: Universe) {
+    replace_in_universe(u, |inner| match &inner.contents {
+        UniverseContents::Metauniverse(inner_meta) => {
+            if *inner_meta == meta {
+                ReplaceResult::ReplaceWith(replacement.clone())
+            } else {
+                ReplaceResult::Skip
+            }
+        }
+        _ => ReplaceResult::Skip,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
