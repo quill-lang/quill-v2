@@ -1,9 +1,12 @@
 //! Utilities for traversing the expression tree for things like find-and-replace operations.
 
 use fnodes::{
-    basic_nodes::{DeBruijnIndex, DeBruijnOffset},
+    basic_nodes::{DeBruijnIndex, DeBruijnOffset, Name},
     expr::*,
+    universe::{Universe, UniverseContents, UniverseVariable},
 };
+
+use crate::universe::instantiate_universe;
 
 enum ReplaceResult {
     /// The expression should not be replaced.
@@ -127,8 +130,8 @@ fn find_in_expr_offset(
 /// This will subtract one from all higher de Bruijn indices.
 pub fn instantiate(e: &mut Expr, substitution: &Expr) {
     replace_in_expr(e, |e, offset| {
-        if let ExprContents::Bound(Bound(idx)) = &e.contents {
-            match idx.cmp(&(DeBruijnIndex::zero() + offset)) {
+        if let ExprContents::Bound(Bound { index, .. }) = &e.contents {
+            match index.cmp(&(DeBruijnIndex::zero() + offset)) {
                 std::cmp::Ordering::Less => {
                     // The variable is bound and has index lower than the offset, so we don't change it.
                     ReplaceResult::Skip
@@ -142,8 +145,8 @@ pub fn instantiate(e: &mut Expr, substitution: &Expr) {
                     // This de Bruijn index must be decremented, since we just
                     // instantiated a variable below it.
                     let mut e = e.clone();
-                    if let ExprContents::Bound(Bound(idx)) = &mut e.contents {
-                        *idx = idx.pred();
+                    if let ExprContents::Bound(Bound { index, .. }) = &mut e.contents {
+                        *index = index.pred();
                     } else {
                         unreachable!()
                     }
@@ -156,15 +159,53 @@ pub fn instantiate(e: &mut Expr, substitution: &Expr) {
     })
 }
 
+/// Replace the given list of universe parameters with the given arguments.
+/// The lists must be the same length.
+pub fn instantiate_universe_parameters(
+    e: &mut Expr,
+    universe_params: &[Name],
+    universe_arguments: &[Universe],
+) {
+    replace_in_expr(e, |e, offset| match &e.contents {
+        ExprContents::Inst(inst) => {
+            let mut replace = inst.clone();
+            for univ in &mut replace.universes {
+                for (param, replacement) in universe_params.iter().zip(universe_arguments) {
+                    instantiate_universe(univ, UniverseVariable(param.contents), replacement);
+                }
+            }
+            ReplaceResult::ReplaceWith(Expr::new_with_provenance(
+                &e.provenance,
+                ExprContents::Inst(replace),
+            ))
+        }
+        ExprContents::Sort(sort) => {
+            let mut replace = sort.clone();
+            for (param, replacement) in universe_params.iter().zip(universe_arguments) {
+                instantiate_universe(
+                    &mut replace.0,
+                    UniverseVariable(param.contents),
+                    replacement,
+                );
+            }
+            ReplaceResult::ReplaceWith(Expr::new_with_provenance(
+                &e.provenance,
+                ExprContents::Sort(replace),
+            ))
+        }
+        _ => ReplaceResult::Skip,
+    })
+}
+
 /// Increase the de Bruijn indices of free variables by a certain offset.
 pub fn lift_free_vars(e: &mut Expr, shift: DeBruijnOffset) {
     replace_in_expr(e, |e, offset| {
-        if let ExprContents::Bound(Bound(idx)) = &e.contents {
-            if *idx >= DeBruijnIndex::zero() + offset {
+        if let ExprContents::Bound(Bound { index, .. }) = &e.contents {
+            if *index >= DeBruijnIndex::zero() + offset {
                 // The variable is free.
                 let mut e = e.clone();
-                if let ExprContents::Bound(Bound(idx)) = &mut e.contents {
-                    *idx = *idx + shift;
+                if let ExprContents::Bound(Bound { index, .. }) = &mut e.contents {
+                    *index = *index + shift;
                 } else {
                     unreachable!()
                 }
@@ -176,90 +217,4 @@ pub fn lift_free_vars(e: &mut Expr, shift: DeBruijnOffset) {
             ReplaceResult::Skip
         }
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use super::*;
-    use crate::test_db::*;
-    use fcommon::Intern;
-    use fcommon::SourceType;
-    use fnodes::universe::Universe;
-    use fnodes::universe::UniverseContents;
-    use fnodes::{module::Module, SexprParser};
-
-    #[test]
-    fn test_instantiate() {
-        let contents = "
-        (module
-            ()
-            (def to_inst ()
-                (lam x ex (bound 0) (bound 0))
-            )
-            (def to_inst_result ()
-                (lam x ex (sort (univzero)) (bound 0))
-            )
-        )
-        ";
-        let (db, source) = database_with_file(vec!["test", "sexpr"], SourceType::Feather, contents);
-        let module: Arc<Module> = db.module_from_feather_source(source).unwrap();
-        let mut expr = module
-            .definition(db.intern_string_data("to_inst".to_string()))
-            .unwrap()
-            .contents
-            .expr
-            .clone();
-        let zero = Expr::new_synthetic(ExprContents::Sort(Sort(Universe::new_synthetic(
-            UniverseContents::UniverseZero,
-        ))));
-        instantiate(&mut expr, &zero);
-        assert!(
-            expr.eq_ignoring_provenance(
-                &module
-                    .definition(db.intern_string_data("to_inst_result".to_string()))
-                    .unwrap()
-                    .contents
-                    .expr
-            ),
-            "{}",
-            ExprPrinter::new(&db).print(&expr)
-        );
-    }
-
-    #[test]
-    fn test_lift_free_vars() {
-        let contents = "
-        (module
-            ()
-            (def lift ()
-                (lam x ex (bound 0) (ap (bound 0) (ap (bound 1) (bound 2))))
-            )
-            (def lift_result ()
-                (lam x ex (bound 2) (ap (bound 0) (ap (bound 3) (bound 4))))
-            )
-        )
-        ";
-        let (db, source) = database_with_file(vec!["test", "sexpr"], SourceType::Feather, contents);
-        let module: Arc<Module> = db.module_from_feather_source(source).unwrap();
-        let mut expr = module
-            .definition(db.intern_string_data("lift".to_string()))
-            .unwrap()
-            .contents
-            .expr
-            .clone();
-        lift_free_vars(&mut expr, DeBruijnOffset::zero().succ().succ());
-        assert!(
-            expr.eq_ignoring_provenance(
-                &module
-                    .definition(db.intern_string_data("lift_result".to_string()))
-                    .unwrap()
-                    .contents
-                    .expr
-            ),
-            "{}",
-            ExprPrinter::new(&db).print(&expr)
-        );
-    }
 }

@@ -9,7 +9,7 @@ use fnodes::{basic_nodes::DeBruijnIndex, expr::*};
 /// refers to what we would call `#0` from outside the expression.
 fn first_free_variable_index(e: &Expr) -> DeBruijnIndex {
     let contents = match &e.contents {
-        ExprContents::Bound(Bound(idx)) => idx.succ(),
+        ExprContents::Bound(Bound { index, .. }) => index.succ(),
         ExprContents::Inst(_) => DeBruijnIndex::zero(),
         ExprContents::Let(let_expr) => std::cmp::max(
             first_free_variable_index(&let_expr.to_assign),
@@ -51,63 +51,4 @@ pub fn closed(e: &Expr) -> bool {
 /// The opposite of [`closed`].
 pub fn has_free_variables(e: &Expr) -> bool {
     !closed(e)
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use super::*;
-    use crate::test_db::*;
-    use fcommon::SourceType;
-    use fnodes::{expr::ExprPrinter, module::Module, SexprParser};
-
-    #[test]
-    fn test_closed() {
-        let contents = "
-        (module
-            ()
-            (def id (u)
-                (lam T imp (sort (univzero))
-                (lam x ex (bound 0)
-                (bound 0)))
-            )
-            (def id_mistake (u)
-                (lam T imp (sort (univzero))
-                (lam x ex (bound 0)
-                (bound 1)))
-            )
-        )
-        ";
-        let (db, source) = database_with_file(vec!["test", "sexpr"], SourceType::Feather, contents);
-        let module: Arc<Module> = db.module_from_feather_source(source).unwrap();
-        for def in &module.contents.defs {
-            let e = &def.contents.expr;
-            if !closed(e) {
-                panic!("{}", ExprPrinter::new(&db).print(e));
-            }
-        }
-    }
-
-    #[test]
-    fn test_not_closed() {
-        let contents = "
-        (module
-            ()
-            (def id_broken (u)
-                (lam T imp (sort (univzero))
-                (lam x ex (bound 0)
-                (bound 2)))
-            )
-        )
-        ";
-        let (db, source) = database_with_file(vec!["test", "sexpr"], SourceType::Feather, contents);
-        let module: Arc<Module> = db.module_from_feather_source(source).unwrap();
-        for def in &module.contents.defs {
-            let e = &def.contents.expr;
-            if closed(e) {
-                panic!("{}", ExprPrinter::new(&db).print(e));
-            }
-        }
-    }
 }

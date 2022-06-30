@@ -1,6 +1,6 @@
 use std::{fmt::Display, ops::Add};
 
-use fcommon::{Path, PathData, Span, Str};
+use fcommon::{Intern, Path, PathData, Source, Span, Str};
 
 use crate::*;
 
@@ -9,6 +9,7 @@ impl ListSexpr for Span {
 
     fn parse_list(
         db: &dyn SexprParser,
+        source: Source,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
@@ -16,8 +17,8 @@ impl ListSexpr for Span {
 
         // For the sake of compatibility across platforms, we enforce that spans are decoded as `u32`s first.
 
-        let start = AtomicSexprWrapper::<u32>::parse(db, start)?;
-        let end = AtomicSexprWrapper::<u32>::parse(db, end)?;
+        let start = AtomicSexprWrapper::<u32>::parse(db, source, start)?;
+        let end = AtomicSexprWrapper::<u32>::parse(db, source, end)?;
 
         Ok((start as usize)..(end as usize))
     }
@@ -33,12 +34,33 @@ impl ListSexpr for Span {
 /// The place the node came from.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Provenance {
-    Sexpr { span: Span },
+    Sexpr { source: Source, span: Span },
     Synthetic,
 }
 
+impl Provenance {
+    pub fn source(&self) -> Option<Source> {
+        match self {
+            Provenance::Sexpr { source, .. } => Some(*source),
+            Provenance::Synthetic => None,
+        }
+    }
+
+    /// Returns the span, or `0..0` if it was synthetic.
+    pub fn span(&self) -> Span {
+        match self {
+            Provenance::Sexpr { span, .. } => span.clone(),
+            Provenance::Synthetic => 0..0,
+        }
+    }
+}
+
 impl AtomicSexpr for String {
-    fn parse_atom(_db: &dyn SexprParser, text: String) -> Result<Self, ParseErrorReason> {
+    fn parse_atom(
+        _db: &dyn SexprParser,
+        source: Source,
+        text: String,
+    ) -> Result<Self, ParseErrorReason> {
         Ok(text)
     }
 
@@ -48,7 +70,11 @@ impl AtomicSexpr for String {
 }
 
 impl AtomicSexpr for Str {
-    fn parse_atom(db: &dyn SexprParser, text: String) -> Result<Self, ParseErrorReason> {
+    fn parse_atom(
+        db: &dyn SexprParser,
+        source: Source,
+        text: String,
+    ) -> Result<Self, ParseErrorReason> {
         Ok(db.intern_string_data(text))
     }
 
@@ -61,8 +87,12 @@ impl AtomicSexpr for Str {
 impl SexprParsable for Str {
     type Output = Str;
 
-    fn parse(db: &dyn SexprParser, node: SexprNode) -> Result<Self::Output, ParseError> {
-        AtomicSexprWrapper::parse(db, node)
+    fn parse(
+        db: &dyn SexprParser,
+        source: Source,
+        node: SexprNode,
+    ) -> Result<Self::Output, ParseError> {
+        AtomicSexprWrapper::parse(db, source, node)
     }
 }
 
@@ -77,7 +107,7 @@ impl SexprSerialisable for Str {
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Name {
     /// The origin of the expression.
-    provenance: Provenance,
+    pub provenance: Provenance,
     /// The actual contents of this expression.
     pub contents: Str,
 }
@@ -91,17 +121,23 @@ impl std::fmt::Debug for Name {
 impl SexprParsable for Name {
     type Output = Self;
 
-    fn parse(db: &dyn SexprParser, node: SexprNode) -> Result<Self, ParseError> {
+    fn parse(db: &dyn SexprParser, source: Source, node: SexprNode) -> Result<Self, ParseError> {
         match node.contents {
             SexprNodeContents::Atom(text) => Ok(Name {
-                provenance: Provenance::Sexpr { span: node.span },
+                provenance: Provenance::Sexpr {
+                    source,
+                    span: node.span,
+                },
                 contents: db.intern_string_data(text),
             }),
             SexprNodeContents::List(entries) => {
                 let name = if let Some(first) = entries.first() {
                     match &first.contents {
                         SexprNodeContents::Atom(text) => Name {
-                            provenance: Provenance::Sexpr { span: node.span },
+                            provenance: Provenance::Sexpr {
+                                source,
+                                span: node.span,
+                            },
                             contents: db.intern_string_data(text.to_string()),
                         },
                         SexprNodeContents::List(_) => {
@@ -165,11 +201,12 @@ where
 
     fn parse_list(
         db: &dyn SexprParser,
+        source: Source,
         _span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
         args.into_iter()
-            .map(|arg| ListSexprWrapper::parse(db, arg))
+            .map(|arg| ListSexprWrapper::parse(db, source, arg))
             .collect()
     }
 
@@ -185,11 +222,12 @@ impl ListSexpr for Vec<Str> {
 
     fn parse_list(
         db: &dyn SexprParser,
+        source: Source,
         _span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
         args.into_iter()
-            .map(|arg| AtomicSexprWrapper::parse(db, arg))
+            .map(|arg| AtomicSexprWrapper::parse(db, source, arg))
             .collect()
     }
 
@@ -205,10 +243,13 @@ impl ListSexpr for Vec<Name> {
 
     fn parse_list(
         db: &dyn SexprParser,
+        source: Source,
         _span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
-        args.into_iter().map(|arg| Name::parse(db, arg)).collect()
+        args.into_iter()
+            .map(|arg| Name::parse(db, source, arg))
+            .collect()
     }
 
     fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
@@ -232,16 +273,25 @@ impl std::fmt::Debug for QualifiedName {
     }
 }
 
+impl QualifiedName {
+    pub fn to_path(&self, intern: &dyn Intern) -> Path {
+        intern.intern_path_data(PathData(
+            self.segments.iter().map(|name| name.contents).collect(),
+        ))
+    }
+}
+
 impl ListSexpr for QualifiedName {
     const KEYWORD: Option<&'static str> = None;
 
     fn parse_list(
         db: &dyn SexprParser,
+        source: Source,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
-        ListSexpr::parse_list(db, span.clone(), args).map(|list| Self {
-            provenance: Provenance::Sexpr { span },
+        ListSexpr::parse_list(db, source, span.clone(), args).map(|list| Self {
+            provenance: Provenance::Sexpr { source, span },
             segments: list,
         })
     }
@@ -256,10 +306,12 @@ impl ListSexpr for Path {
 
     fn parse_list(
         db: &dyn SexprParser,
+        source: Source,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
-        ListSexpr::parse_list(db, span, args).map(|list| db.intern_path_data(PathData(list)))
+        ListSexpr::parse_list(db, source, span, args)
+            .map(|list| db.intern_path_data(PathData(list)))
     }
 
     fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
@@ -292,11 +344,12 @@ impl ListSexpr for SourceSpan {
 
     fn parse_list(
         db: &dyn SexprParser,
+        source: Source,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
         let [value] = force_arity(span, args)?;
-        ListSexprWrapper::parse(db, value).map(Self)
+        ListSexprWrapper::parse(db, source, value).map(Self)
     }
 
     fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
@@ -308,8 +361,12 @@ impl ListSexpr for SourceSpan {
 pub struct DeBruijnIndex(u32);
 
 impl AtomicSexpr for DeBruijnIndex {
-    fn parse_atom(db: &dyn SexprParser, text: String) -> Result<Self, ParseErrorReason> {
-        u32::parse_atom(db, text).map(Self)
+    fn parse_atom(
+        db: &dyn SexprParser,
+        source: Source,
+        text: String,
+    ) -> Result<Self, ParseErrorReason> {
+        u32::parse_atom(db, source, text).map(Self)
     }
 
     fn serialise(&self, db: &dyn SexprParser) -> String {
@@ -374,11 +431,12 @@ impl ListSexpr for Documentation {
 
     fn parse_list(
         db: &dyn SexprParser,
+        source: Source,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
         let [value] = force_arity(span, args)?;
-        Name::parse(db, value).map(Self)
+        Name::parse(db, source, value).map(Self)
     }
 
     fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {

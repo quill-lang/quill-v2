@@ -86,6 +86,18 @@ impl InternKey for Path {
     }
 }
 
+impl Path {
+    pub fn display(self, intern: &dyn Intern) -> String {
+        intern
+            .lookup_intern_path_data(self)
+            .0
+            .into_iter()
+            .map(|s| intern.lookup_intern_string_data(s))
+            .collect::<Vec<_>>()
+            .join(".")
+    }
+}
+
 pub trait InternExt: Intern {
     fn path_data_to_path_buf(&self, data: &PathData) -> PathBuf {
         data.0

@@ -1,4 +1,4 @@
-use fcommon::Span;
+use fcommon::{Source, Span};
 
 use crate::{
     basic_nodes::{Name, Provenance},
@@ -12,13 +12,16 @@ pub struct DefinitionContents {
     pub name: Name,
     /// A list of strings representing names of universe parameters.
     pub universe_params: Vec<Name>,
-    pub expr: Expr,
+    /// The type of the definition.
+    pub ty: Expr,
+    /// The value of the definition.
+    pub expr: Option<Expr>,
 }
 
 #[derive(PartialEq, Eq, Hash)]
 pub struct Definition {
     /// The origin of the expression.
-    provenance: Provenance,
+    pub provenance: Provenance,
     /// The actual contents of this expression.
     pub contents: DefinitionContents,
 }
@@ -34,18 +37,39 @@ impl ListSexpr for Definition {
 
     fn parse_list(
         db: &dyn SexprParser,
+        source: Source,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
-        let [name, /* infos, */ universe_params, expr] = force_arity(span.clone(), args)?;
-
-        let def = Definition {
-            provenance: Provenance::Sexpr { span: span.clone() },
-            contents: DefinitionContents {
-                name: Name::parse(db, name)?,
-                universe_params: ListSexprWrapper::parse(db, universe_params)?,
-                expr: ListSexprWrapper::parse(db, expr)?,
+        let def = match <Vec<_> as TryInto<[_; 3]>>::try_into(args) {
+            Ok([name, universe_params, ty]) => Definition {
+                provenance: Provenance::Sexpr {
+                    source,
+                    span: span.clone(),
+                },
+                contents: DefinitionContents {
+                    name: Name::parse(db, source, name)?,
+                    universe_params: ListSexprWrapper::parse(db, source, universe_params)?,
+                    ty: ListSexprWrapper::parse(db, source, ty)?,
+                    expr: None,
+                },
             },
+            Err(args) => {
+                let [name, /* infos, */ universe_params, ty, expr] = force_arity(span.clone(), args)?;
+
+                Definition {
+                    provenance: Provenance::Sexpr {
+                        source,
+                        span: span.clone(),
+                    },
+                    contents: DefinitionContents {
+                        name: Name::parse(db, source, name)?,
+                        universe_params: ListSexprWrapper::parse(db, source, universe_params)?,
+                        ty: ListSexprWrapper::parse(db, source, ty)?,
+                        expr: Some(ListSexprWrapper::parse(db, source, expr)?),
+                    },
+                }
+            }
         };
         // match infos.contents {
         //     SexprNodeContents::Atom(_) => {
@@ -66,14 +90,19 @@ impl ListSexpr for Definition {
     fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
         // TODO: node infos
         // let infos = SexprNodeContents::List(ctx.process_def_info(db, self, ctx));
-        vec![
-            self.contents.name.serialise(db),
-            // SexprNode {
-            //     contents: infos,
-            //     span: 0..0,
-            // },
-            ListSexprWrapper::serialise_into_node(db, &self.contents.universe_params),
-            ListSexprWrapper::serialise_into_node(db, &self.contents.expr),
-        ]
+        if let Some(expr) = &self.contents.expr {
+            vec![
+                self.contents.name.serialise(db),
+                ListSexprWrapper::serialise_into_node(db, &self.contents.universe_params),
+                ListSexprWrapper::serialise_into_node(db, &self.contents.ty),
+                ListSexprWrapper::serialise_into_node(db, expr),
+            ]
+        } else {
+            vec![
+                self.contents.name.serialise(db),
+                ListSexprWrapper::serialise_into_node(db, &self.contents.universe_params),
+                ListSexprWrapper::serialise_into_node(db, &self.contents.ty),
+            ]
+        }
     }
 }

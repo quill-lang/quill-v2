@@ -100,6 +100,7 @@ pub trait SexprParsable: Sized {
     type Output;
     fn parse(
         db: &dyn SexprParser,
+        source: Source,
         node: SexprNode,
     ) -> Result<Self::Output, ParseError>;
 }
@@ -115,7 +116,11 @@ pub trait SexprSerialisable {
 /// The type [`AtomicSexprWrapper`], parametrised with `Self`, will then automatically implement
 /// [`SexprParsable`] and [`SexprSerialisable`].
 pub trait AtomicSexpr: Sized {
-    fn parse_atom(db: &dyn SexprParser, text: String) -> Result<Self, ParseErrorReason>;
+    fn parse_atom(
+        db: &dyn SexprParser,
+        source: Source,
+        text: String,
+    ) -> Result<Self, ParseErrorReason>;
     fn serialise(&self, db: &dyn SexprParser) -> String;
 }
 
@@ -132,11 +137,12 @@ where
 
     fn parse(
         db: &dyn SexprParser,
+        source: Source,
         SexprNode { span, contents }: SexprNode,
     ) -> Result<P, ParseError> {
         match contents {
             SexprNodeContents::Atom(text) => {
-                P::parse_atom(db, text).map_err(|reason| ParseError { span, reason })
+                P::parse_atom(db, source, text).map_err(|reason| ParseError { span, reason })
             }
             SexprNodeContents::List(_) => Err(ParseError {
                 span,
@@ -157,6 +163,7 @@ pub trait ListSexpr: Sized {
     /// the initial keyword if present.
     fn parse_list(
         db: &dyn SexprParser,
+        source: Source,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError>;
@@ -172,10 +179,11 @@ where
 
     fn parse_list(
         db: &dyn SexprParser,
+        source: Source,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
-        T::parse_list(db, span, args).map(Box::new)
+        T::parse_list(db, source, span, args).map(Box::new)
     }
 
     fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
@@ -196,6 +204,7 @@ where
 
     fn parse(
         db: &dyn SexprParser,
+        source: Source,
         SexprNode { span, contents }: SexprNode,
     ) -> Result<P, ParseError> {
         match contents {
@@ -239,7 +248,7 @@ where
                         });
                     }
                 };
-                P::parse_list(db, span, list)
+                P::parse_list(db, source, span, list)
             }
         }
     }
@@ -296,7 +305,7 @@ where
 macro_rules! gen_int_parsable {
     ($t:ty) => {
         impl AtomicSexpr for $t {
-            fn parse_atom(_db: &dyn SexprParser, text: String) -> Result<Self, ParseErrorReason> {
+            fn parse_atom(_db: &dyn SexprParser, _source: Source, text: String) -> Result<Self, ParseErrorReason> {
                 text.parse()
                     .map_err(|err| ParseErrorReason::ParseIntError { text, err })
             }

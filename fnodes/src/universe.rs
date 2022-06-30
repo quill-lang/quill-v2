@@ -3,6 +3,7 @@
 use crate::basic_nodes::*;
 use crate::expr::*;
 use crate::*;
+use fcommon::Source;
 use fcommon::{Span, Str};
 use fnodes_macros::*;
 
@@ -77,6 +78,7 @@ impl ListSexpr for UniverseContents {
 
     fn parse_list(
         db: &dyn SexprParser,
+        source: Source,
         span: Span,
         mut args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
@@ -107,14 +109,20 @@ impl ListSexpr for UniverseContents {
         Ok(match Some(keyword) {
             UniverseZero::KEYWORD => Self::UniverseZero,
             UniverseVariable::KEYWORD => {
-                Self::UniverseVariable(UniverseVariable::parse_list(db, span, args)?)
+                Self::UniverseVariable(UniverseVariable::parse_list(db, source, span, args)?)
             }
-            UniverseSucc::KEYWORD => Self::UniverseSucc(UniverseSucc::parse_list(db, span, args)?),
-            UniverseMax::KEYWORD => Self::UniverseMax(UniverseMax::parse_list(db, span, args)?),
+            UniverseSucc::KEYWORD => {
+                Self::UniverseSucc(UniverseSucc::parse_list(db, source, span, args)?)
+            }
+            UniverseMax::KEYWORD => {
+                Self::UniverseMax(UniverseMax::parse_list(db, source, span, args)?)
+            }
             UniverseImpredicativeMax::KEYWORD => Self::UniverseImpredicativeMax(
-                UniverseImpredicativeMax::parse_list(db, span, args)?,
+                UniverseImpredicativeMax::parse_list(db, source, span, args)?,
             ),
-            Metauniverse::KEYWORD => Self::Metauniverse(Metauniverse::parse_list(db, span, args)?),
+            Metauniverse::KEYWORD => {
+                Self::Metauniverse(Metauniverse::parse_list(db, source, span, args)?)
+            }
             _ => {
                 return Err(ParseError {
                     span: first.span.clone(),
@@ -165,9 +173,9 @@ impl std::fmt::Debug for Universe {
 }
 
 impl Universe {
-    pub fn new_in_sexpr(span: Span, contents: UniverseContents) -> Self {
+    pub fn new_in_sexpr(source: Source, span: Span, contents: UniverseContents) -> Self {
         Self {
-            provenance: Provenance::Sexpr { span },
+            provenance: Provenance::Sexpr { source, span },
             contents,
         }
     }
@@ -206,6 +214,12 @@ impl Universe {
             _ => false,
         }
     }
+
+    /// Returns a dummy universe.
+    /// Should not be used for anything.
+    pub fn dummy() -> Universe {
+        Self::new_synthetic(UniverseContents::UniverseZero)
+    }
 }
 
 impl ListSexpr for Universe {
@@ -213,11 +227,12 @@ impl ListSexpr for Universe {
 
     fn parse_list(
         db: &dyn SexprParser,
+        source: Source,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
-        UniverseContents::parse_list(db, span.clone(), args)
-            .map(|univ_contents| Universe::new_in_sexpr(span, univ_contents))
+        UniverseContents::parse_list(db, source, span.clone(), args)
+            .map(|univ_contents| Universe::new_in_sexpr(source, span, univ_contents))
     }
 
     fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {

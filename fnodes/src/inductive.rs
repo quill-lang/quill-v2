@@ -1,4 +1,4 @@
-use fcommon::Span;
+use fcommon::{Source, Span};
 
 use crate::{
     basic_nodes::{Name, Provenance},
@@ -49,13 +49,14 @@ impl ListSexpr for TypeConstructor {
 
     fn parse_list(
         db: &dyn SexprParser,
+        source: Source,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
         let [name, ty] = force_arity(span, args)?;
         Ok(Self {
-            name: Name::parse(db, name)?,
-            ty: ListSexprWrapper::parse(db, ty)?,
+            name: Name::parse(db, source, name)?,
+            ty: ListSexprWrapper::parse(db, source, ty)?,
         })
     }
 
@@ -72,18 +73,22 @@ impl ListSexpr for Inductive {
 
     fn parse_list(
         db: &dyn SexprParser,
+        source: Source,
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
         let [name, infos, universe_params, ty, constructors] = force_arity(span.clone(), args)?;
 
         let inductive = Inductive {
-            provenance: Provenance::Sexpr { span: span.clone() },
+            provenance: Provenance::Sexpr {
+                source,
+                span: span.clone(),
+            },
             contents: InductiveContents {
-                name: Name::parse(db, name)?,
-                universe_params: ListSexprWrapper::parse(db, universe_params)?,
-                ty: ListSexprWrapper::parse(db, ty)?,
-                constructors: ListSexprWrapper::parse(db, constructors)?,
+                name: Name::parse(db, source, name)?,
+                universe_params: ListSexprWrapper::parse(db, source, universe_params)?,
+                ty: ListSexprWrapper::parse(db, source, ty)?,
+                constructors: ListSexprWrapper::parse(db, source, constructors)?,
             },
         };
         // TODO: node infos

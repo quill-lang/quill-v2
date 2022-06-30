@@ -159,6 +159,7 @@ pub fn derive_expr_variant(input: proc_macro::TokenStream) -> proc_macro::TokenS
 
             fn parse_list(
                 db: &dyn crate::SexprParser,
+                source: ::fcommon::Source,
                 span: ::fcommon::Span,
                 args: Vec<crate::SexprNode>,
             ) -> Result<Self, crate::ParseError> {
@@ -264,16 +265,16 @@ fn parse_list_fields(
         let field_ty = &field.ty;
         match ty {
             SexprParsableType::Atomic => parse_list_fields.push(quote! {
-                #start crate::AtomicSexprWrapper::parse(db, #v)?
+                #start crate::AtomicSexprWrapper::parse(db, source, #v)?
             }),
             SexprParsableType::List => parse_list_fields.push(quote! {
-                #start crate::ListSexprWrapper::parse(db, #v)?
+                #start crate::ListSexprWrapper::parse(db, source, #v)?
             }),
             SexprParsableType::ListFlatten => parse_list_fields.push(quote! {
-                #start <_ as crate::ListSexpr>::parse_list(db, span, args)?
+                #start <_ as crate::ListSexpr>::parse_list(db, source, span, args)?
             }),
             SexprParsableType::Direct => parse_list_fields.push(quote! {
-                #start #field_ty::parse(db, #v)?
+                #start #field_ty::parse(db, source, #v)?
             }),
         }
     }

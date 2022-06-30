@@ -1,4 +1,4 @@
-use fcommon::{Span, Str};
+use fcommon::{Source, Span, Str};
 
 use crate::basic_nodes::Provenance;
 use crate::definition::Definition;
@@ -30,6 +30,7 @@ impl ListSexpr for Module {
 
     fn parse_list(
         db: &dyn SexprParser,
+        source: Source,
         span: Span,
         mut args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
@@ -41,7 +42,10 @@ impl ListSexpr for Module {
             });
         }
         let mut module = Module {
-            provenance: Provenance::Sexpr { span: span.clone() },
+            provenance: Provenance::Sexpr {
+                source,
+                span: span.clone(),
+            },
             contents: ModuleContents {
                 defs: Vec::new(),
                 inductives: Vec::new(),
@@ -67,9 +71,12 @@ impl ListSexpr for Module {
                 module
                     .contents
                     .inductives
-                    .push(ListSexprWrapper::parse(db, arg)?)
+                    .push(ListSexprWrapper::parse(db, source, arg)?)
             } else {
-                module.contents.defs.push(ListSexprWrapper::parse(db, arg)?)
+                module
+                    .contents
+                    .defs
+                    .push(ListSexprWrapper::parse(db, source, arg)?)
             }
         }
 

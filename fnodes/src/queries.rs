@@ -25,7 +25,7 @@ fn parse_sexpr(db: &dyn SexprParser, source: Source) -> Dr<Arc<SexprNode>> {
 #[tracing::instrument(level = "debug")]
 fn module_from_feather_source(db: &dyn SexprParser, source: Source) -> Dr<Arc<Module>> {
     db.parse_sexpr(source).as_deref().bind(|s_expr| {
-        ListSexprWrapper::<Module>::parse(db, s_expr.clone())
+        ListSexprWrapper::<Module>::parse(db, source, s_expr.clone())
             .map_err(|x| x.into_report(source))
             .map(Arc::new)
             .into()

@@ -59,7 +59,7 @@ use std::collections::HashMap;
 use crate::universe::{Metauniverse, UniverseContents};
 use crate::*;
 use crate::{basic_nodes::*, universe::Universe};
-use fcommon::Span;
+use fcommon::{Source, Span};
 use fnodes_macros::*;
 
 pub trait ExpressionVariant {
@@ -163,7 +163,14 @@ impl ExpressionVariant for Component<Name, Expr> {
 /// A bound local variable inside an abstraction.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
 #[list_sexpr_keyword = "bound"]
-pub struct Bound(#[atomic] pub DeBruijnIndex);
+pub struct Bound {
+    #[atomic]
+    pub index: DeBruijnIndex,
+    /// We store the types of locals explicitly, since they can't be inferred.
+    #[list]
+    #[sub_expr]
+    pub ty: Box<Expr>,
+}
 
 /// Either a definition or an inductive data type.
 /// Parametrised by a list of universe parameters.
@@ -206,7 +213,11 @@ pub enum BinderAnnotation {
 }
 
 impl AtomicSexpr for BinderAnnotation {
-    fn parse_atom(_db: &dyn SexprParser, text: String) -> Result<Self, ParseErrorReason> {
+    fn parse_atom(
+        _db: &dyn SexprParser,
+        _source: Source,
+        text: String,
+    ) -> Result<Self, ParseErrorReason> {
         match &*text {
             "ex" => Ok(Self::Explicit),
             "imp" => Ok(Self::ImplicitEager),
@@ -219,7 +230,7 @@ impl AtomicSexpr for BinderAnnotation {
         }
     }
 
-    fn serialise(&self, __db: &dyn SexprParser) -> String {
+    fn serialise(&self, _db: &dyn SexprParser) -> String {
         match self {
             BinderAnnotation::Explicit => "ex".to_string(),
             BinderAnnotation::ImplicitEager => "imp".to_string(),
@@ -286,9 +297,16 @@ pub struct Sort(#[list] pub Universe);
 
 /// An inference variable.
 /// May have theoretically any type.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, ExprVariant)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
 #[list_sexpr_keyword = "meta"]
-pub struct Metavariable(#[atomic] u32);
+pub struct Metavariable {
+    #[atomic]
+    pub index: u32,
+    /// We store the types of metavariables explicitly, since they can't be inferred.
+    #[list]
+    #[sub_expr]
+    pub ty: Box<Expr>,
+}
 
 /// Used for inference, should not be used in functions manually.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
@@ -301,14 +319,12 @@ pub struct LocalConstant {
 
 /// Generates unique inference variable names.
 pub struct MetavariableGenerator {
-    next_var: Metavariable,
+    next_var: u32,
 }
 
 impl Default for MetavariableGenerator {
     fn default() -> Self {
-        Self {
-            next_var: Metavariable(0),
-        }
+        Self { next_var: 0 }
     }
 }
 
@@ -318,14 +334,17 @@ impl MetavariableGenerator {
     /// If one was not provided, no guarantees are made about name clashing.
     pub fn new(largest_unusable: Option<Metavariable>) -> Self {
         Self {
-            next_var: Metavariable(largest_unusable.map_or(0, |x| x.0 + 1)),
+            next_var: largest_unusable.map_or(0, |x| x.index + 1),
         }
     }
 
-    pub fn gen(&mut self) -> Metavariable {
+    pub fn gen(&mut self, ty: Expr) -> Metavariable {
         let result = self.next_var;
-        self.next_var.0 += 1;
-        result
+        self.next_var += 1;
+        Metavariable {
+            index: result,
+            ty: Box::new(ty),
+        }
     }
 }
 
@@ -363,6 +382,7 @@ impl ListSexpr for ExprContents {
 
     fn parse_list(
         db: &dyn SexprParser,
+        source: Source,
         span: Span,
         mut args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
@@ -391,16 +411,18 @@ impl ListSexpr for ExprContents {
         let span = (first.span.end + 1)..span.end - 1;
 
         Ok(match Some(keyword) {
-            Bound::KEYWORD => Self::Bound(Bound::parse_list(db, span, args)?),
-            Inst::KEYWORD => Self::Inst(Inst::parse_list(db, span, args)?),
-            Let::KEYWORD => Self::Let(Let::parse_list(db, span, args)?),
-            Lambda::KEYWORD => Self::Lambda(Lambda::parse_list(db, span, args)?),
-            Pi::KEYWORD => Self::Pi(Pi::parse_list(db, span, args)?),
-            Apply::KEYWORD => Self::Apply(Apply::parse_list(db, span, args)?),
-            Sort::KEYWORD => Self::Sort(Sort::parse_list(db, span, args)?),
-            Metavariable::KEYWORD => Self::Metavariable(Metavariable::parse_list(db, span, args)?),
+            Bound::KEYWORD => Self::Bound(Bound::parse_list(db, source, span, args)?),
+            Inst::KEYWORD => Self::Inst(Inst::parse_list(db, source, span, args)?),
+            Let::KEYWORD => Self::Let(Let::parse_list(db, source, span, args)?),
+            Lambda::KEYWORD => Self::Lambda(Lambda::parse_list(db, source, span, args)?),
+            Pi::KEYWORD => Self::Pi(Pi::parse_list(db, source, span, args)?),
+            Apply::KEYWORD => Self::Apply(Apply::parse_list(db, source, span, args)?),
+            Sort::KEYWORD => Self::Sort(Sort::parse_list(db, source, span, args)?),
+            Metavariable::KEYWORD => {
+                Self::Metavariable(Metavariable::parse_list(db, source, span, args)?)
+            }
             LocalConstant::KEYWORD => {
-                Self::LocalConstant(LocalConstant::parse_list(db, span, args)?)
+                Self::LocalConstant(LocalConstant::parse_list(db, source, span, args)?)
             }
             _ => {
                 return Err(ParseError {
@@ -471,7 +493,7 @@ impl ExprContents {
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Expr {
     /// The origin of the expression.
-    provenance: Provenance,
+    pub provenance: Provenance,
     /// The actual contents of this expression.
     pub contents: ExprContents,
     /// If the expression has a type annotation, the type is given here.
@@ -489,9 +511,9 @@ impl std::fmt::Debug for Expr {
 }
 
 impl Expr {
-    pub fn new_in_sexpr(span: Span, contents: ExprContents) -> Self {
+    pub fn new_in_sexpr(source: Source, span: Span, contents: ExprContents) -> Self {
         Self {
-            provenance: Provenance::Sexpr { span },
+            provenance: Provenance::Sexpr { source, span },
             contents,
             ty: None,
         }
@@ -505,10 +527,24 @@ impl Expr {
         }
     }
 
+    pub fn new_with_provenance(provenance: &Provenance, contents: ExprContents) -> Self {
+        Self {
+            provenance: provenance.clone(),
+            contents,
+            ty: None,
+        }
+    }
+
+    /// Returns a dummy expression.
+    /// Should not be used for anything.
+    pub fn dummy() -> Self {
+        Self::new_synthetic(ExprContents::Sort(Sort(Universe::dummy())))
+    }
+
     /// Compares two expressions for equality, ignoring the provenance data.
     pub fn eq_ignoring_provenance(&self, other: &Expr) -> bool {
         let result = match (&self.contents, &other.contents) {
-            (ExprContents::Bound(left), ExprContents::Bound(right)) => left.0 == right.0,
+            (ExprContents::Bound(left), ExprContents::Bound(right)) => left.index == right.index,
             (ExprContents::Inst(left), ExprContents::Inst(right)) => todo!(),
             (ExprContents::Let(left), ExprContents::Let(right)) => todo!(),
             (ExprContents::Lambda(left), ExprContents::Lambda(right)) => {
@@ -547,6 +583,7 @@ impl ListSexpr for Expr {
 
     fn parse_list(
         db: &dyn SexprParser,
+        source: Source,
         span: Span,
         mut args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
@@ -570,16 +607,17 @@ impl ListSexpr for Expr {
                 });
             }
             let _expr_keyword = args.remove(0);
-            let expr_contents = ListSexprWrapper::<ExprContents>::parse(db, args.remove(0))?;
-            let expr = Expr::new_in_sexpr(span, expr_contents);
+            let expr_contents =
+                ListSexprWrapper::<ExprContents>::parse(db, source, args.remove(0))?;
+            let expr = Expr::new_in_sexpr(source, span, expr_contents);
             // for info in args {
             //     ctx.process_expr_info(db, &expr, info)?;
             // }
             Ok(expr)
         } else {
             // This is of the form `ExprContents`.
-            ExprContents::parse_list(db, span.clone(), args)
-                .map(|expr_contents| Expr::new_in_sexpr(span, expr_contents))
+            ExprContents::parse_list(db, source, span.clone(), args)
+                .map(|expr_contents| Expr::new_in_sexpr(source, span, expr_contents))
         }
     }
 
@@ -654,7 +692,7 @@ impl<'a> ExprPrinter<'a> {
 
     pub fn print(&mut self, val: &Expr) -> String {
         match &val.contents {
-            ExprContents::Bound(bound) => bound.0.to_string(),
+            ExprContents::Bound(bound) => bound.index.to_string(),
             ExprContents::Lambda(lambda) => {
                 let contents = format!(
                     "{}: {}",

@@ -228,11 +228,11 @@ fn replace_in_universe(u: &mut Universe, replace_fn: impl Clone + Fn(&Universe) 
             UniverseContents::UniverseVariable(_) => {}
             UniverseContents::UniverseSucc(inner) => replace_in_universe(&mut inner.0, replace_fn),
             UniverseContents::UniverseMax(max) => {
-                replace_in_universe(&mut max.left, replace_fn);
+                replace_in_universe(&mut max.left, replace_fn.clone());
                 replace_in_universe(&mut max.right, replace_fn);
             }
             UniverseContents::UniverseImpredicativeMax(imax) => {
-                replace_in_universe(&mut imax.left, replace_fn);
+                replace_in_universe(&mut imax.left, replace_fn.clone());
                 replace_in_universe(&mut imax.right, replace_fn);
             }
             UniverseContents::Metauniverse(_) => {}
@@ -241,8 +241,22 @@ fn replace_in_universe(u: &mut Universe, replace_fn: impl Clone + Fn(&Universe) 
     }
 }
 
+/// Replace the given universe variable with the provided replacement.
+pub fn instantiate_universe(u: &mut Universe, var: UniverseVariable, replacement: &Universe) {
+    replace_in_universe(u, |inner| match &inner.contents {
+        UniverseContents::UniverseVariable(inner_var) => {
+            if *inner_var == var {
+                ReplaceResult::ReplaceWith(replacement.clone())
+            } else {
+                ReplaceResult::Skip
+            }
+        }
+        _ => ReplaceResult::Skip,
+    })
+}
+
 /// Replace the given metauniverse with the provided replacement.
-pub fn instantiate_universe(u: &mut Universe, meta: Metauniverse, replacement: Universe) {
+pub fn instantiate_metauniverse(u: &mut Universe, meta: Metauniverse, replacement: &Universe) {
     replace_in_universe(u, |inner| match &inner.contents {
         UniverseContents::Metauniverse(inner_meta) => {
             if *inner_meta == meta {
@@ -291,20 +305,20 @@ mod tests {
         let (db, source) = database_with_file(vec!["test", "sexpr"], SourceType::Feather, contents);
         let module: Arc<Module> = db.module_from_feather_source(source).unwrap();
         for test in ["univ", "univ2"] {
-            let mut expr = module
+            let expr = module
                 .definition(db.intern_string_data(test.to_string()))
                 .unwrap()
                 .contents
                 .expr
                 .clone();
-            let mut result = module
+            let result = module
                 .definition(db.intern_string_data(format!("{}_result", test)))
                 .unwrap()
                 .contents
                 .expr
                 .clone();
-            if let ExprContents::Sort(Sort(sort)) = &mut expr.contents {
-                if let ExprContents::Sort(Sort(result)) = &mut result.contents {
+            if let ExprContents::Sort(Sort(sort)) = &mut expr.unwrap().contents {
+                if let ExprContents::Sort(Sort(result)) = &mut result.unwrap().contents {
                     normalise_universe(sort);
                     if !sort.eq_ignoring_provenance(result) {
                         panic!("mismatch:\n{:?}\n{:?}", sort, result);
