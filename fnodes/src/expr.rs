@@ -166,10 +166,6 @@ impl ExpressionVariant for Component<Name, Expr> {
 pub struct Bound {
     #[atomic]
     pub index: DeBruijnIndex,
-    /// We store the types of locals explicitly, since they can't be inferred.
-    #[list]
-    #[sub_expr]
-    pub ty: Box<Expr>,
 }
 
 /// Either a definition or an inductive data type.
@@ -193,6 +189,10 @@ pub struct Let {
     #[list]
     #[sub_expr]
     pub to_assign: Box<Expr>,
+    /// The type of the value to assign to the bound variable.
+    #[list]
+    #[sub_expr]
+    pub to_assign_ty: Box<Expr>,
     /// The main body of the expression to be executed after assigning the value.
     #[list]
     #[sub_expr]
@@ -308,13 +308,19 @@ pub struct Metavariable {
     pub ty: Box<Expr>,
 }
 
-/// Used for inference, should not be used in functions manually.
+/// De Bruijn indices (bound variables) are replaced with local constants while we're inside the function body.
+/// Should not be used in functions manually.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
 #[list_sexpr_keyword = "localconst"]
 pub struct LocalConstant {
+    /// The position of the name is where it was defined, not where it was used.
+    #[direct]
+    pub name: Name,
     #[list]
     pub metavariable: Metavariable,
-    // pub binder_annotation: BinderAnnotation,
+    /// How was this local variable introduced?
+    #[atomic]
+    pub binder_annotation: BinderAnnotation,
 }
 
 /// Generates unique inference variable names.

@@ -9,7 +9,7 @@ use super::env::Environment;
 /// If we could not unfold the definition, return `None`.
 fn unfold_definition_core<'a>(env: &'a Environment, e: &Inst) -> Option<&'a Expr> {
     env.definitions
-        .get(&e.name.to_path(env.intern))
+        .get(&e.name.to_path(env.db.up()))
         .and_then(|def| def.contents.expr.as_ref())
 }
 

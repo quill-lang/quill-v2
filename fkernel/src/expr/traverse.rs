@@ -38,8 +38,15 @@ fn replace_in_expr_offset(
         ReplaceResult::Skip => {
             // Traverse the sub-expressions of `e`.
             match &mut e.contents {
+                ExprContents::LocalConstant(local) => {
+                    replace_in_expr_offset(&mut local.metavariable.ty, replace_fn.clone(), offset);
+                }
+                ExprContents::Metavariable(var) => {
+                    replace_in_expr_offset(&mut var.ty, replace_fn.clone(), offset);
+                }
                 ExprContents::Let(let_expr) => {
                     replace_in_expr_offset(&mut let_expr.to_assign, replace_fn.clone(), offset);
+                    replace_in_expr_offset(&mut let_expr.to_assign_ty, replace_fn.clone(), offset);
                     replace_in_expr_offset(&mut let_expr.body, replace_fn.clone(), offset.succ());
                 }
                 ExprContents::Lambda(lambda) => {
@@ -91,14 +98,18 @@ fn find_in_expr_offset(
         Some(e)
     } else {
         match &e.contents {
+            ExprContents::LocalConstant(local) => {
+                find_in_expr_offset(&local.metavariable.ty, predicate.clone(), offset)
+            }
+            ExprContents::Metavariable(var) => {
+                find_in_expr_offset(&var.ty, predicate.clone(), offset)
+            }
             ExprContents::Let(let_expr) => {
-                find_in_expr_offset(
-                    &let_expr.to_assign,
-                    // To avoid requiring `Clone` on `replace_fn`, we can just make an inner function that calls `replace_fun`.
-                    predicate.clone(),
-                    offset,
-                )
-                .or_else(|| find_in_expr_offset(&let_expr.body, predicate.clone(), offset.succ()))
+                find_in_expr_offset(&let_expr.to_assign, predicate.clone(), offset).or_else(|| {
+                    find_in_expr_offset(&let_expr.to_assign_ty, predicate.clone(), offset).or_else(
+                        || find_in_expr_offset(&let_expr.body, predicate.clone(), offset.succ()),
+                    )
+                })
             }
             ExprContents::Lambda(lambda) => {
                 find_in_expr_offset(&lambda.parameter_ty, predicate.clone(), offset).or_else(|| {
@@ -217,4 +228,30 @@ pub fn lift_free_vars(e: &mut Expr, shift: DeBruijnOffset) {
             ReplaceResult::Skip
         }
     })
+}
+
+/// Create a pi expression where the parameter is the given local constant.
+pub fn abstract_pi(local: LocalConstant, mut return_type: Expr) -> Pi {
+    replace_in_expr(&mut return_type, |e, offset| {
+        if let ExprContents::LocalConstant(inner_local) = &e.contents {
+            if *inner_local == local {
+                ReplaceResult::ReplaceWith(Expr::new_with_provenance(
+                    &e.provenance,
+                    ExprContents::Bound(Bound {
+                        index: DeBruijnIndex::zero(),
+                    }),
+                ))
+            } else {
+                ReplaceResult::Skip
+            }
+        } else {
+            ReplaceResult::Skip
+        }
+    });
+    Pi {
+        parameter_name: local.name,
+        binder_annotation: local.binder_annotation,
+        parameter_ty: local.metavariable.ty,
+        result: Box::new(return_type),
+    }
 }

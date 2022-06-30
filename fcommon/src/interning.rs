@@ -6,6 +6,7 @@ use std::{fmt::Debug, path::PathBuf};
 pub type Span = std::ops::Range<usize>;
 
 use salsa::{InternId, InternKey};
+use upcast::UpcastFrom;
 /// Provides utilities for interning various data types.
 ///
 /// The [`Debug`] constraint is used to give databases a simple [`Debug`] implementation
@@ -17,6 +18,15 @@ pub trait Intern: Debug {
 
     #[salsa::interned]
     fn intern_path_data(&self, data: PathData) -> Path;
+}
+
+impl<'a, T: Intern + 'a> UpcastFrom<T> for dyn Intern + 'a {
+    fn up_from(value: &T) -> &(dyn Intern + 'a) {
+        value
+    }
+    fn up_from_mut(value: &mut T) -> &mut (dyn Intern + 'a) {
+        value
+    }
 }
 
 /// An interned string type.

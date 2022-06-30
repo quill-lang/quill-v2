@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use fcommon::{Dr, FileReader, Source};
+use fcommon::{Dr, FileReader, Intern, Source};
 use upcast::{Upcast, UpcastFrom};
 
 use crate::{
@@ -9,7 +9,7 @@ use crate::{
 };
 
 #[salsa::query_group(SexprParserStorage)]
-pub trait SexprParser: FileReader {
+pub trait SexprParser: FileReader + Upcast<dyn Intern> {
     fn parse_sexpr(&self, source: Source) -> Dr<Arc<SexprNode>>;
     fn module_from_feather_source(&self, source: Source) -> Dr<Arc<Module>>;
 }
