@@ -187,6 +187,13 @@ impl Universe {
         }
     }
 
+    pub fn new_with_provenance(provenance: &Provenance, contents: UniverseContents) -> Self {
+        Self {
+            provenance: provenance.clone(),
+            contents,
+        }
+    }
+
     /// Compares two universes for equality, ignoring provenance data.
     pub fn eq_ignoring_provenance(&self, other: &Universe) -> bool {
         match (&self.contents, &other.contents) {
