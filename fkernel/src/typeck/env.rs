@@ -1,20 +1,46 @@
 use std::collections::HashMap;
 
 use fcommon::{Intern, Path, Source};
-use fnodes::{definition::Definition, inductive::Inductive, SexprParser};
+use fnodes::{definition::Definition, expr::Sort, inductive::Inductive, SexprParser};
 
 /// A typing environment, normally called capital gamma in the literature.
 /// Contains information about everything we can see in the current position in a file.
 pub struct Environment<'a> {
     pub source: Source,
     pub db: &'a dyn SexprParser,
-    pub definitions: HashMap<Path, EnvironmentDefinition<'a>>,
+    pub definitions: HashMap<Path, &'a CertifiedDefinition>,
     pub inductives: HashMap<Path, &'a Inductive>,
 }
 
-pub struct EnvironmentDefinition<'a> {
-    pub def: &'a Definition,
-    pub reducibility: ReducibilityHints,
+/// A definition that has been verified by the type checker.
+/// No data inside a certified definition can be changed; this preserves the certification status.
+pub struct CertifiedDefinition {
+    def: Definition,
+    /// The type of the type of the definition, stored as a sort.
+    sort: Sort,
+    reducibility_hints: ReducibilityHints,
+}
+
+impl CertifiedDefinition {
+    pub(in crate::typeck) fn new(
+        def: Definition,
+        sort: Sort,
+        reducibility_hints: ReducibilityHints,
+    ) -> Self {
+        Self {
+            def,
+            sort,
+            reducibility_hints,
+        }
+    }
+
+    pub fn def(&self) -> &Definition {
+        &self.def
+    }
+
+    pub fn reducibility_hints(&self) -> &ReducibilityHints {
+        &self.reducibility_hints
+    }
 }
 
 /// Hints used by the definitional equality checker to choose which definitions to unfold first.

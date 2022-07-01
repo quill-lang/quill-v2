@@ -12,8 +12,8 @@ pub fn head_definition_height<'a>(env: &'a Environment, e: &Expr) -> Option<Defi
         ExprContents::Inst(inst) => env
             .definitions
             .get(&inst.name.to_path(env.db.up()))
-            .and_then(|def| match def.reducibility {
-                ReducibilityHints::Regular { height } => Some(height),
+            .and_then(|def| match def.reducibility_hints() {
+                ReducibilityHints::Regular { height } => Some(*height),
                 ReducibilityHints::Opaque => None,
             }),
         ExprContents::Apply(ap) => head_definition_height(env, &*ap.function),
@@ -26,7 +26,7 @@ pub fn head_definition_height<'a>(env: &'a Environment, e: &Expr) -> Option<Defi
 fn unfold_definition_core<'a>(env: &'a Environment, e: &Inst) -> Option<&'a Expr> {
     env.definitions
         .get(&e.name.to_path(env.db.up()))
-        .and_then(|def| def.def.contents.expr.as_ref())
+        .and_then(|def| def.def().contents.expr.as_ref())
 }
 
 /// If the head of this expression is a definition, unfold it,

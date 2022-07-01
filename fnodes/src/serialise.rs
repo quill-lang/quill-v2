@@ -305,7 +305,11 @@ where
 macro_rules! gen_int_parsable {
     ($t:ty) => {
         impl AtomicSexpr for $t {
-            fn parse_atom(_db: &dyn SexprParser, _source: Source, text: String) -> Result<Self, ParseErrorReason> {
+            fn parse_atom(
+                _db: &dyn SexprParser,
+                _source: Source,
+                text: String,
+            ) -> Result<Self, ParseErrorReason> {
                 text.parse()
                     .map_err(|err| ParseErrorReason::ParseIntError { text, err })
             }

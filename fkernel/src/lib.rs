@@ -9,5 +9,5 @@
 mod test_db;
 
 pub mod expr;
-pub mod universe;
 pub mod typeck;
+pub mod universe;

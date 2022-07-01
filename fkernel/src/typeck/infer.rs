@@ -7,7 +7,7 @@ use crate::expr::{
     abstract_pi, closed, has_free_variables, instantiate, instantiate_universe_parameters,
 };
 
-use super::{defeq::definitionally_equal, env::Environment, whnf::to_weak_head_normal_form};
+use super::{defeq::definitionally_equal_core, env::Environment, whnf::to_weak_head_normal_form};
 
 /// Infers the type of an expression. Invoke with a closed expression.
 /// If `check` is true, we also perform some type checking, but the return value is not changed.
@@ -73,11 +73,11 @@ fn infer_type_inst<'a>(
     let path = inst.name.to_path(env.db.up());
     match env.definitions.get(&path) {
         Some(def) => {
-            if def.def.contents.universe_params.len() == inst.universes.len() {
-                let mut e = def.def.contents.ty.clone();
+            if def.def().contents.universe_params.len() == inst.universes.len() {
+                let mut e = def.def().contents.ty.clone();
                 instantiate_universe_parameters(
                     &mut e,
-                    &def.def.contents.universe_params,
+                    &def.def().contents.universe_params,
                     &inst.universes,
                 );
                 Ok(e)
@@ -89,14 +89,14 @@ fn infer_type_inst<'a>(
                             format!(
                                 "definition {} has {} universe parameters, but {} were supplied",
                                 path.display(env.db.up()),
-                                def.def.contents.universe_params.len(),
+                                def.def().contents.universe_params.len(),
                                 inst.universes.len()
                             ),
                         ))
                         .with_label(
                             Label::new(
-                                def.def.provenance.source().unwrap_or(env.source),
-                                def.def.provenance.span(),
+                                def.def().provenance.source().unwrap_or(env.source),
+                                def.def().provenance.span(),
                                 LabelType::Note,
                             )
                             .with_message(format!("{} defined here", path.display(env.db.up()),)),
@@ -126,13 +126,13 @@ fn infer_type_let<'a>(
         // The type of the value to assign must be a type.
         // That is, its type must be a sort.
         let let_type_type = infer_type_core(env, meta_gen, &*inner.to_assign_ty, check)?;
-        as_sort(env, inner.to_assign_ty.provenance.span(), let_type_type)?;
+        as_sort_core(env, inner.to_assign_ty.provenance.span(), let_type_type)?;
 
         // Infer the type of the value to substitute.
         let let_value_type = infer_type_core(env, meta_gen, &*inner.to_assign, check)?;
 
         // The value that we assign must have type definitionally equal to the `to_assign_ty`.
-        if !definitionally_equal(env, meta_gen, &let_value_type, &*inner.to_assign_ty)? {
+        if !definitionally_equal_core(env, meta_gen, &let_value_type, &*inner.to_assign_ty)? {
             let inner = inner.clone();
             return Err(Box::new(move |report| {
                 let mut printer = ExprPrinter::new(env.db);
@@ -163,7 +163,7 @@ fn infer_type_lambda<'a>(
     if check {
         // The argument type must be a type.
         let argument_type_type = infer_type_core(env, meta_gen, &*lambda.parameter_ty, check)?;
-        as_sort(
+        as_sort_core(
             env,
             lambda.parameter_ty.provenance.span(),
             argument_type_type,
@@ -199,7 +199,7 @@ fn infer_type_pi<'a>(
     pi: &Pi,
 ) -> Result<Expr, Box<dyn FnOnce(Report) -> Report + 'a>> {
     let parameter_type = infer_type_core(env, meta_gen, &pi.parameter_ty, check)?;
-    let domain_type = as_sort(env, span.clone(), parameter_type)?;
+    let domain_type = as_sort_core(env, span.clone(), parameter_type)?;
     let mut body = *pi.result.clone();
     let new_local = LocalConstant {
         name: pi.parameter_name.clone(),
@@ -214,7 +214,7 @@ fn infer_type_pi<'a>(
             ExprContents::LocalConstant(new_local.clone()),
         ),
     );
-    let return_type = as_sort(env, span, infer_type_core(env, meta_gen, &body, check)?)?;
+    let return_type = as_sort_core(env, span, infer_type_core(env, meta_gen, &body, check)?)?;
     Ok(Expr::new_with_provenance(
         &pi.parameter_ty.provenance,
         ExprContents::Sort(Sort(Universe::new_with_provenance(
@@ -241,7 +241,8 @@ fn infer_type_apply<'a>(
     )?;
     let argument_type = infer_type_core(env, meta_gen, &*apply.argument, check)?;
     if check {
-        if !definitionally_equal(env, meta_gen, &argument_type, &*function_type.parameter_ty)? {
+        if !definitionally_equal_core(env, meta_gen, &argument_type, &*function_type.parameter_ty)?
+        {
             let parameter_ty = function_type.parameter_ty.clone();
             return Err(Box::new(move |report| {
                 let mut printer = ExprPrinter::new(env.db);
@@ -270,9 +271,9 @@ fn infer_type_sort(provenance: &Provenance, sort: &Sort) -> Expr {
     )
 }
 
-/// Expands the given expression until it is a `Sort`.
-/// If the expression was not a sort, returns `Err`.
-fn as_sort<'a>(
+/// Expands the given expression until it is a [`Sort`].
+/// If the expression was not a sort, returns [`Err`].
+fn as_sort_core<'a>(
     env: &'a Environment,
     span: Span,
     mut e: Expr,
@@ -297,8 +298,22 @@ fn as_sort<'a>(
     }
 }
 
-/// Expands the given expression until it is a `Pi`.
-/// If the expression was not a function type, returns `Err`.
+/// Expands the given expression until it is a [`Sort`].
+/// If the expression was not a sort, returns a failed [`Dr`].
+pub fn as_sort<'a>(env: &'a Environment, e: Expr) -> Dr<Sort> {
+    let provenance = e.provenance.clone();
+    match as_sort_core(env, provenance.span(), e) {
+        Ok(sort) => Dr::ok(sort),
+        Err(err) => Dr::fail(err(Report::new(
+            ReportKind::Error,
+            env.source,
+            provenance.span().start,
+        ))),
+    }
+}
+
+/// Expands the given expression until it is a [`Pi`].
+/// If the expression was not a function type, returns [`Err`].
 fn as_pi<'a>(
     env: &'a Environment,
     span: Span,

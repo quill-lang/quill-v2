@@ -137,6 +137,16 @@ fn find_in_expr_offset(
     }
 }
 
+/// Returns the first local constant or metavariable in the given expression.
+pub fn first_local_or_metavariable(e: &Expr) -> Option<&Expr> {
+    find_in_expr(e, |inner, _offset| {
+        matches!(
+            &inner.contents,
+            ExprContents::LocalConstant(_) | ExprContents::Metavariable(_)
+        )
+    })
+}
+
 /// Instantiate the first bound variable with the given substitution.
 /// This will subtract one from all higher de Bruijn indices.
 pub fn instantiate(e: &mut Expr, substitution: &Expr) {

@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use fcommon::Report;
+use fcommon::{Dr, Label, LabelType, Report, ReportKind};
 use fnodes::{
     basic_nodes::{DeBruijnIndex, Provenance},
     expr::*,
@@ -17,7 +17,33 @@ use super::{
 };
 
 /// Returns true if the two expressions are definitionally equal.
-pub fn definitionally_equal<'a>(
+pub(in crate::typeck) fn definitionally_equal<'a>(
+    env: &'a Environment,
+    meta_gen: &mut MetavariableGenerator,
+    left: &Expr,
+    right: &Expr,
+) -> Dr<bool> {
+    match definitionally_equal_core(env, meta_gen, left, right) {
+        Ok(result) => Dr::ok(result),
+        Err(err) => Dr::fail(err(Report::new(
+            ReportKind::Error,
+            env.source,
+            std::cmp::min(left.provenance.span().start, right.provenance.span().start),
+        )
+        .with_label(
+            Label::new(env.source, left.provenance.span(), LabelType::Note).with_message(
+                "error was raised trying to check whether this expression was definitionally equal to...",
+            ).with_priority(-100),
+        ).with_label(
+            Label::new(env.source, left.provenance.span(), LabelType::Note).with_message(
+                "...this other expression",
+            ).with_priority(-101),
+        ))),
+    }
+}
+
+/// Returns true if the two expressions are definitionally equal.
+pub(in crate::typeck) fn definitionally_equal_core<'a>(
     env: &'a Environment,
     meta_gen: &mut MetavariableGenerator,
     left: &Expr,
@@ -46,6 +72,7 @@ pub fn definitionally_equal<'a>(
         return result;
     }
 
+    // Now test all the other cases.
     match (&left.contents, &right.contents) {
         (ExprContents::Inst(left), ExprContents::Inst(right)) => {
             // Test if the two expressions are equal constants.
@@ -67,8 +94,8 @@ pub fn definitionally_equal<'a>(
         }
         (ExprContents::Apply(left), ExprContents::Apply(right)) => {
             // Test if the two expressions are applications of the same function with the same arguments.
-            if definitionally_equal(env, meta_gen, &left.function, &right.function)?
-                && definitionally_equal(env, meta_gen, &left.argument, &right.argument)?
+            if definitionally_equal_core(env, meta_gen, &left.function, &right.function)?
+                && definitionally_equal_core(env, meta_gen, &left.argument, &right.argument)?
             {
                 return Ok(true);
             }
@@ -132,7 +159,7 @@ fn lambda_definitionally_equal<'a>(
     left: &Lambda,
     right: &Lambda,
 ) -> Result<bool, Box<dyn FnOnce(Report) -> Report + 'a>> {
-    if !definitionally_equal(env, meta_gen, &*left.parameter_ty, &*right.parameter_ty)? {
+    if !definitionally_equal_core(env, meta_gen, &*left.parameter_ty, &*right.parameter_ty)? {
         return Ok(false);
     }
     // The parameter types are the same.
@@ -160,7 +187,7 @@ fn lambda_definitionally_equal<'a>(
             ExprContents::LocalConstant(new_local.clone()),
         ),
     );
-    definitionally_equal(env, meta_gen, &left_body, &right_body)
+    definitionally_equal_core(env, meta_gen, &left_body, &right_body)
 }
 
 /// Pi expressions are definitionally equal if their parameter types are equal and their result types are equal.
@@ -170,7 +197,7 @@ fn pi_definitionally_equal<'a>(
     left: &Pi,
     right: &Pi,
 ) -> Result<bool, Box<dyn FnOnce(Report) -> Report + 'a>> {
-    if !definitionally_equal(env, meta_gen, &*left.parameter_ty, &*right.parameter_ty)? {
+    if !definitionally_equal_core(env, meta_gen, &*left.parameter_ty, &*right.parameter_ty)? {
         return Ok(false);
     }
     // The parameter types are the same.
@@ -198,7 +225,7 @@ fn pi_definitionally_equal<'a>(
             ExprContents::LocalConstant(new_local.clone()),
         ),
     );
-    definitionally_equal(env, meta_gen, &left_body, &right_body)
+    definitionally_equal_core(env, meta_gen, &left_body, &right_body)
 }
 
 fn universe_definitionally_equal(left: &Universe, right: &Universe) -> bool {
@@ -225,7 +252,7 @@ fn equal_propositions<'a>(
         Universe::new_synthetic(UniverseContents::UniverseZero),
     )))) {
         let right_type = infer_type_core(env, meta_gen, left, true)?;
-        definitionally_equal(env, meta_gen, &left_type, &right_type)
+        definitionally_equal_core(env, meta_gen, &left_type, &right_type)
     } else {
         Ok(false)
     }
@@ -317,7 +344,7 @@ fn try_eta_expansion<'a>(
                 )),
             }),
         );
-        Some(definitionally_equal(
+        Some(definitionally_equal_core(
             env,
             meta_gen,
             &Expr::new_with_provenance(lambda_provenance, ExprContents::Lambda(lambda.clone())),
