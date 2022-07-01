@@ -701,7 +701,7 @@ impl<'a> ExprPrinter<'a> {
             ExprContents::Bound(bound) => bound.index.to_string(),
             ExprContents::Lambda(lambda) => {
                 let contents = format!(
-                    "{}: {}",
+                    "{} : {}",
                     self.db
                         .lookup_intern_string_data(lambda.parameter_name.contents),
                     self.print(&*lambda.parameter_ty)
@@ -716,7 +716,7 @@ impl<'a> ExprPrinter<'a> {
             }
             ExprContents::Pi(pi) => {
                 let contents = format!(
-                    "{}: {}",
+                    "{} : {}",
                     self.db
                         .lookup_intern_string_data(pi.parameter_name.contents),
                     self.print(&*pi.parameter_ty)
@@ -741,13 +741,23 @@ impl<'a> ExprPrinter<'a> {
                     match n {
                         0 => "Prop".to_string(),
                         1 => "Type".to_string(),
-                        _ => format!("Type {}", n - 1),
+                        2 => "Kind".to_string(),
+                        _ => format!("Sort {}", n),
                     }
                 } else {
                     format!("Sort {}", self.print_universe(universe))
                 }
             }
-            _ => unimplemented!(),
+            ExprContents::Inst(_) => todo!(),
+            ExprContents::Let(_) => todo!(),
+            ExprContents::Metavariable(_) => todo!(),
+            ExprContents::LocalConstant(local) => {
+                format!(
+                    "({} : {})",
+                    self.db.lookup_intern_string_data(local.name.contents),
+                    self.print(&local.metavariable.ty)
+                )
+            }
         }
     }
 

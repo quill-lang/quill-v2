@@ -3,7 +3,7 @@
 use fcommon::{Dr, Label, LabelType, Report, ReportKind};
 use fnodes::{
     definition::Definition,
-    expr::{Expr, ExprContents, MetavariableGenerator},
+    expr::{Expr, ExprContents, ExprPrinter, MetavariableGenerator},
 };
 
 mod defeq;
@@ -45,11 +45,17 @@ pub fn check(env: &Environment, def: &Definition) -> Dr<CertifiedDefinition> {
                                             ReducibilityHints::Opaque,
                                         ))
                                     } else {
+                                        let mut printer = ExprPrinter::new(env.db);
                                         Dr::fail(Report::new(
                                             ReportKind::Error,
                                             env.source,
                                             expr.provenance.span().start,
-                                        ).with_label(Label::new(env.source, expr.provenance.span(), LabelType::Error).with_message("this expression's type did not match the type declared in the definition")))
+                                        )
+                                        .with_message("body of this definition did not match the type declared in the definition")
+                                        .with_label(Label::new(env.source, def.contents.ty.provenance.span(), LabelType::Note)
+                                            .with_message(format!("the type of the definition is {}", printer.print(&def.contents.ty))))
+                                        .with_label(Label::new(env.source, expr.provenance.span(), LabelType::Error)
+                                            .with_message(format!("the body has type {}", printer.print(&ty)))))
                                     }
                                 },
                             )

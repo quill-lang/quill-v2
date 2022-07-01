@@ -160,7 +160,9 @@ pub fn instantiate(e: &mut Expr, substitution: &Expr) {
                 std::cmp::Ordering::Equal => {
                     // The variable is the smallest free de Bruijn index.
                     // It is exactly the one we need to substitute.
-                    ReplaceResult::ReplaceWith(substitution.clone())
+                    let mut substitution = substitution.clone();
+                    lift_free_vars(&mut substitution, offset);
+                    ReplaceResult::ReplaceWith(substitution)
                 }
                 std::cmp::Ordering::Greater => {
                     // This de Bruijn index must be decremented, since we just
@@ -248,7 +250,7 @@ pub fn abstract_pi(local: LocalConstant, mut return_type: Expr) -> Pi {
                 ReplaceResult::ReplaceWith(Expr::new_with_provenance(
                     &e.provenance,
                     ExprContents::Bound(Bound {
-                        index: DeBruijnIndex::zero(),
+                        index: DeBruijnIndex::zero() + offset,
                     }),
                 ))
             } else {
