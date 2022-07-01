@@ -39,7 +39,7 @@ pub fn infer_type(
     }
 }
 
-fn infer_type_core<'a>(
+pub(crate) fn infer_type_core<'a>(
     env: &'a Environment,
     meta_gen: &mut MetavariableGenerator,
     e: &Expr,
@@ -132,7 +132,7 @@ fn infer_type_let<'a>(
         let let_value_type = infer_type_core(env, meta_gen, &*inner.to_assign, check)?;
 
         // The value that we assign must have type definitionally equal to the `to_assign_ty`.
-        if !definitionally_equal(&let_value_type, &*inner.to_assign_ty) {
+        if !definitionally_equal(env, meta_gen, &let_value_type, &*inner.to_assign_ty)? {
             let inner = inner.clone();
             return Err(Box::new(move |report| {
                 let mut printer = ExprPrinter::new(env.db);
@@ -241,7 +241,7 @@ fn infer_type_apply<'a>(
     )?;
     let argument_type = infer_type_core(env, meta_gen, &*apply.argument, check)?;
     if check {
-        if !definitionally_equal(&argument_type, &*function_type.parameter_ty) {
+        if !definitionally_equal(env, meta_gen, &argument_type, &*function_type.parameter_ty)? {
             let parameter_ty = function_type.parameter_ty.clone();
             return Err(Box::new(move |report| {
                 let mut printer = ExprPrinter::new(env.db);
