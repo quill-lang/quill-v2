@@ -73,11 +73,11 @@ fn infer_type_inst<'a>(
     let path = inst.name.to_path(env.db.up());
     match env.definitions.get(&path) {
         Some(def) => {
-            if def.contents.universe_params.len() == inst.universes.len() {
-                let mut e = def.contents.ty.clone();
+            if def.def.contents.universe_params.len() == inst.universes.len() {
+                let mut e = def.def.contents.ty.clone();
                 instantiate_universe_parameters(
                     &mut e,
-                    &def.contents.universe_params,
+                    &def.def.contents.universe_params,
                     &inst.universes,
                 );
                 Ok(e)
@@ -89,14 +89,14 @@ fn infer_type_inst<'a>(
                             format!(
                                 "definition {} has {} universe parameters, but {} were supplied",
                                 path.display(env.db.up()),
-                                def.contents.universe_params.len(),
+                                def.def.contents.universe_params.len(),
                                 inst.universes.len()
                             ),
                         ))
                         .with_label(
                             Label::new(
-                                def.provenance.source().unwrap_or(env.source),
-                                def.provenance.span(),
+                                def.def.provenance.source().unwrap_or(env.source),
+                                def.def.provenance.span(),
                                 LabelType::Note,
                             )
                             .with_message(format!("{} defined here", path.display(env.db.up()),)),
