@@ -22,7 +22,7 @@ use crate::expr::first_local_or_metavariable;
 
 /// Type checks a definition.
 /// This function returns a [`CertifiedDefinition`], a definition that has been verified by the type checker.
-pub fn check(env: &Environment, def: Definition) -> Dr<CertifiedDefinition> {
+pub fn check(env: &Environment, def: &Definition) -> Dr<CertifiedDefinition> {
     check_no_local_or_metavariable(env, &def.contents.ty).bind(|()| {
         // Since we have no metavariables in the given expression,
         // we can initialise the metavariable generator with any value.
@@ -40,7 +40,7 @@ pub fn check(env: &Environment, def: Definition) -> Dr<CertifiedDefinition> {
                                 |types_equal| {
                                     if types_equal {
                                         Dr::ok(CertifiedDefinition::new(
-                                            def,
+                                            def.clone(),
                                             sort,
                                             ReducibilityHints::Opaque,
                                         ))
@@ -57,7 +57,7 @@ pub fn check(env: &Environment, def: Definition) -> Dr<CertifiedDefinition> {
                     })
                 } else {
                     Dr::ok(CertifiedDefinition::new(
-                        def,
+                        def.clone(),
                         sort,
                         ReducibilityHints::Opaque,
                     ))

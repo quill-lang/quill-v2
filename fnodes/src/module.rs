@@ -14,7 +14,7 @@ pub struct ModuleContents {
 #[derive(PartialEq, Eq, Hash)]
 pub struct Module {
     /// The origin of the module in code.
-    provenance: Provenance,
+    pub provenance: Provenance,
     /// The contents of the module.
     pub contents: ModuleContents,
 }

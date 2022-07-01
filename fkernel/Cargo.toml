@@ -9,4 +9,5 @@ edition = "2021"
 fcommon = { path = "../fcommon" }
 fnodes = { path = "../fnodes" }
 salsa = "0.16.1"
+tracing = "0.1.31"
 upcast = "0.1.0"

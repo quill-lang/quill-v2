@@ -5,8 +5,8 @@ use std::{
 };
 
 use fcommon::*;
+use fkernel::TypeCheckerStorage;
 use fnodes::SexprParserStorage;
-use fvalue::ValueInferenceStorage;
 use notify::{RecommendedWatcher, Watcher};
 use salsa::Snapshot;
 
@@ -15,7 +15,7 @@ use salsa::Snapshot;
     FileReaderStorage,
     InternStorage,
     SexprParserStorage,
-    ValueInferenceStorage
+    TypeCheckerStorage
 )]
 pub struct FeatherDatabase {
     storage: salsa::Storage<Self>,

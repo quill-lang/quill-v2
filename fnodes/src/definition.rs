@@ -6,7 +6,7 @@ use crate::{
     *,
 };
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DefinitionContents {
     /// The name of this definition inside the current module.
     pub name: Name,
@@ -18,7 +18,7 @@ pub struct DefinitionContents {
     pub expr: Option<Expr>,
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Definition {
     /// The origin of the expression.
     pub provenance: Provenance,

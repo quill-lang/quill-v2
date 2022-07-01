@@ -1,8 +1,8 @@
 use std::{collections::HashSet, path::PathBuf, sync::Arc};
 
 use fcommon::{FileReader, Intern, InternExt, PathData, Source, SourceType};
+use fkernel::TypeChecker;
 use fnodes::{ListSexprWrapper, PrettyPrintSettings, SexprSerialiseExt};
-use fvalue::ValueInferenceEngine;
 use salsa::Durability;
 use tracing::info;
 use tracing_subscriber::{fmt::format::FmtSpan, FmtSubscriber};
@@ -33,27 +33,28 @@ fn main() {
         ty: SourceType::Feather,
     };
 
-    let result = db.infer_values(source);
+    let result = db.certify(source);
     for report in result.reports() {
         report.render(&db);
     }
 
     if let Some(result) = result.value() {
-        let node = ListSexprWrapper::serialise_into_node(&db, &**result);
-        let pretty_print = PrettyPrintSettings {
-            no_indent_for: {
-                let mut map = HashSet::new();
-                for s in ["local", "iu64", "iunit", "fu64", "funit", "funiverse"] {
-                    map.insert(s.to_string());
-                }
-                map
-            },
-        };
-        std::fs::write(
-            db.path_to_path_buf(path).with_extension("tyck.sexp"),
-            node.to_string(&pretty_print),
-        )
-        .unwrap();
+
+        // let node = ListSexprWrapper::serialise_into_node(&db, &**result);
+        // let pretty_print = PrettyPrintSettings {
+        //     no_indent_for: {
+        //         let mut map = HashSet::new();
+        //         for s in ["local", "iu64", "iunit", "fu64", "funit", "funiverse"] {
+        //             map.insert(s.to_string());
+        //         }
+        //         map
+        //     },
+        // };
+        // std::fs::write(
+        //     db.path_to_path_buf(path).with_extension("tyck.sexp"),
+        //     node.to_string(&pretty_print),
+        // )
+        // .unwrap();
     }
 
     /*
