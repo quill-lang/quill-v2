@@ -5,12 +5,18 @@ use fnodes::{
     inductive::Inductive,
 };
 
-use crate::typeck::{self, CertifiedDefinition, Environment};
+use crate::{
+    expr::ExprPrinter,
+    typeck::{self, CertifiedDefinition, Environment},
+};
 
 mod check;
 mod check_intro_rule;
+mod recursor;
 
-use self::{check::PartialInductiveInformation, check_intro_rule::check_intro_rule};
+use self::{
+    check::PartialInductiveInformation, check_intro_rule::check_intro_rule, recursor::recursor_info,
+};
 
 /// Verifies that an inductive type is valid and can be added to the environment.
 /// Takes ownership of the environment so we can add definitions to it while performing inference.
@@ -50,7 +56,7 @@ pub(crate) fn check_inductive_type(
                     check_intro_rule(&env, &mut meta_gen, ind, intro_rule, &info)
                 }),
             )
-            .map(move |intro_rules| {
+            .bind(move |intro_rules| {
                 // Shorten the lifetime parameter on `env` again.
                 let mut env: Environment<'_> = env;
                 for intro_rule in &intro_rules {
@@ -62,15 +68,20 @@ pub(crate) fn check_inductive_type(
                     let path = env.db.intern_path_data(new_path_data);
                     env.definitions.insert(path, &intro_rule);
                 }
-                intro_rules
+
+                // Form the recursor.
+                recursor_info(&env, &mut meta_gen, ind, &info)
+                    .map(move |recursor_info| (intro_rules, recursor_info))
             })
-            .map(move |intro_rules| CertifiedInductiveInformation {
-                inductive: CertifiedInductive {
-                    inductive: ind.clone(),
+            .map(
+                move |(intro_rules, recursor_info)| CertifiedInductiveInformation {
+                    inductive: CertifiedInductive {
+                        inductive: ind.clone(),
+                    },
+                    type_declaration,
+                    intro_rules,
                 },
-                type_declaration,
-                intro_rules,
-            })
+            )
         })
     })
 }

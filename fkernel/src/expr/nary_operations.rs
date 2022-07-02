@@ -1,7 +1,7 @@
 //! Provides utilities for working with n-ary functions, even though
 //! function currying makes all functions behave like they are unary.
 
-use fnodes::expr::*;
+use fnodes::{basic_nodes::Provenance, expr::*};
 
 /// If this expression is a function application, return the leftmost function in the call chain.
 /// For example, applying this function to `foo 1 2 3` returns `foo`,
@@ -36,4 +36,21 @@ pub fn apply_args(e: &Expr) -> Vec<&Expr> {
 /// Applying this function to `foo 1 2 3` returns `(foo, [1, 2, 3])`.
 pub fn destructure_as_nary_application(e: &Expr) -> (&Expr, Vec<&Expr>) {
     (leftmost_function(e), apply_args(e))
+}
+
+/// Creates an n-ary function application chain with the given provenance data from the given function and arguments.
+pub fn create_nary_application(
+    function: Expr,
+    arguments: impl Iterator<Item = Expr>,
+    provenance: &Provenance,
+) -> Expr {
+    arguments.fold(function, |func, arg| {
+        Expr::new_with_provenance(
+            provenance,
+            ExprContents::Apply(Apply {
+                function: Box::new(func),
+                argument: Box::new(arg),
+            }),
+        )
+    })
 }

@@ -50,6 +50,31 @@ impl Str {
     }
 }
 
+/// Generates a sequence of distinct strings with a given prefix.
+pub struct StrGenerator<'a> {
+    db: &'a dyn Intern,
+    prefix: String,
+    counter: u64,
+}
+
+impl<'a> StrGenerator<'a> {
+    pub fn new(db: &'a dyn Intern, prefix: impl ToString) -> Self {
+        Self {
+            db,
+            prefix: prefix.to_string(),
+            counter: 0,
+        }
+    }
+
+    pub fn generate(&mut self) -> Str {
+        self.db.intern_string_data(if self.counter == 0 {
+            self.prefix.clone()
+        } else {
+            format!("{}_{}", self.prefix, self.counter)
+        })
+    }
+}
+
 /// Uniquely identifies a source file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Source {

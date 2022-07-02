@@ -114,7 +114,7 @@ fn check_intro_rule_core(
                 }
             };
             result.bind(|ty| {
-                is_valid_inductive_application(env, meta_gen, &ty, intro_rule, info).bind(
+                is_valid_inductive_application(env, meta_gen, &ty, info).bind(
                     |result| {
                         if result {
                             Dr::ok(())
@@ -177,7 +177,7 @@ fn check_index_parameter(
                 parameter_index,
             )
             .bind(|()| {
-                is_recursive_argument(env, meta_gen, *pi.parameter_ty, intro_rule, info).bind(
+                is_recursive_argument(env, meta_gen, *pi.parameter_ty, info).bind(
                     |is_recursive| {
                         if is_recursive {
                             found_recursive_argument.set(true);
@@ -238,7 +238,7 @@ fn check_positivity(
                 check_positivity(env, meta_gen, result, intro_rule, info, parameter_index)
             }
         } else {
-            is_valid_inductive_application(env, meta_gen, &e, intro_rule, info).bind(|result| {
+            is_valid_inductive_application(env, meta_gen, &e, info).bind(|result| {
                 if result {
                     // This is a valid recursive inductive application.
                     Dr::ok(())
@@ -255,11 +255,10 @@ fn check_positivity(
 
 /// Returns true if the expression is a term of the form `(I As t)` where `I` is the inductive being
 /// defined, `As` are the global parameters, and `I` does not occur in the indices `t`.
-fn is_valid_inductive_application(
+pub(in crate::inductive) fn is_valid_inductive_application(
     env: &Environment,
     meta_gen: &mut MetavariableGenerator,
     e: &Expr,
-    intro_rule: &IntroRule,
     info: &PartialInductiveInformation,
 ) -> Dr<bool> {
     let segments = info
@@ -301,11 +300,10 @@ fn is_valid_inductive_application(
 }
 
 /// Returns true if the expression is a recursive argument.
-fn is_recursive_argument(
+pub(in crate::inductive) fn is_recursive_argument(
     env: &Environment,
     meta_gen: &mut MetavariableGenerator,
     mut e: Expr,
-    intro_rule: &IntroRule,
     info: &PartialInductiveInformation,
 ) -> Dr<bool> {
     to_weak_head_normal_form(env, &mut e);
@@ -318,5 +316,5 @@ fn is_recursive_argument(
         );
         to_weak_head_normal_form(env, &mut e);
     }
-    is_valid_inductive_application(env, meta_gen, &e, intro_rule, info)
+    is_valid_inductive_application(env, meta_gen, &e, info)
 }

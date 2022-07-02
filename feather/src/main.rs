@@ -2,7 +2,10 @@ use std::{collections::HashSet, path::PathBuf, sync::Arc};
 
 use fcommon::{FileReader, Intern, InternExt, PathData, Source, SourceType};
 use fkernel::{expr::ExprPrinter, TypeChecker};
-use fnodes::{expr::{ExprContents, Expr}, ListSexprWrapper, PrettyPrintSettings, SexprSerialiseExt};
+use fnodes::{
+    expr::{Expr, ExprContents},
+    ListSexprWrapper, PrettyPrintSettings, SexprSerialiseExt,
+};
 use salsa::Durability;
 use tracing::info;
 use tracing_subscriber::{fmt::format::FmtSpan, FmtSubscriber};
