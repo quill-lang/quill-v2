@@ -3,6 +3,7 @@ use std::cell::Cell;
 use fcommon::{Dr, Label, LabelType, Report, ReportKind};
 use fnodes::{
     basic_nodes::{Name, QualifiedName},
+    definition::{Definition, DefinitionContents},
     expr::{Expr, ExprContents, Inst, MetavariableGenerator, Pi, Sort},
     inductive::{Inductive, IntroRule},
     universe::{Universe, UniverseContents, UniverseVariable},
@@ -14,8 +15,8 @@ use crate::{
         instantiate, ExprPrinter,
     },
     typeck::{
-        as_sort, check_no_local_or_metavariable, definitionally_equal, infer_type,
-        to_weak_head_normal_form, Environment,
+        self, as_sort, check_no_local_or_metavariable, definitionally_equal, infer_type,
+        to_weak_head_normal_form, CertifiedDefinition, Environment,
     },
     universe::{is_nonzero, is_zero, universe_at_most},
 };
@@ -28,7 +29,32 @@ use super::check::PartialInductiveInformation;
 /// - the type of all arguments live in universes at most the level of the corresponding data type,
 /// - occurences of the inductive data type inside this introduction rule occur strictly positively,
 /// - the rule is type correct.
+/// Then, returns a certified definition (with empty body) representing the intro rule.
 pub fn check_intro_rule(
+    env: &Environment,
+    meta_gen: &mut MetavariableGenerator,
+    ind: &Inductive,
+    intro_rule: &IntroRule,
+    info: &PartialInductiveInformation,
+) -> Dr<CertifiedDefinition> {
+    check_intro_rule_core(env, meta_gen, ind, intro_rule, info).bind(|()| {
+        // The intro rule was valid, so we can now define and certify it.
+        typeck::check(
+            env,
+            &Definition {
+                provenance: intro_rule.name.provenance.clone(),
+                contents: DefinitionContents {
+                    name: intro_rule.name.clone(),
+                    universe_params: ind.contents.universe_params.clone(),
+                    ty: intro_rule.ty.clone(),
+                    expr: None,
+                },
+            },
+        )
+    })
+}
+
+fn check_intro_rule_core(
     env: &Environment,
     meta_gen: &mut MetavariableGenerator,
     ind: &Inductive,

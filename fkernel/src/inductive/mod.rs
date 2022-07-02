@@ -15,7 +15,7 @@ use self::{check::PartialInductiveInformation, check_intro_rule::check_intro_rul
 /// Verifies that an inductive type is valid and can be added to the environment.
 /// Takes ownership of the environment so we can add definitions to it while performing inference.
 pub(crate) fn check_inductive_type(
-    mut env: Environment,
+    env: Environment,
     ind: &Inductive,
 ) -> Dr<CertifiedInductiveInformation> {
     // We are going to assert that we have no metavariables in the inductive's type,
@@ -35,23 +35,41 @@ pub(crate) fn check_inductive_type(
         typeck::check(&env, &type_declaration).bind(move |type_declaration| {
             // Shorten the lifetime parameter on `env` to just this block.
             let mut env: Environment<'_> = env;
-            let mut new_path_data = env.db.lookup_intern_path_data(env.source.path);
-            new_path_data
-                .0
-                .push(type_declaration.def().contents.name.contents);
-            let path = env.db.intern_path_data(new_path_data);
-            env.definitions.insert(path, &type_declaration);
+            {
+                // Add the type declaration to the environment.
+                let mut new_path_data = env.db.lookup_intern_path_data(env.source.path);
+                new_path_data
+                    .0
+                    .push(type_declaration.def().contents.name.contents);
+                let path = env.db.intern_path_data(new_path_data);
+                env.definitions.insert(path, &type_declaration);
+            }
 
-            let intro_rules =
-                Dr::sequence(ind.contents.intro_rules.iter().map(|intro_rule| {
+            Dr::sequence(
+                ind.contents.intro_rules.iter().map(|intro_rule| {
                     check_intro_rule(&env, &mut meta_gen, ind, intro_rule, &info)
-                }));
-
-            intro_rules.map(|_| CertifiedInductiveInformation {
+                }),
+            )
+            .map(move |intro_rules| {
+                // Shorten the lifetime parameter on `env` again.
+                let mut env: Environment<'_> = env;
+                for intro_rule in &intro_rules {
+                    // Add the intro rules to the environment.
+                    let mut new_path_data = env.db.lookup_intern_path_data(env.source.path);
+                    new_path_data
+                        .0
+                        .push(intro_rule.def().contents.name.contents);
+                    let path = env.db.intern_path_data(new_path_data);
+                    env.definitions.insert(path, &intro_rule);
+                }
+                intro_rules
+            })
+            .map(move |intro_rules| CertifiedInductiveInformation {
                 inductive: CertifiedInductive {
                     inductive: ind.clone(),
                 },
-                type_declaration: type_declaration.clone(),
+                type_declaration,
+                intro_rules,
             })
         })
     })
@@ -63,6 +81,8 @@ pub(crate) struct CertifiedInductiveInformation {
     pub inductive: CertifiedInductive,
     /// A definition with no body which constructs the type itself.
     pub type_declaration: CertifiedDefinition,
+    /// Definitions with no body representing the introduction rules.
+    pub intro_rules: Vec<CertifiedDefinition>,
 }
 
 #[derive(Debug)]
