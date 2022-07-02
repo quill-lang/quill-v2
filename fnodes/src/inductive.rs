@@ -7,7 +7,7 @@ use crate::{
 };
 
 /// An inductive data type.
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct InductiveContents {
     /// The name of this inductive data type inside the current module.
     pub name: Name,
@@ -23,20 +23,20 @@ pub struct InductiveContents {
     /// This number must be at most `n`, if `ty` is an n-ary function. This is guaranteed if this [`Inductive`]
     /// has been certified by the kernel.
     pub global_params: u32,
-    /// A list of all of the type constructors associated with this inductive data type.
-    pub constructors: Vec<TypeConstructor>,
+    /// A list of all of the introduction rules associated with this inductive data type.
+    pub intro_rules: Vec<IntroRule>,
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
-pub struct TypeConstructor {
-    /// The unique name of this type constructor.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct IntroRule {
+    /// The unique name of this introduction rule.
     pub name: Name,
-    /// The type represented by this type constructor.
-    /// For instance, a structure `Foo` with one field `foo: T` might have a type constructor with type `(foo: T) -> Foo`.
+    /// The type represented by this introduction rule.
+    /// For instance, a structure `Foo` with one field `foo: T` might have a introduction rule with type `(foo: T) -> Foo`.
     pub ty: Expr,
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Inductive {
     /// The origin of the expression.
     pub provenance: Provenance,
@@ -50,7 +50,7 @@ impl std::fmt::Debug for Inductive {
     }
 }
 
-impl ListSexpr for TypeConstructor {
+impl ListSexpr for IntroRule {
     const KEYWORD: Option<&'static str> = None;
 
     fn parse_list(
@@ -83,7 +83,7 @@ impl ListSexpr for Inductive {
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
-        let [name, infos, universe_params, ty, global_params, constructors] =
+        let [name, infos, universe_params, ty, global_params, intro_rules] =
             force_arity(span.clone(), args)?;
 
         let inductive = Inductive {
@@ -96,7 +96,7 @@ impl ListSexpr for Inductive {
                 universe_params: ListSexprWrapper::parse(db, source, universe_params)?,
                 ty: ListSexprWrapper::parse(db, source, ty)?,
                 global_params: AtomicSexprWrapper::parse(db, source, global_params)?,
-                constructors: ListSexprWrapper::parse(db, source, constructors)?,
+                intro_rules: ListSexprWrapper::parse(db, source, intro_rules)?,
             },
         };
         // TODO: node infos
@@ -126,7 +126,7 @@ impl ListSexpr for Inductive {
             // },
             ListSexprWrapper::serialise_into_node(db, &self.contents.universe_params),
             ListSexprWrapper::serialise_into_node(db, &self.contents.ty),
-            ListSexprWrapper::serialise_into_node(db, &self.contents.constructors),
+            ListSexprWrapper::serialise_into_node(db, &self.contents.intro_rules),
         ]
     }
 }

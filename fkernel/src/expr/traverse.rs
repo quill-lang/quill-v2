@@ -2,6 +2,7 @@
 
 use std::{borrow::BorrowMut, cell::Cell};
 
+use fcommon::Str;
 use fnodes::{
     basic_nodes::{DeBruijnIndex, DeBruijnOffset, Name},
     expr::*,
@@ -164,6 +165,30 @@ pub fn get_max_height(env: &Environment, e: &Expr) -> DefinitionHeight {
         false
     });
     height.into_inner()
+}
+
+/// Finds the first instance of the given constant in the expression.
+/// The constant is given as a list of name segments, so that this function doesn't depend on the database.
+pub fn find_constant<'e>(e: &'e Expr, segments: &[Str]) -> Option<&'e Inst> {
+    find_in_expr(e, |inner, _offset| {
+        if let ExprContents::Inst(inst) = &inner.contents {
+            inst.name
+                .segments
+                .iter()
+                .map(|name| name.contents)
+                .collect::<Vec<_>>()
+                == segments
+        } else {
+            false
+        }
+    })
+    .map(|expr| {
+        if let ExprContents::Inst(inst) = &expr.contents {
+            inst
+        } else {
+            unreachable!()
+        }
+    })
 }
 
 /// Instantiate the first bound variable with the given substitution.

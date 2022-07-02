@@ -29,7 +29,7 @@
     ))
   )
   (ind Bool () () (sort (univsucc (univzero))) 0 (
-    (true (inst (Bool) ()))
-    (false (inst (Bool) ()))
+    (true (inst (test test Bool) ()))
+    (false (inst (test test Bool) ()))
   ))
 )

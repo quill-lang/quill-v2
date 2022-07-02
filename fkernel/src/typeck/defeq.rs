@@ -17,6 +17,7 @@ use super::{
 };
 
 /// Returns true if the two expressions are definitionally equal.
+/// This may return an error if the expressions were not type correct.
 pub fn definitionally_equal<'a>(
     env: &'a Environment,
     meta_gen: &mut MetavariableGenerator,
@@ -35,7 +36,7 @@ pub fn definitionally_equal<'a>(
                 "error was raised trying to check whether this expression was definitionally equal to...",
             ).with_priority(-100),
         ).with_label(
-            Label::new(env.source, left.provenance.span(), LabelType::Note).with_message(
+            Label::new(env.source, right.provenance.span(), LabelType::Note).with_message(
                 "...this other expression",
             ).with_priority(-101),
         ))),

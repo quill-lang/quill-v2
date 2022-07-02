@@ -14,7 +14,7 @@ pub struct Environment<'a> {
 
 /// A definition that has been verified by the type checker.
 /// No data inside a certified definition can be changed; this preserves the certification status.
-#[derive(PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CertifiedDefinition {
     def: Definition,
     /// The type of the type of the definition, stored as a sort.
@@ -54,7 +54,7 @@ impl CertifiedDefinition {
 /// that one first, as it may reduce into an invocation of the other function. This essentially
 /// allows us to unfold complicated expressions into easier ones, rather than having to unfold
 /// all expressions into normal form, which would be very computationally intensive.
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum ReducibilityHints {
     Regular {
         height: DefinitionHeight,

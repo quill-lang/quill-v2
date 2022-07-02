@@ -1,7 +1,7 @@
 use fcommon::Dr;
 use fnodes::{
     basic_nodes::{Name, QualifiedName},
-    expr::{Expr, ExprContents, Inst, MetavariableGenerator, Sort},
+    expr::{Expr, ExprContents, Inst, LocalConstant, MetavariableGenerator, Sort},
     inductive::Inductive,
     universe::{Universe, UniverseContents, UniverseVariable},
 };
@@ -15,7 +15,11 @@ use crate::{
 };
 
 /// Verifies that an inductive type is valid and can be added to the environment.
-pub fn check_inductive_type(env: &Environment, ind: &Inductive) -> Dr<PartialInductiveInformation> {
+pub fn check_inductive_type(
+    env: &Environment,
+    meta_gen: &mut MetavariableGenerator,
+    ind: &Inductive,
+) -> Dr<PartialInductiveInformation> {
     check_no_local_or_metavariable(env, &ind.contents.ty).bind(|()| {
         let inst = Inst {
             name: QualifiedName {
@@ -45,12 +49,8 @@ pub fn check_inductive_type(env: &Environment, ind: &Inductive) -> Dr<PartialInd
                 .collect(),
         };
 
-        // Since we have no metavariables in the inductive's type,
-        // we can initialise the metavariable generator with any value.
-        let mut meta_gen = MetavariableGenerator::new(None);
-
         // Ensure that `ind.contents.ty` is type correct.
-        infer_type(env, &mut meta_gen, &ind.contents.ty, true).bind(|_| {
+        infer_type(env, meta_gen, &ind.contents.ty, true).bind(|_| {
             let mut ty = ind.contents.ty.clone();
             to_weak_head_normal_form(env, &mut ty);
 
@@ -61,12 +61,12 @@ pub fn check_inductive_type(env: &Environment, ind: &Inductive) -> Dr<PartialInd
             let mut index_params = Vec::new();
             loop {
                 if let ExprContents::Pi(pi) = ty.contents {
-                    let local = pi.generate_local(&mut meta_gen);
+                    let local = pi.generate_local(meta_gen);
                     if (global_params.len() as u32) < ind.contents.global_params {
                         // This parameter is a global parameter.
-                        global_params.push(*pi.parameter_ty);
+                        global_params.push(local.clone());
                     } else {
-                        index_params.push(*pi.parameter_ty);
+                        index_params.push(local.clone());
                     }
                     ty = *pi.result;
                     instantiate(
@@ -85,28 +85,33 @@ pub fn check_inductive_type(env: &Environment, ind: &Inductive) -> Dr<PartialInd
             }
 
             // The result of applying all the `Pi` abstractions should be a sort.
-            as_sort(env, ty).map(|sort| PartialInductiveInformation {
-                global_params,
-                index_params,
-                sort,
-                never_zero: is_nonzero(&sort.0),
-                inst,
+
+            as_sort(env, ty).map(|sort| {
+                let never_zero = is_nonzero(&sort.0);
+                PartialInductiveInformation {
+                    global_params,
+                    index_params,
+                    sort,
+                    never_zero,
+                    inst,
+                }
             })
         })
     })
 }
 
 /// Some information used when creating things to do with inductives, such as recursors.
-#[derive(Debug)]
 pub struct PartialInductiveInformation {
     /// Contains exactly `Inductive::contents.global_params` parameters,
-    /// which are the global parameters for this inductive type.
-    global_params: Vec<Expr>,
-    index_params: Vec<Expr>,
+    /// which are local constants representing the global parameters for this inductive type.
+    pub global_params: Vec<LocalConstant>,
+    /// Contains the remaining parameters which are not global parameters.
+    /// These can be thought of as indexing particular types with the same set of global parameters.
+    pub index_params: Vec<LocalConstant>,
     /// The type yielded after all parameters have been applied to the inductive type.
-    sort: Sort,
+    pub sort: Sort,
     /// True if the field `sort` is never the zero universe.
-    never_zero: bool,
+    pub never_zero: bool,
     /// An `Inst` node which will instantiate the type of the inductive, with the given universe parameters.
-    inst: Inst,
+    pub inst: Inst,
 }

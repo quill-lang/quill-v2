@@ -64,18 +64,19 @@ fn certify(db: &dyn TypeChecker, source: Source) -> Dr<Arc<CertifiedModule>> {
             match item {
                 Item::Definition(def) => {
                     let (result, more_reports) = typeck::check(&env, &def).destructure();
+                    reports.extend(more_reports);
                     if let Some(result) = result {
                         definitions.push(result);
                     }
-                    reports.extend(more_reports);
                 }
                 Item::Inductive(ind) => {
                     let (result, more_reports) =
-                        inductive::check::check_inductive_type(&env, ind).destructure();
+                        inductive::check_inductive_type(env, ind).destructure();
+                    reports.extend(more_reports);
                     if let Some(result) = result {
                         tracing::info!("{:#?}", result);
+                        definitions.push(result.type_declaration);
                     }
-                    reports.extend(more_reports);
                 }
             }
         }
