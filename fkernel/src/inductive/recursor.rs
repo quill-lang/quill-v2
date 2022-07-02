@@ -34,14 +34,24 @@ pub fn recursor_info(
             minor_premise_info(env, meta_gen, ind, intro_rule, info, type_former.clone())
         }))
         .map(|minor_premises| {
+            let mut is_k_target = is_zero(&info.sort.0) && ind.contents.intro_rules.len() == 1;
+            let minor_premises = minor_premises
+                .into_iter()
+                .map(|(premise, is_k_target_inner)| {
+                    is_k_target &= is_k_target_inner;
+                    premise
+                })
+                .collect::<Vec<_>>();
             let mut print = ExprPrinter::new(env.db);
             for premise in &minor_premises {
                 tracing::info!("minor premise: {}", print.print(&premise.metavariable.ty));
             }
+            tracing::info!("is K target: {}", is_k_target);
             RecursorInfo {
                 major_premise,
                 type_former,
                 minor_premises,
+                is_k_target,
             }
         })
     })
@@ -52,6 +62,7 @@ pub struct RecursorInfo {
     pub major_premise: LocalConstant,
     pub type_former: LocalConstant,
     pub minor_premises: Vec<LocalConstant>,
+    pub is_k_target: bool,
 }
 
 /// Returns the major premise `n` and the type former `C`, stored as local constants.
@@ -123,6 +134,7 @@ fn partial_recursor_info(
 }
 
 /// Creates the minor premise associated to a given introduction rule.
+/// Also returns `false` if this introduction rule forbids a K-style eliminator.
 pub fn minor_premise_info(
     env: &Environment,
     meta_gen: &mut MetavariableGenerator,
@@ -130,7 +142,7 @@ pub fn minor_premise_info(
     intro_rule: &IntroRule,
     info: &PartialInductiveInformation,
     type_former: LocalConstant,
-) -> Dr<LocalConstant> {
+) -> Dr<(LocalConstant, bool)> {
     split_intro_rule_type(env, meta_gen, ind, info, intro_rule.ty.clone()).bind(|split_result| {
         get_indices(env, meta_gen, &split_result.result_ty, info).bind(|indices| {
             let mut type_former_application = indices.iter().fold(
@@ -280,14 +292,17 @@ pub fn minor_premise_info(
                             result: Box::new(result),
                         }))
                     });
-                LocalConstant {
-                    name: Name {
-                        provenance: Provenance::Synthetic,
-                        contents: str_gen.generate(),
+                (
+                    LocalConstant {
+                        name: Name {
+                            provenance: Provenance::Synthetic,
+                            contents: str_gen.generate(),
+                        },
+                        metavariable: meta_gen.gen(minor_premise_type),
+                        binder_annotation: BinderAnnotation::Explicit,
                     },
-                    metavariable: meta_gen.gen(minor_premise_type),
-                    binder_annotation: BinderAnnotation::Explicit,
-                }
+                    split_result.is_k_target,
+                )
             })
         })
     })
