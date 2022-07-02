@@ -38,7 +38,7 @@ fn from_universe_with_offset(
 
 /// Returns true if this universe is definitely not the zero universe, `Prop`.
 /// It is possible for [`is_zero`] and [`is_nonzero`] to both be false.
-fn is_nonzero(u: &Universe) -> bool {
+pub fn is_nonzero(u: &Universe) -> bool {
     match &u.contents {
         UniverseContents::UniverseZero => false,
         UniverseContents::UniverseVariable(_) => false,
@@ -52,7 +52,7 @@ fn is_nonzero(u: &Universe) -> bool {
 
 /// Returns true if this universe is definitely zero.
 /// It is possible for [`is_zero`] and [`is_nonzero`] to both be false.
-fn is_zero(u: &Universe) -> bool {
+pub fn is_zero(u: &Universe) -> bool {
     matches!(&u.contents, UniverseContents::UniverseZero)
 }
 

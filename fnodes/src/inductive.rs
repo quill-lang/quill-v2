@@ -17,6 +17,12 @@ pub struct InductiveContents {
     /// If there are no parameters, this will be something like `Sort u`.
     /// If there are type parameters, say `(a: T)`, it will be a function from this `T` to a sort.
     pub ty: Expr,
+    /// Given that `ty` is an n-ary (dependent) function to some [`Sort`], how many of the first parameters
+    /// to this function are "global"? All introduction rules must have the same sequence of global parameters,
+    /// but may have different sequences of index parameters (the name for non-global parameters).
+    /// This number must be at most `n`, if `ty` is an n-ary function. This is guaranteed if this [`Inductive`]
+    /// has been certified by the kernel.
+    pub global_params: u32,
     /// A list of all of the type constructors associated with this inductive data type.
     pub constructors: Vec<TypeConstructor>,
 }
@@ -33,7 +39,7 @@ pub struct TypeConstructor {
 #[derive(PartialEq, Eq, Hash)]
 pub struct Inductive {
     /// The origin of the expression.
-    provenance: Provenance,
+    pub provenance: Provenance,
     /// The actual contents of this expression.
     pub contents: InductiveContents,
 }
@@ -77,7 +83,8 @@ impl ListSexpr for Inductive {
         span: Span,
         args: Vec<SexprNode>,
     ) -> Result<Self, ParseError> {
-        let [name, infos, universe_params, ty, constructors] = force_arity(span.clone(), args)?;
+        let [name, infos, universe_params, ty, global_params, constructors] =
+            force_arity(span.clone(), args)?;
 
         let inductive = Inductive {
             provenance: Provenance::Sexpr {
@@ -88,6 +95,7 @@ impl ListSexpr for Inductive {
                 name: Name::parse(db, source, name)?,
                 universe_params: ListSexprWrapper::parse(db, source, universe_params)?,
                 ty: ListSexprWrapper::parse(db, source, ty)?,
+                global_params: AtomicSexprWrapper::parse(db, source, global_params)?,
                 constructors: ListSexprWrapper::parse(db, source, constructors)?,
             },
         };

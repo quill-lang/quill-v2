@@ -17,7 +17,7 @@ use super::{
 };
 
 /// Returns true if the two expressions are definitionally equal.
-pub(in crate::typeck) fn definitionally_equal<'a>(
+pub fn definitionally_equal<'a>(
     env: &'a Environment,
     meta_gen: &mut MetavariableGenerator,
     left: &Expr,
@@ -166,17 +166,12 @@ fn lambda_definitionally_equal<'a>(
     // Now, substitute the parameter types in the body, and check if they are the same.
     let mut left_body = *left.result.clone();
     let mut right_body = *right.result.clone();
-    let new_local = LocalConstant {
-        name: left.parameter_name.clone(),
-        metavariable: meta_gen.gen(*left.parameter_ty.clone()),
-        binder_annotation: left.binder_annotation,
-    };
     instantiate(
         &mut left_body,
         &Expr::new_in_sexpr(
             env.source,
             left.parameter_name.provenance.span(),
-            ExprContents::LocalConstant(new_local.clone()),
+            ExprContents::LocalConstant(left.generate_local(meta_gen)),
         ),
     );
     instantiate(
@@ -184,7 +179,7 @@ fn lambda_definitionally_equal<'a>(
         &Expr::new_in_sexpr(
             env.source,
             left.parameter_name.provenance.span(),
-            ExprContents::LocalConstant(new_local.clone()),
+            ExprContents::LocalConstant(left.generate_local(meta_gen)),
         ),
     );
     definitionally_equal_core(env, meta_gen, &left_body, &right_body)
@@ -204,17 +199,12 @@ fn pi_definitionally_equal<'a>(
     // Now, substitute the parameter types in the result types, and check if they are the same.
     let mut left_body = *left.result.clone();
     let mut right_body = *right.result.clone();
-    let new_local = LocalConstant {
-        name: left.parameter_name.clone(),
-        metavariable: meta_gen.gen(*left.parameter_ty.clone()),
-        binder_annotation: left.binder_annotation,
-    };
     instantiate(
         &mut left_body,
         &Expr::new_in_sexpr(
             env.source,
             left.parameter_name.provenance.span(),
-            ExprContents::LocalConstant(new_local.clone()),
+            ExprContents::LocalConstant(left.generate_local(meta_gen)),
         ),
     );
     instantiate(
@@ -222,7 +212,7 @@ fn pi_definitionally_equal<'a>(
         &Expr::new_in_sexpr(
             env.source,
             left.parameter_name.provenance.span(),
-            ExprContents::LocalConstant(new_local.clone()),
+            ExprContents::LocalConstant(left.generate_local(meta_gen)),
         ),
     );
     definitionally_equal_core(env, meta_gen, &left_body, &right_body)

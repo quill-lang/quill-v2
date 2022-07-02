@@ -7,8 +7,13 @@ use crate::*;
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct ModuleContents {
-    pub defs: Vec<Definition>,
-    pub inductives: Vec<Inductive>,
+    pub items: Vec<Item>,
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub enum Item {
+    Definition(Definition),
+    Inductive(Inductive),
 }
 
 #[derive(PartialEq, Eq, Hash)]
@@ -46,10 +51,7 @@ impl ListSexpr for Module {
                 source,
                 span: span.clone(),
             },
-            contents: ModuleContents {
-                defs: Vec::new(),
-                inductives: Vec::new(),
-            },
+            contents: ModuleContents { items: Vec::new() },
         };
         match args.remove(0).contents {
             SexprNodeContents::Atom(_) => {
@@ -70,13 +72,13 @@ impl ListSexpr for Module {
             if matches!(keyword.as_deref(), Ok("ind")) {
                 module
                     .contents
-                    .inductives
-                    .push(ListSexprWrapper::parse(db, source, arg)?)
+                    .items
+                    .push(Item::Inductive(ListSexprWrapper::parse(db, source, arg)?))
             } else {
                 module
                     .contents
-                    .defs
-                    .push(ListSexprWrapper::parse(db, source, arg)?)
+                    .items
+                    .push(Item::Definition(ListSexprWrapper::parse(db, source, arg)?))
             }
         }
 
@@ -94,9 +96,12 @@ impl ListSexpr for Module {
         // })
         // .chain(
         self.contents
-            .defs
+            .items
             .iter()
-            .map(|def| ListSexprWrapper::serialise_into_node(db, def))
+            .map(|item| match item {
+                Item::Definition(def) => ListSexprWrapper::serialise_into_node(db, def),
+                Item::Inductive(ind) => ListSexprWrapper::serialise_into_node(db, ind),
+            })
             // )
             .collect()
     }
@@ -104,16 +109,30 @@ impl ListSexpr for Module {
 
 impl Module {
     pub fn definition(&self, name: Str) -> Option<&Definition> {
-        self.contents
-            .defs
-            .iter()
-            .find(|def| def.contents.name.contents == name)
+        self.contents.items.iter().find_map(|item| {
+            if let Item::Definition(def) = item {
+                if def.contents.name.contents == name {
+                    Some(def)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
     }
 
     pub fn definition_mut(&mut self, name: Str) -> Option<&mut Definition> {
-        self.contents
-            .defs
-            .iter_mut()
-            .find(|def| def.contents.name.contents == name)
+        self.contents.items.iter_mut().find_map(|item| {
+            if let Item::Definition(def) = item {
+                if def.contents.name.contents == name {
+                    Some(def)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
     }
 }

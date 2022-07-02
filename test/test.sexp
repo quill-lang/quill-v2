@@ -28,7 +28,7 @@
           (bound 0))
     ))
   )
-  (ind Bool () () (sort (univsucc (univzero))) (
+  (ind Bool () () (sort (univsucc (univzero))) 0 (
     (true (inst (Bool) ()))
     (false (inst (Bool) ()))
   ))

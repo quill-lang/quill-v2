@@ -259,6 +259,17 @@ pub struct Lambda {
     pub result: Box<Expr>,
 }
 
+impl Lambda {
+    /// Generates a local constant that represents the argument to this lambda abstraction.
+    pub fn generate_local(&self, meta_gen: &mut MetavariableGenerator) -> LocalConstant {
+        LocalConstant {
+            name: self.parameter_name.clone(),
+            metavariable: meta_gen.gen(*self.parameter_ty.clone()),
+            binder_annotation: self.binder_annotation,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
 #[list_sexpr_keyword = "pi"]
 pub struct Pi {
@@ -276,6 +287,17 @@ pub struct Pi {
     #[list]
     #[sub_expr]
     pub result: Box<Expr>,
+}
+
+impl Pi {
+    /// Generates a local constant that represents the argument to this dependent function type.
+    pub fn generate_local(&self, meta_gen: &mut MetavariableGenerator) -> LocalConstant {
+        LocalConstant {
+            name: self.parameter_name.clone(),
+            metavariable: meta_gen.gen(*self.parameter_ty.clone()),
+            binder_annotation: self.binder_annotation,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]

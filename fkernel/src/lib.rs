@@ -7,7 +7,7 @@
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use fcommon::{Dr, PathData, Source};
-use fnodes::{basic_nodes::Provenance, inductive::Inductive};
+use fnodes::{basic_nodes::Provenance, inductive::Inductive, module::Item};
 use typeck::{CertifiedDefinition, Environment};
 
 // Expose this either when we're running `cargo doc` or executing tests.
@@ -15,6 +15,7 @@ use typeck::{CertifiedDefinition, Environment};
 mod test_db;
 
 pub mod expr;
+pub mod inductive;
 pub mod typeck;
 pub mod universe;
 
@@ -44,7 +45,7 @@ fn certify(db: &dyn TypeChecker, source: Source) -> Dr<Arc<CertifiedModule>> {
     db.module_from_feather_source(source).bind(|module| {
         let mut definitions = Vec::<CertifiedDefinition>::new();
         let mut reports = Vec::new();
-        for def in &module.contents.defs {
+        for item in &module.contents.items {
             let env = Environment {
                 source,
                 db: db.up(),
@@ -60,11 +61,23 @@ fn certify(db: &dyn TypeChecker, source: Source) -> Dr<Arc<CertifiedModule>> {
                 },
                 inductives: HashMap::new(),
             };
-            let (result, more_reports) = typeck::check(&env, &def).destructure();
-            if let Some(result) = result {
-                definitions.push(result);
+            match item {
+                Item::Definition(def) => {
+                    let (result, more_reports) = typeck::check(&env, &def).destructure();
+                    if let Some(result) = result {
+                        definitions.push(result);
+                    }
+                    reports.extend(more_reports);
+                }
+                Item::Inductive(ind) => {
+                    let (result, more_reports) =
+                        inductive::check::check_inductive_type(&env, ind).destructure();
+                    if let Some(result) = result {
+                        tracing::info!("{:#?}", result);
+                    }
+                    reports.extend(more_reports);
+                }
             }
-            reports.extend(more_reports);
         }
         Dr::ok_with_many(
             Arc::new(CertifiedModule {

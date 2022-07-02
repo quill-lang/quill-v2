@@ -71,19 +71,12 @@ impl<'a> ExprPrinter<'a> {
                     BinderAnnotation::ImplicitWeak => format!("{{{{{}}}}}", contents),
                     BinderAnnotation::ImplicitTypeclass => format!("[{}]", contents),
                 };
-                // Create a new local variable to instantiate the result.
-                let local = LocalConstant {
-                    name: lambda.parameter_name.clone(),
-                    metavariable: Metavariable {
-                        index: 0,
-                        ty: lambda.parameter_ty.clone(),
-                    },
-                    binder_annotation: lambda.binder_annotation,
-                };
                 let mut body = *lambda.result.clone();
                 instantiate(
                     &mut body,
-                    &Expr::new_synthetic(ExprContents::LocalConstant(local)),
+                    &Expr::new_synthetic(ExprContents::LocalConstant(
+                        lambda.generate_local(&mut MetavariableGenerator::new(None)),
+                    )),
                 );
                 format!("λ {}, {}", binder, self.print(&body))
             }
@@ -100,19 +93,12 @@ impl<'a> ExprPrinter<'a> {
                     BinderAnnotation::ImplicitWeak => format!("{{{{{}}}}}", contents),
                     BinderAnnotation::ImplicitTypeclass => format!("[{}]", contents),
                 };
-                // Create a new local variable to instantiate the result.
-                let local = LocalConstant {
-                    name: pi.parameter_name.clone(),
-                    metavariable: Metavariable {
-                        index: 0,
-                        ty: pi.parameter_ty.clone(),
-                    },
-                    binder_annotation: pi.binder_annotation,
-                };
                 let mut body = *pi.result.clone();
                 instantiate(
                     &mut body,
-                    &Expr::new_synthetic(ExprContents::LocalConstant(local)),
+                    &Expr::new_synthetic(ExprContents::LocalConstant(
+                        pi.generate_local(&mut MetavariableGenerator::new(None)),
+                    )),
                 );
                 format!("Π {}, {}", binder, self.print(&body))
             }

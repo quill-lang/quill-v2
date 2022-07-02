@@ -262,7 +262,7 @@ impl ListSexpr for Vec<Name> {
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct QualifiedName {
     /// The origin of the expression.
-    provenance: Provenance,
+    pub provenance: Provenance,
     /// The segments of the name, e.g. `["foo", "bar"]` in `foo::bar`.
     pub segments: Vec<Name>,
 }

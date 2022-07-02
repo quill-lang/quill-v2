@@ -171,12 +171,8 @@ fn infer_type_lambda<'a>(
         )?;
     }
     // Infer the return type of the lambda by first instantiating the parameter then inferring the resulting type.
+    let new_local = lambda.generate_local(meta_gen);
     let mut body = *lambda.result.clone();
-    let new_local = LocalConstant {
-        name: lambda.parameter_name.clone(),
-        metavariable: meta_gen.gen(*lambda.parameter_ty.clone()),
-        binder_annotation: lambda.binder_annotation,
-    };
     instantiate(
         &mut body,
         &Expr::new_in_sexpr(
@@ -202,17 +198,12 @@ fn infer_type_pi<'a>(
     let parameter_type = infer_type_core(env, meta_gen, &pi.parameter_ty, check)?;
     let domain_type = as_sort_core(env, span.clone(), parameter_type)?;
     let mut body = *pi.result.clone();
-    let new_local = LocalConstant {
-        name: pi.parameter_name.clone(),
-        metavariable: meta_gen.gen(*pi.parameter_ty.clone()),
-        binder_annotation: pi.binder_annotation,
-    };
     instantiate(
         &mut body,
         &Expr::new_in_sexpr(
             env.source,
             pi.parameter_name.provenance.span(),
-            ExprContents::LocalConstant(new_local.clone()),
+            ExprContents::LocalConstant(pi.generate_local(meta_gen)),
         ),
     );
     let return_type = as_sort_core(env, span, infer_type_core(env, meta_gen, &body, check)?)?;

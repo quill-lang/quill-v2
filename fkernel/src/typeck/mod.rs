@@ -77,7 +77,7 @@ pub fn check(env: &Environment, def: &Definition) -> Dr<CertifiedDefinition> {
     })
 }
 
-fn check_no_local_or_metavariable(env: &Environment, e: &Expr) -> Dr<()> {
+pub fn check_no_local_or_metavariable(env: &Environment, e: &Expr) -> Dr<()> {
     if let Some(inner) = first_local_or_metavariable(&e) {
         return Dr::fail(
             Report::new(
