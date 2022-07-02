@@ -1,3 +1,3 @@
 [workspace]
-members = ["feather", "fcommon", "fnodes", "fnodes_macros"]
+members = ["feather", "fkernel_tests"]
 default-members = ["feather"]

@@ -198,9 +198,10 @@ impl Universe {
     pub fn eq_ignoring_provenance(&self, other: &Universe) -> bool {
         match (&self.contents, &other.contents) {
             (UniverseContents::UniverseZero, UniverseContents::UniverseZero) => true,
-            (UniverseContents::UniverseVariable(_), UniverseContents::UniverseVariable(_)) => {
-                todo!()
-            }
+            (
+                UniverseContents::UniverseVariable(arg1),
+                UniverseContents::UniverseVariable(arg2),
+            ) => arg1.0 == arg2.0,
             (UniverseContents::UniverseSucc(arg1), UniverseContents::UniverseSucc(arg2)) => {
                 arg1.0.eq_ignoring_provenance(&arg2.0)
             }

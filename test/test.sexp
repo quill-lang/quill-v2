@@ -1,10 +1,10 @@
 (module
   ()
   (def id (u)
-    (pi T imp (sort (univsucc (univzero)))
+    (pi T imp (sort (univsucc (univvar u)))
       (pi x ex (bound 0)
         (bound 1)))
-    (lam T imp (sort (univsucc (univzero)))
+    (lam T imp (sort (univsucc (univvar u)))
       (lam x ex (bound 0)
         (bound 0)))
   )

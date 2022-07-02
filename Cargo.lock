@@ -146,6 +146,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fkernel_tests"
+version = "0.0.0"
+dependencies = [
+ "fcommon",
+ "fkernel",
+ "fnodes",
+ "salsa",
+]
+
+[[package]]
 name = "fnodes"
 version = "0.0.0"
 dependencies = [

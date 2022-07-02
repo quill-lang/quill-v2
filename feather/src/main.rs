@@ -34,8 +34,11 @@ fn main() {
     };
 
     let result = db.certify(source);
+    // Use a locked version of `stderr`, so that reports are not interspersed
+    // with other things such as tracing messages from other threads.
+    let mut stderr = std::io::stderr().lock();
     for report in result.reports() {
-        report.render(&db);
+        report.render(&db, &mut stderr);
     }
 
     if let Some(result) = result.value() {

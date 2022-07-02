@@ -305,20 +305,20 @@ mod tests {
         let (db, source) = database_with_file(vec!["test", "sexpr"], SourceType::Feather, contents);
         let module: Arc<Module> = db.module_from_feather_source(source).unwrap();
         for test in ["univ", "univ2"] {
-            let expr = module
+            let mut expr = module
                 .definition(db.intern_string_data(test.to_string()))
                 .unwrap()
                 .contents
-                .expr
+                .ty
                 .clone();
-            let result = module
+            let mut result = module
                 .definition(db.intern_string_data(format!("{}_result", test)))
                 .unwrap()
                 .contents
-                .expr
+                .ty
                 .clone();
-            if let ExprContents::Sort(Sort(sort)) = &mut expr.unwrap().contents {
-                if let ExprContents::Sort(Sort(result)) = &mut result.unwrap().contents {
+            if let ExprContents::Sort(Sort(sort)) = &mut expr.contents {
+                if let ExprContents::Sort(Sort(result)) = &mut result.contents {
                     normalise_universe(sort);
                     if !sort.eq_ignoring_provenance(result) {
                         panic!("mismatch:\n{:?}\n{:?}", sort, result);
