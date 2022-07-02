@@ -13,5 +13,6 @@ notify = "4.0.17"
 salsa = "0.16.1"
 tracing = "0.1.31"
 tracing-subscriber = { version = "0.3.9", features = ["time", "ansi"] }
+upcast = "0.1.0"
 
 [features]

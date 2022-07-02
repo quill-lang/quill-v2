@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 
 use fcommon::{Intern, Path, Source};
 use fnodes::{definition::Definition, expr::Sort, inductive::Inductive, SexprParser};
@@ -39,6 +39,10 @@ impl CertifiedDefinition {
         &self.def
     }
 
+    pub fn sort(&self) -> &Sort {
+        &self.sort
+    }
+
     pub fn reducibility_hints(&self) -> &ReducibilityHints {
         &self.reducibility_hints
     }
@@ -50,7 +54,7 @@ impl CertifiedDefinition {
 /// that one first, as it may reduce into an invocation of the other function. This essentially
 /// allows us to unfold complicated expressions into easier ones, rather than having to unfold
 /// all expressions into normal form, which would be very computationally intensive.
-#[derive(PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub enum ReducibilityHints {
     Regular {
         height: DefinitionHeight,
@@ -58,6 +62,17 @@ pub enum ReducibilityHints {
     /// Opaque definitions are never unfolded.
     /// They do not have a definition height.
     Opaque,
+}
+
+impl Display for ReducibilityHints {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReducibilityHints::Regular { height } => {
+                write!(f, "regular definition with height {}", height)
+            }
+            ReducibilityHints::Opaque => write!(f, "opaque definition"),
+        }
+    }
 }
 
 /// If this number is higher, the definition is 'more complex'.

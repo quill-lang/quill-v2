@@ -7,18 +7,35 @@ use super::env::{DefinitionHeight, Environment, ReducibilityHints};
 
 /// Returns a number if the head of this expression is a definition that we can unfold.
 /// Intuitively, the number returned is higher for more complicated definitions.
-pub fn head_definition_height<'a>(env: &'a Environment, e: &Expr) -> Option<DefinitionHeight> {
+pub fn head_definition_height(env: &Environment, e: &Expr) -> Option<DefinitionHeight> {
     match &e.contents {
         ExprContents::Inst(inst) => env
             .definitions
             .get(&inst.name.to_path(env.db.up()))
-            .and_then(|def| match def.reducibility_hints() {
-                ReducibilityHints::Regular { height } => Some(*height),
-                ReducibilityHints::Opaque => None,
+            .and_then(|def| {
+                if let ReducibilityHints::Regular { height } = def.reducibility_hints() {
+                    Some(*height)
+                } else {
+                    None
+                }
             }),
         ExprContents::Apply(ap) => head_definition_height(env, &*ap.function),
         _ => None,
     }
+}
+
+/// Returns the height of the definition that this [`Inst`] refers to.
+/// If this instance could not be resolved, was not a definition, or was not reducible, return [`None`].
+pub fn definition_height(env: &Environment, inst: &Inst) -> Option<DefinitionHeight> {
+    env.definitions
+        .get(&inst.name.to_path(env.db.up()))
+        .and_then(|def| {
+            if let ReducibilityHints::Regular { height } = def.reducibility_hints() {
+                Some(*height)
+            } else {
+                None
+            }
+        })
 }
 
 /// Returns the unfolded definition that this [`Inst`] refers to.

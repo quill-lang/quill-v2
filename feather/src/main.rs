@@ -1,11 +1,12 @@
 use std::{collections::HashSet, path::PathBuf, sync::Arc};
 
 use fcommon::{FileReader, Intern, InternExt, PathData, Source, SourceType};
-use fkernel::TypeChecker;
-use fnodes::{ListSexprWrapper, PrettyPrintSettings, SexprSerialiseExt};
+use fkernel::{expr::ExprPrinter, TypeChecker};
+use fnodes::{expr::{ExprContents, Expr}, ListSexprWrapper, PrettyPrintSettings, SexprSerialiseExt};
 use salsa::Durability;
 use tracing::info;
 use tracing_subscriber::{fmt::format::FmtSpan, FmtSubscriber};
+use upcast::Upcast;
 
 mod db;
 
@@ -42,6 +43,22 @@ fn main() {
     }
 
     if let Some(result) = result.value() {
+        for def in &result.defs {
+            let mut printer = ExprPrinter::new(db.up());
+            tracing::info!(
+                "certified definition {}\nsort: {}\ntype: {}\nvalue: {}\nreducibility hints: {}",
+                db.lookup_intern_string_data(def.def().contents.name.contents),
+                printer.print(&Expr::new_synthetic(ExprContents::Sort(def.sort().clone()))),
+                printer.print(&def.def().contents.ty),
+                def.def()
+                    .contents
+                    .expr
+                    .as_ref()
+                    .map(|e| printer.print(e))
+                    .unwrap_or_else(|| "no body".to_string()),
+                def.reducibility_hints()
+            )
+        }
 
         // let node = ListSexprWrapper::serialise_into_node(&db, &**result);
         // let pretty_print = PrettyPrintSettings {

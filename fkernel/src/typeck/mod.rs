@@ -18,7 +18,10 @@ pub use infer::*;
 pub use unfold::*;
 pub use whnf::*;
 
-use crate::expr::{first_local_or_metavariable, ExprPrinter};
+use crate::{
+    expr::{first_local_or_metavariable, get_max_height, ExprPrinter},
+    universe::normalise_universe,
+};
 
 /// Type checks a definition.
 /// This function returns a [`CertifiedDefinition`], a definition that has been verified by the type checker.
@@ -29,7 +32,8 @@ pub fn check(env: &Environment, def: &Definition) -> Dr<CertifiedDefinition> {
         let mut meta_gen = MetavariableGenerator::new(None);
         // Check that the type of a definition is indeed a type.
         infer_type(env, &mut meta_gen, &def.contents.ty, true).bind(|sort| {
-            as_sort(env, sort).bind(|sort| {
+            as_sort(env, sort).bind(|mut sort| {
+                normalise_universe(&mut sort.0);
                 if let Some(expr) = &def.contents.expr {
                     let expr = expr.clone();
                     check_no_local_or_metavariable(env, &expr).bind(|()| {
@@ -42,7 +46,7 @@ pub fn check(env: &Environment, def: &Definition) -> Dr<CertifiedDefinition> {
                                         Dr::ok(CertifiedDefinition::new(
                                             def.clone(),
                                             sort,
-                                            ReducibilityHints::Opaque,
+                                            ReducibilityHints::Regular { height: get_max_height(env, &expr) + 1 },
                                         ))
                                     } else {
                                         let mut printer = ExprPrinter::new(env.db);

@@ -120,6 +120,7 @@ dependencies = [
  "salsa",
  "tracing",
  "tracing-subscriber",
+ "upcast",
 ]
 
 [[package]]

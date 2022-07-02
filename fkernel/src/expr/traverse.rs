@@ -1,12 +1,17 @@
 //! Utilities for traversing the expression tree for things like find-and-replace operations.
 
+use std::{borrow::BorrowMut, cell::Cell};
+
 use fnodes::{
     basic_nodes::{DeBruijnIndex, DeBruijnOffset, Name},
     expr::*,
     universe::{Universe, UniverseContents, UniverseVariable},
 };
 
-use crate::universe::instantiate_universe;
+use crate::{
+    typeck::{definition_height, DefinitionHeight, Environment},
+    universe::instantiate_universe,
+};
 
 enum ReplaceResult {
     /// The expression should not be replaced.
@@ -145,6 +150,20 @@ pub fn first_local_or_metavariable(e: &Expr) -> Option<&Expr> {
             ExprContents::LocalConstant(_) | ExprContents::Metavariable(_)
         )
     })
+}
+
+/// Gets the maximum height of reducible definitions contained inside this expression.
+pub fn get_max_height(env: &Environment, e: &Expr) -> DefinitionHeight {
+    let mut height = Cell::new(0);
+    find_in_expr(e, |inner, _offset| {
+        if let ExprContents::Inst(inst) = &inner.contents {
+            if let Some(inner_height) = definition_height(env, inst) {
+                height.replace(std::cmp::max(height.get(), inner_height));
+            }
+        }
+        false
+    });
+    height.into_inner()
 }
 
 /// Instantiate the first bound variable with the given substitution.

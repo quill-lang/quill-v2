@@ -279,6 +279,10 @@ impl QualifiedName {
             self.segments.iter().map(|name| name.contents).collect(),
         ))
     }
+
+    pub fn display(&self, intern: &dyn Intern) -> String {
+        self.to_path(intern).display(intern)
+    }
 }
 
 impl ListSexpr for QualifiedName {

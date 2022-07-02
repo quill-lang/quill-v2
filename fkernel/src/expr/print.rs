@@ -71,7 +71,21 @@ impl<'a> ExprPrinter<'a> {
                     BinderAnnotation::ImplicitWeak => format!("{{{{{}}}}}", contents),
                     BinderAnnotation::ImplicitTypeclass => format!("[{}]", contents),
                 };
-                format!("λ {}, {}", binder, self.print(&*lambda.result))
+                // Create a new local variable to instantiate the result.
+                let local = LocalConstant {
+                    name: lambda.parameter_name.clone(),
+                    metavariable: Metavariable {
+                        index: 0,
+                        ty: lambda.parameter_ty.clone(),
+                    },
+                    binder_annotation: lambda.binder_annotation,
+                };
+                let mut body = *lambda.result.clone();
+                instantiate(
+                    &mut body,
+                    &Expr::new_synthetic(ExprContents::LocalConstant(local)),
+                );
+                format!("λ {}, {}", binder, self.print(&body))
             }
             ExprContents::Pi(pi) => {
                 let contents = format!(
@@ -118,10 +132,10 @@ impl<'a> ExprPrinter<'a> {
                         _ => format!("Sort {}", n),
                     }
                 } else {
-                    format!("Sort {}", self.print_universe(universe))
+                    format!("Sort ({})", self.print_universe(universe))
                 }
             }
-            ExprContents::Inst(_) => todo!(),
+            ExprContents::Inst(inst) => inst.name.display(self.db.up()),
             ExprContents::Let(_) => todo!(),
             ExprContents::Metavariable(_) => todo!(),
             ExprContents::LocalConstant(local) => {
