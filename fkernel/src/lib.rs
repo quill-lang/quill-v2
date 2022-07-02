@@ -6,7 +6,7 @@
 
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
-use fcommon::{Dr, Source};
+use fcommon::{Dr, PathData, Source};
 use fnodes::{basic_nodes::Provenance, inductive::Inductive};
 use typeck::{CertifiedDefinition, Environment};
 
@@ -40,14 +40,24 @@ impl Debug for CertifiedModule {
 
 #[tracing::instrument(level = "trace")]
 fn certify(db: &dyn TypeChecker, source: Source) -> Dr<Arc<CertifiedModule>> {
+    let source_path = db.lookup_intern_path_data(source.path);
     db.module_from_feather_source(source).bind(|module| {
-        let mut definitions = Vec::new();
+        let mut definitions = Vec::<CertifiedDefinition>::new();
         let mut reports = Vec::new();
         for def in &module.contents.defs {
             let env = Environment {
                 source,
                 db: db.up(),
-                definitions: HashMap::new(),
+                definitions: {
+                    let mut defs = HashMap::new();
+                    for def in &definitions {
+                        let mut new_path_data = source_path.clone();
+                        new_path_data.0.push(def.def().contents.name.contents);
+                        let path = db.intern_path_data(new_path_data);
+                        defs.insert(path, def);
+                    }
+                    defs
+                },
                 inductives: HashMap::new(),
             };
             let (result, more_reports) = typeck::check(&env, &def).destructure();

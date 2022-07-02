@@ -47,7 +47,7 @@ fn run_test(file: &str) {
     let source = Source {
         path: db.intern_path_data(PathData(
             file.split("/")
-                .map(|segment| db.intern_string_data(segment.to_string()))
+                .map(|segment| db.intern_string_data(segment.to_string().replace(".sexp", "")))
                 .collect(),
         )),
         ty: SourceType::Feather,

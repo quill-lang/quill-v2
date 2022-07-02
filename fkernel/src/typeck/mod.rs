@@ -3,7 +3,7 @@
 use fcommon::{Dr, Label, LabelType, Report, ReportKind};
 use fnodes::{
     definition::Definition,
-    expr::{Expr, ExprContents, ExprPrinter, MetavariableGenerator},
+    expr::{Expr, ExprContents, MetavariableGenerator},
 };
 
 mod defeq;
@@ -18,7 +18,7 @@ pub use infer::*;
 pub use unfold::*;
 pub use whnf::*;
 
-use crate::expr::first_local_or_metavariable;
+use crate::expr::{first_local_or_metavariable, ExprPrinter};
 
 /// Type checks a definition.
 /// This function returns a [`CertifiedDefinition`], a definition that has been verified by the type checker.

@@ -5,6 +5,7 @@ use fnodes::{basic_nodes::Provenance, expr::*, universe::*};
 
 use crate::expr::{
     abstract_pi, closed, has_free_variables, instantiate, instantiate_universe_parameters,
+    ExprPrinter,
 };
 
 use super::{defeq::definitionally_equal_core, env::Environment, whnf::to_weak_head_normal_form};
@@ -243,14 +244,14 @@ fn infer_type_apply<'a>(
     if check {
         if !definitionally_equal_core(env, meta_gen, &argument_type, &*function_type.parameter_ty)?
         {
-            let parameter_ty = function_type.parameter_ty.clone();
+            let parameter_ty = function_type.clone();
             return Err(Box::new(move |report| {
                 let mut printer = ExprPrinter::new(env.db);
                 report
                     .with_label(Label::new(env.source, span, LabelType::Error))
                     .with_message(format!(
                         "function of type {} cannot be applied to value of type {}",
-                        printer.print(&*parameter_ty),
+                        printer.print(&Expr::new_synthetic(ExprContents::Pi(function_type))),
                         printer.print(&argument_type),
                     ))
             }));
