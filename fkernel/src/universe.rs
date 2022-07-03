@@ -274,15 +274,16 @@ pub fn universe_at_most(mut left: Universe, mut right: Universe) -> bool {
     normalise_universe(&mut left);
     normalise_universe(&mut right);
 
-    if left == right {
+    if left.eq_ignoring_provenance(&right) {
         true
     } else if is_zero(&left) {
         // The zero universe is never greater than any other universe.
         true
     } else if let UniverseContents::UniverseMax(max) = left.contents {
         universe_at_most(*max.left, right.clone()) && universe_at_most(*max.right, right)
-    } else if let UniverseContents::UniverseMax(max) = right.contents {
-        universe_at_most(left.clone(), *max.left) || universe_at_most(left, *max.right)
+    } else if let UniverseContents::UniverseMax(max) = &right.contents &&
+        (universe_at_most(left.clone(), *max.left.clone()) || universe_at_most(left.clone(), *max.right.clone())) {
+        true
     } else if let UniverseContents::UniverseImpredicativeMax(imax) = left.contents {
         universe_at_most(*imax.left, right.clone()) && universe_at_most(*imax.right, right)
     } else if let UniverseContents::UniverseImpredicativeMax(imax) = right.contents {

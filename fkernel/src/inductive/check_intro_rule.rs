@@ -18,7 +18,7 @@ use crate::{
         self, as_sort, check_no_local_or_metavariable, definitionally_equal, infer_type,
         to_weak_head_normal_form, CertifiedDefinition, Environment,
     },
-    universe::{is_nonzero, is_zero, universe_at_most},
+    universe::{is_nonzero, is_zero, normalise_universe, universe_at_most},
 };
 
 use super::check::PartialInductiveInformation;
@@ -67,7 +67,7 @@ fn check_intro_rule_core(
             // Unpack the intro rule's type as a sequence of `Pi` abstractions.
             let mut ty = intro_rule.ty.clone();
             let mut parameter_index = 0;
-            let found_recursive_argument = Cell::new(false);
+            let mut found_recursive_argument = false;
             let result = loop {
                 if let ExprContents::Pi(pi) = ty.contents {
                     if parameter_index < ind.contents.global_params {
@@ -96,9 +96,10 @@ fn check_intro_rule_core(
                             env,
                             meta_gen,
                             intro_rule,
+                            ind,
                             info,
                             pi,
-                            &found_recursive_argument,
+                            &mut found_recursive_argument,
                             parameter_index,
                         );
                         if let Some(new_ty) = new_ty.value() {
@@ -144,9 +145,10 @@ fn check_index_parameter(
     env: &Environment,
     meta_gen: &mut MetavariableGenerator,
     intro_rule: &IntroRule,
+    ind: &Inductive,
     info: &PartialInductiveInformation,
     pi: Pi,
-    found_recursive_argument: &Cell<bool>,
+    found_recursive_argument: &mut bool,
     parameter_index: u32,
 ) -> Dr<Expr> {
     let local = pi.generate_local(meta_gen);
@@ -156,8 +158,36 @@ fn check_index_parameter(
             // - its level is at most the level of the inductive data type being declared, or
             // - the inductive data type has sort 0.
             if !is_zero(&info.sort.0) {
-                if universe_at_most(sort.0.clone(), info.sort.0.clone()) {
-                    return Dr::fail(todo!());
+                if !universe_at_most(sort.0.clone(), info.sort.0.clone()) {
+                    let mut print = ExprPrinter::new(env.db);
+                    tracing::debug!("LEFT: {}", print.print_universe(&sort.0));
+                    tracing::debug!("RIGHT: {}", print.print_universe(&info.sort.0));
+                    let mut l = sort.0.clone();
+                    normalise_universe(&mut l);
+                    let mut r = info.sort.0.clone();
+                    normalise_universe(&mut r);
+                    tracing::debug!("NEW LEFT: {}", print.print_universe(&sort.0));
+                    tracing::debug!("NEW RIGHT: {}", print.print_universe(&info.sort.0));
+                    return Dr::fail(
+                        Report::new(
+                            ReportKind::Error,
+                            env.source,
+                            pi.result.provenance.span().start,
+                        )
+                        .with_message("this is an invalid argument for this intro rule")
+                        .with_label(Label::new(env.source, pi.result.provenance.span(), LabelType::Error)
+                            .with_message(format!(
+                                "this type had sort {}, which could exceed the inductive's sort {}",
+                                print.print(&Expr::new_synthetic(ExprContents::Sort(sort))),
+                                print.print(&Expr::new_synthetic(ExprContents::Sort(info.sort.clone()))),
+                            )))
+                        .with_label(Label::new(env.source, ind.contents.ty.provenance.span().clone(), LabelType::Note)
+                            .with_message(format!(
+                                "error was emitted because the resulting inductive has sort {}, which may be in a higher universe than {}",
+                                print.print(&Expr::new_synthetic(ExprContents::Sort(info.sort.clone()))),
+                                print.print(&Expr::new_synthetic(ExprContents::Sort(Sort(Universe::new_synthetic(UniverseContents::UniverseZero))))),
+                            ))),
+                    );
                 }
             }
 
@@ -173,23 +203,33 @@ fn check_index_parameter(
             .bind(|()| {
                 is_recursive_argument(env, meta_gen, *pi.parameter_ty, info).bind(|is_recursive| {
                     if is_recursive {
-                        found_recursive_argument.set(true);
+                        *found_recursive_argument = true;
                     }
-                    if found_recursive_argument.get() {
+                    if *found_recursive_argument {
+                        if has_free_variables(&pi.result) {
+                            // This is an invalid occurrence of a recursive argument
+                            // because the body of the functional type depends on it.
+                            let mut print = ExprPrinter::new(env.db);
+                            Dr::fail(
+                                Report::new(
+                                    ReportKind::Error,
+                                    env.source,
+                                    pi.result.provenance.span().start,
+                                )
+                                .with_message("this is an invalid occurrence of a recursive argument, because the body of the functional type depends on it")
+                                .with_label(Label::new(env.source, pi.result.provenance.span(), LabelType::Error)
+                                    .with_message(format!("this type was {}, which contains free variables", print.print(&pi.result)))),
+                            )
+                        } else {
+                            Dr::ok(*pi.result)
+                        }
+                    } else {
                         let mut result = *pi.result;
                         instantiate(
                             &mut result,
                             &Expr::new_synthetic(ExprContents::LocalConstant(local.clone())),
                         );
                         Dr::ok(result)
-                    } else {
-                        if has_free_variables(&pi.result) {
-                            // This is an invalid occurrence of a recursive argument
-                            // because the body of the functional type depends on it.
-                            Dr::fail(todo!())
-                        } else {
-                            Dr::ok(*pi.result)
-                        }
                     }
                 })
             })
