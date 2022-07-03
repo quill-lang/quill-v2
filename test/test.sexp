@@ -223,4 +223,17 @@
                 (bound 2))
       )))))
   ))
+  (ind PGame () (u)
+    (sort (univsucc (univsucc (univvar u))))
+    0 (
+    (PGame.mk
+      (pi A ex (sort (univsucc (univvar u)))
+        (pi B ex (sort (univsucc (univvar u)))
+          (pi left ex
+            (pi a ex (bound 1) (inst (test test PGame) ((univvar u))))
+            (pi right ex
+              (pi b ex (bound 1) (inst (test test PGame) ((univvar u))))
+              (inst (test test PGame) ((univvar u)))
+            )))))
+  ))
 )

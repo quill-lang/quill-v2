@@ -1,4 +1,4 @@
-use fcommon::Dr;
+use fcommon::{Dr, Label, LabelType, Report, ReportKind};
 use fnodes::{
     basic_nodes::{Name, QualifiedName},
     expr::{Expr, ExprContents, Inst, LocalConstant, MetavariableGenerator, Sort},
@@ -81,7 +81,17 @@ pub fn check_inductive_type(
 
             // By now, we should have supplied exactly the correct amount of `global_params`.
             if (global_params.len() as u32) != ind.contents.global_params {
-                return Dr::fail(todo!());
+                return Dr::fail(
+                    Report::new(
+                        ReportKind::Error,
+                        env.source,
+                        ind.contents.ty.provenance.span().start,
+                    )
+                    .with_message("the amount of declared global parameters is greater than the amount of parameters to the inductive type")
+                    .with_label(Label::new(env.source, ind.contents.ty.provenance.span(), LabelType::Error)
+                        .with_message(format!("the type requires {} global parameters but only {} were supplied",
+                            ind.contents.global_params, global_params.len()))),
+                );
             }
 
             // The result of applying all the `Pi` abstractions should be a sort.
