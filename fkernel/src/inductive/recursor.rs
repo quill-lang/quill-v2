@@ -43,8 +43,23 @@ pub fn recursor_info(
                 })
                 .collect::<Vec<_>>();
             let mut print = ExprPrinter::new(env.db);
+            tracing::info!(
+                "major premise {}: {}",
+                env.db
+                    .lookup_intern_string_data(major_premise.name.contents),
+                print.print(&major_premise.metavariable.ty)
+            );
+            tracing::info!(
+                "type former {}: {}",
+                env.db.lookup_intern_string_data(type_former.name.contents),
+                print.print(&type_former.metavariable.ty)
+            );
             for premise in &minor_premises {
-                tracing::info!("minor premise: {}", print.print(&premise.metavariable.ty));
+                tracing::info!(
+                    "minor premise {}: {}",
+                    env.db.lookup_intern_string_data(premise.name.contents),
+                    print.print(&premise.metavariable.ty)
+                );
             }
             tracing::info!("is K target: {}", is_k_target);
             RecursorInfo {
@@ -196,7 +211,13 @@ pub fn minor_premise_info(
             }
 
             // Create the set of inductive arguments from the set of recursive arguments.
-            let mut str_gen = StrGenerator::new(env.db.up(), "ih");
+            let mut str_gen = StrGenerator::new(
+                env.db.up(),
+                format!(
+                    "ih_{}",
+                    env.db.lookup_intern_string_data(intro_rule.name.contents)
+                ),
+            );
             let inductive_args =
                 Dr::sequence(split_result.recursive.iter().enumerate().map(|(i, arg)| {
                     let mut local_ty = *arg.metavariable.ty.clone();
@@ -256,14 +277,9 @@ pub fn minor_premise_info(
                                 type_former_application,
                                 |result, arg| {
                                     Expr::new_synthetic(ExprContents::Pi(Pi {
-                                        parameter_name: Name {
-                                            provenance: Provenance::Synthetic,
-                                            contents: str_gen.generate(),
-                                        },
-                                        binder_annotation: BinderAnnotation::Explicit,
-                                        parameter_ty: Box::new(Expr::new_synthetic(
-                                            ExprContents::LocalConstant(arg.clone()),
-                                        )),
+                                        parameter_name: arg.name,
+                                        binder_annotation: arg.binder_annotation,
+                                        parameter_ty: arg.metavariable.ty,
                                         result: Box::new(result),
                                     }))
                                 },
@@ -281,14 +297,9 @@ pub fn minor_premise_info(
                     .rev()
                     .fold(type_former_application, |result, arg| {
                         Expr::new_synthetic(ExprContents::Pi(Pi {
-                            parameter_name: Name {
-                                provenance: Provenance::Synthetic,
-                                contents: str_gen.generate(),
-                            },
-                            binder_annotation: BinderAnnotation::Explicit,
-                            parameter_ty: Box::new(Expr::new_synthetic(
-                                ExprContents::LocalConstant(arg.clone()),
-                            )),
+                            parameter_name: arg.name,
+                            binder_annotation: arg.binder_annotation,
+                            parameter_ty: arg.metavariable.ty,
                             result: Box::new(result),
                         }))
                     });
@@ -502,12 +513,12 @@ fn eliminate_only_at_prop(
             )))
         }) {
             // The argument did not occur in `ty_arguments`.
-            return Dr::ok(false);
+            return Dr::ok(true);
         }
     }
 
     // All arguments are either in `Prop` or occur in `ty_arguments`.
-    Dr::ok(true)
+    Dr::ok(false)
 }
 
 /// True if we need to perform dependent elimination in the recursor.

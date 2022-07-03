@@ -592,8 +592,12 @@ impl Expr {
             (ExprContents::Sort(left), ExprContents::Sort(right)) => {
                 left.0.eq_ignoring_provenance(&right.0)
             }
-            (ExprContents::Metavariable(left), ExprContents::Metavariable(right)) => todo!(),
-            (ExprContents::LocalConstant(left), ExprContents::LocalConstant(right)) => todo!(),
+            (ExprContents::Metavariable(left), ExprContents::Metavariable(right)) => {
+                left.index == right.index
+            }
+            (ExprContents::LocalConstant(left), ExprContents::LocalConstant(right)) => {
+                left.metavariable.index == right.metavariable.index
+            }
             _ => false,
         };
 

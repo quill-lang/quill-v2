@@ -67,11 +67,13 @@ impl<'a> StrGenerator<'a> {
     }
 
     pub fn generate(&mut self) -> Str {
-        self.db.intern_string_data(if self.counter == 0 {
+        let result = self.db.intern_string_data(if self.counter == 0 {
             self.prefix.clone()
         } else {
             format!("{}_{}", self.prefix, self.counter)
-        })
+        });
+        self.counter += 1;
+        result
     }
 }
 

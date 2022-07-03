@@ -114,18 +114,13 @@ fn check_intro_rule_core(
                 }
             };
             result.bind(|ty| {
-                is_valid_inductive_application(env, meta_gen, &ty, info).bind(
-                    |result| {
-                        if result {
-                            Dr::ok(())
-                        } else {
-                            let mut printer = ExprPrinter::new(env.db);
-                            Dr::fail(
-                                Report::new(
-                                    ReportKind::Error,
-                                    env.source,
-                                    ty.provenance.span().start,
-                                )
+                is_valid_inductive_application(env, meta_gen, &ty, info).bind(|result| {
+                    if result {
+                        Dr::ok(())
+                    } else {
+                        let mut printer = ExprPrinter::new(env.db);
+                        Dr::fail(
+                            Report::new(ReportKind::Error, env.source, ty.provenance.span().start)
                                 .with_message(format!(
                                     "invalid return type for introduction rule {}",
                                     env.db.lookup_intern_string_data(intro_rule.name.contents)
@@ -137,10 +132,9 @@ fn check_intro_rule_core(
                                             printer.print(&ty)
                                         )),
                                 ),
-                            )
-                        }
-                    },
-                )
+                        )
+                    }
+                })
             })
         })
     })
@@ -177,29 +171,27 @@ fn check_index_parameter(
                 parameter_index,
             )
             .bind(|()| {
-                is_recursive_argument(env, meta_gen, *pi.parameter_ty, info).bind(
-                    |is_recursive| {
-                        if is_recursive {
-                            found_recursive_argument.set(true);
-                        }
-                        if found_recursive_argument.get() {
-                            let mut result = *pi.result;
-                            instantiate(
-                                &mut result,
-                                &Expr::new_synthetic(ExprContents::LocalConstant(local.clone())),
-                            );
-                            Dr::ok(result)
+                is_recursive_argument(env, meta_gen, *pi.parameter_ty, info).bind(|is_recursive| {
+                    if is_recursive {
+                        found_recursive_argument.set(true);
+                    }
+                    if found_recursive_argument.get() {
+                        let mut result = *pi.result;
+                        instantiate(
+                            &mut result,
+                            &Expr::new_synthetic(ExprContents::LocalConstant(local.clone())),
+                        );
+                        Dr::ok(result)
+                    } else {
+                        if has_free_variables(&pi.result) {
+                            // This is an invalid occurrence of a recursive argument
+                            // because the body of the functional type depends on it.
+                            Dr::fail(todo!())
                         } else {
-                            if has_free_variables(&pi.result) {
-                                // This is an invalid occurrence of a recursive argument
-                                // because the body of the functional type depends on it.
-                                Dr::fail(todo!())
-                            } else {
-                                Dr::ok(*pi.result)
-                            }
+                            Dr::ok(*pi.result)
                         }
-                    },
-                )
+                    }
+                })
             })
         })
     })
@@ -261,18 +253,11 @@ pub(in crate::inductive) fn is_valid_inductive_application(
     e: &Expr,
     info: &PartialInductiveInformation,
 ) -> Dr<bool> {
-    let segments = info
-        .inst
-        .name
-        .segments
-        .iter()
-        .map(|name| name.contents)
-        .collect::<Vec<_>>();
     let (function, arguments) = destructure_as_nary_application(e);
     definitionally_equal(
         env,
         meta_gen,
-        e,
+        function,
         &Expr::new_synthetic(ExprContents::Inst(info.inst.clone())),
     )
     .map(|defeq| {
@@ -284,6 +269,13 @@ pub(in crate::inductive) fn is_valid_inductive_application(
             // The application was of the form `(I ...)`, but an incorrect number of parameters to the inductive were supplied.
             return false;
         }
+        let segments = info
+            .inst
+            .name
+            .segments
+            .iter()
+            .map(|name| name.contents)
+            .collect::<Vec<_>>();
         arguments
             .iter()
             .zip(&info.global_params)
