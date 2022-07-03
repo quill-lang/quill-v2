@@ -11,8 +11,8 @@ use fnodes::{
 
 use crate::{
     expr::{
-        apply_args, create_nary_application, destructure_as_nary_application, instantiate,
-        ExprPrinter,
+        apply_args, create_nary_application, create_nary_pi, destructure_as_nary_application,
+        instantiate, ExprPrinter,
     },
     typeck::{as_sort, infer_type, to_weak_head_normal_form, Environment},
     universe::is_zero,
@@ -122,18 +122,11 @@ fn partial_recursor_info(
             }));
         }
         // Add the indices to the type former.
-        type_former_ty =
-            info.index_params
-                .iter()
-                .rev()
-                .fold(type_former_ty, |type_former_ty, index| {
-                    Expr::new_synthetic(ExprContents::Pi(Pi {
-                        parameter_name: index.name.clone(),
-                        binder_annotation: index.binder_annotation,
-                        parameter_ty: index.metavariable.ty.clone(),
-                        result: Box::new(type_former_ty),
-                    }))
-                });
+        type_former_ty = create_nary_pi(
+            type_former_ty,
+            info.index_params.iter().cloned(),
+            &Provenance::Synthetic,
+        );
         // Create the type former C.
         let type_former = LocalConstant {
             name: Name {
@@ -273,16 +266,10 @@ pub fn minor_premise_info(
                                 provenance: Provenance::Synthetic,
                                 contents: str_gen.generate(),
                             },
-                            metavariable: meta_gen.gen(inner_args.into_iter().rev().fold(
+                            metavariable: meta_gen.gen(create_nary_pi(
                                 type_former_application,
-                                |result, arg| {
-                                    Expr::new_synthetic(ExprContents::Pi(Pi {
-                                        parameter_name: arg.name,
-                                        binder_annotation: arg.binder_annotation,
-                                        parameter_ty: arg.metavariable.ty,
-                                        result: Box::new(result),
-                                    }))
-                                },
+                                inner_args.into_iter(),
+                                &Provenance::Synthetic,
                             )),
                             binder_annotation: BinderAnnotation::Explicit,
                         }
@@ -290,19 +277,14 @@ pub fn minor_premise_info(
                 }));
 
             inductive_args.map(|inductive_args| {
-                let minor_premise_type = split_result
-                    .nonrecursive_and_recursive
-                    .into_iter()
-                    .chain(inductive_args)
-                    .rev()
-                    .fold(type_former_application, |result, arg| {
-                        Expr::new_synthetic(ExprContents::Pi(Pi {
-                            parameter_name: arg.name,
-                            binder_annotation: arg.binder_annotation,
-                            parameter_ty: arg.metavariable.ty,
-                            result: Box::new(result),
-                        }))
-                    });
+                let minor_premise_type = create_nary_pi(
+                    type_former_application,
+                    split_result
+                        .nonrecursive_and_recursive
+                        .into_iter()
+                        .chain(inductive_args),
+                    &Provenance::Synthetic,
+                );
                 (
                     LocalConstant {
                         name: Name {
