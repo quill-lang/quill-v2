@@ -3,6 +3,8 @@
 
 use fnodes::{basic_nodes::Provenance, expr::*};
 
+use super::abstract_pi;
+
 /// If this expression is a function application, return the leftmost function in the call chain.
 /// For example, applying this function to `foo 1 2 3` returns `foo`,
 /// and applying it to `(foo bar) 1 2 3` returns `foo bar`.
@@ -58,19 +60,11 @@ pub fn create_nary_application(
 /// Creates a [`Pi`] expression that can be evaluated with the given local constants in `arguments`
 /// to produce the expression `result`.
 pub fn create_nary_pi(
-    result: Expr,
     locals: impl DoubleEndedIterator<Item = LocalConstant>,
+    result: Expr,
     provenance: &Provenance,
 ) -> Expr {
     locals.rev().fold(result, |result, local| {
-        Expr::new_with_provenance(
-            provenance,
-            ExprContents::Pi(Pi {
-                parameter_name: local.name.clone(),
-                binder_annotation: local.binder_annotation,
-                parameter_ty: local.metavariable.ty.clone(),
-                result: Box::new(result),
-            }),
-        )
+        Expr::new_with_provenance(provenance, ExprContents::Pi(abstract_pi(local, result)))
     })
 }

@@ -13,9 +13,11 @@ use crate::{
 mod check;
 mod check_intro_rule;
 mod recursor;
+mod recursor_info;
 
 use self::{
-    check::PartialInductiveInformation, check_intro_rule::check_intro_rule, recursor::recursor_info,
+    check::PartialInductiveInformation, check_intro_rule::check_intro_rule,
+    recursor::generate_recursor, recursor_info::recursor_info,
 };
 
 /// Verifies that an inductive type is valid and can be added to the environment.
@@ -70,16 +72,17 @@ pub(crate) fn check_inductive_type(
                 }
 
                 // Form the recursor.
-                recursor_info(&env, &mut meta_gen, ind, &info)
-                    .map(move |recursor_info| (intro_rules, recursor_info))
+                generate_recursor(&env, &mut meta_gen, ind, &info)
+                    .map(move |recursor| (intro_rules, recursor))
             })
             .map(
-                move |(intro_rules, recursor_info)| CertifiedInductiveInformation {
+                move |(intro_rules, recursor)| CertifiedInductiveInformation {
                     inductive: CertifiedInductive {
                         inductive: ind.clone(),
                     },
                     type_declaration,
                     intro_rules,
+                    recursor,
                 },
             )
         })
@@ -94,6 +97,8 @@ pub(crate) struct CertifiedInductiveInformation {
     pub type_declaration: CertifiedDefinition,
     /// Definitions with no body representing the introduction rules.
     pub intro_rules: Vec<CertifiedDefinition>,
+    /// The recursor for this inductive data type.
+    pub recursor: CertifiedDefinition,
 }
 
 #[derive(Debug)]

@@ -79,6 +79,7 @@ fn certify(db: &dyn TypeChecker, source: Source) -> Dr<Arc<CertifiedModule>> {
                         for intro_rule in result.intro_rules {
                             definitions.push(intro_rule);
                         }
+                        definitions.push(result.recursor);
                     }
                 }
             }

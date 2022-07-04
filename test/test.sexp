@@ -28,10 +28,6 @@
           (bound 0))
     ))
   )
-  (ind Bool () () (sort (univsucc (univzero))) 0 (
-    (false (inst (test test Bool) ()))
-    (true (inst (test test Bool) ()))
-  ))
   (ind Punit () (u) (sort (univvar u)) 0 (
     (star (inst (test test Punit) ((univvar u))))
   ))
@@ -205,8 +201,8 @@
   (ind Bool () ()
     (sort (univsucc (univzero)))
     0 (
-    (true (inst (test test Bool) ()))
     (false (inst (test test Bool) ()))
+    (true (inst (test test Bool) ()))
   ))
   (ind Subtype () (u)
     (pi A imp (sort (univvar u))
@@ -235,5 +231,24 @@
               (pi b ex (bound 1) (inst (test test PGame) ((univvar u))))
               (inst (test test PGame) ((univvar u)))
             )))))
+  ))
+  (ind W () (u v)
+    (pi A ex (sort (univsucc (univvar u)))
+      (pi B ex (pi a ex (bound 0) (sort (univsucc (univvar v))))
+        (sort (univmax (univsucc (univvar u)) (univsucc (univvar v))))))
+    2 (
+    (W.mk
+      (pi A ex (sort (univsucc (univvar u)))
+        (pi B ex (pi a ex (bound 0) (sort (univsucc (univvar v))))
+          (pi a ex (bound 1)
+            (pi b ex (pi c ex
+              (ap (bound 1) (bound 0))
+              (ap (ap (inst (test test W) ((univvar u) (univvar v)))
+                (bound 3))
+                (bound 2)))
+              (ap (ap (inst (test test W) ((univvar u) (univvar v)))
+                (bound 3))
+                (bound 2)))
+            ))))
   ))
 )

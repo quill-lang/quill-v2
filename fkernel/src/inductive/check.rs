@@ -11,7 +11,7 @@ use crate::{
     typeck::{
         as_sort, check_no_local_or_metavariable, infer_type, to_weak_head_normal_form, Environment,
     },
-    universe::is_nonzero,
+    universe::{is_nonzero, is_zero},
 };
 
 /// Verifies that an inductive type is valid and can be added to the environment.
@@ -98,12 +98,14 @@ pub fn check_inductive_type(
 
             as_sort(env, ty).map(|sort| {
                 let never_zero = is_nonzero(&sort.0);
+                let dependent_elimination = !is_zero(&sort.0);
                 PartialInductiveInformation {
                     global_params,
                     index_params,
                     sort,
-                    never_zero,
                     inst,
+                    never_zero,
+                    dependent_elimination,
                 }
             })
         })
@@ -120,8 +122,11 @@ pub struct PartialInductiveInformation {
     pub index_params: Vec<LocalConstant>,
     /// The type yielded after all parameters have been applied to the inductive type.
     pub sort: Sort,
-    /// True if the field `sort` is never the zero universe.
-    pub never_zero: bool,
     /// An `Inst` node which will instantiate the type of the inductive, with the given universe parameters.
     pub inst: Inst,
+    /// True if the field `sort` is never the zero universe.
+    pub never_zero: bool,
+    /// True if we need to perform dependent elimination in the recursor.
+    /// This means that the type former C can depend on the value of the inductive in question.
+    pub dependent_elimination: bool,
 }
