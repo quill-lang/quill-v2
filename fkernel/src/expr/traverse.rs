@@ -286,6 +286,32 @@ pub fn lift_free_vars(e: &mut Expr, shift: DeBruijnOffset) {
     })
 }
 
+/// Create a lambda expression where the parameter is the given local constant.
+pub fn abstract_lambda(local: LocalConstant, mut return_type: Expr) -> Lambda {
+    replace_in_expr(&mut return_type, |e, offset| {
+        if let ExprContents::LocalConstant(inner_local) = &e.contents {
+            if *inner_local == local {
+                ReplaceResult::ReplaceWith(Expr::new_with_provenance(
+                    &e.provenance,
+                    ExprContents::Bound(Bound {
+                        index: DeBruijnIndex::zero() + offset,
+                    }),
+                ))
+            } else {
+                ReplaceResult::Skip
+            }
+        } else {
+            ReplaceResult::Skip
+        }
+    });
+    Lambda {
+        parameter_name: local.name,
+        binder_annotation: local.binder_annotation,
+        parameter_ty: local.metavariable.ty,
+        result: Box::new(return_type),
+    }
+}
+
 /// Create a pi expression where the parameter is the given local constant.
 pub fn abstract_pi(local: LocalConstant, mut return_type: Expr) -> Pi {
     replace_in_expr(&mut return_type, |e, offset| {

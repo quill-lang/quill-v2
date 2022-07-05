@@ -1,7 +1,7 @@
 use fcommon::Dr;
 use fnodes::{
     definition::{Definition, DefinitionContents},
-    expr::MetavariableGenerator,
+    expr::{Expr, MetavariableGenerator},
     inductive::Inductive,
 };
 
@@ -12,12 +12,14 @@ use crate::{
 
 mod check;
 mod check_intro_rule;
+mod comp_rule;
 mod recursor;
 mod recursor_info;
 
 use self::{
     check::PartialInductiveInformation, check_intro_rule::check_intro_rule,
-    recursor::generate_recursor, recursor_info::recursor_info,
+    comp_rule::generate_computation_rules, recursor::generate_recursor,
+    recursor_info::recursor_info,
 };
 
 /// Verifies that an inductive type is valid and can be added to the environment.
@@ -72,17 +74,38 @@ pub(crate) fn check_inductive_type(
                 }
 
                 // Form the recursor.
-                generate_recursor(&env, &mut meta_gen, ind, &info)
-                    .map(move |recursor| (intro_rules, recursor))
+                let recursor = generate_recursor(&env, &mut meta_gen, ind, &info);
+                if let Some((rec_info, recursor_def)) = recursor.value() {
+                    // Put the recursor in the environment.
+                    // This shouldn't need to be outside a `bind`, this is just lifetime hacking.
+                    let mut new_path_data = env.db.lookup_intern_path_data(env.source.path);
+                    new_path_data
+                        .0
+                        .push(recursor_def.def().contents.name.contents);
+                    let path = env.db.intern_path_data(new_path_data);
+                    env.definitions.insert(path, &recursor_def);
+
+                    // Generate the computation rules for the recursor.
+                    let comp_rules =
+                        generate_computation_rules(&env, &mut meta_gen, ind, &info, rec_info);
+                    recursor.bind(move |(rec_info, recursor)| {
+                        comp_rules.map(move |computation_rules| {
+                            (intro_rules, recursor, computation_rules)
+                        })
+                    })
+                } else {
+                    recursor.map(|_| unreachable!())
+                }
             })
             .map(
-                move |(intro_rules, recursor)| CertifiedInductiveInformation {
+                move |(intro_rules, recursor, computation_rules)| CertifiedInductiveInformation {
                     inductive: CertifiedInductive {
                         inductive: ind.clone(),
                     },
                     type_declaration,
                     intro_rules,
                     recursor,
+                    computation_rules,
                 },
             )
         })
@@ -99,6 +122,8 @@ pub(crate) struct CertifiedInductiveInformation {
     pub intro_rules: Vec<CertifiedDefinition>,
     /// The recursor for this inductive data type.
     pub recursor: CertifiedDefinition,
+    /// The reduction rules used for computing applications of the recursor.
+    pub computation_rules: Vec<Expr>,
 }
 
 #[derive(Debug)]

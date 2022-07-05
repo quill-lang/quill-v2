@@ -11,7 +11,7 @@ use fnodes::{
 
 use crate::{
     expr::{
-        abstract_pi, apply_args, create_nary_application, create_nary_pi,
+        abstract_nary_pi, abstract_pi, apply_args, create_nary_application,
         destructure_as_nary_application, instantiate, ExprPrinter,
     },
     typeck::{as_sort, infer_type, to_weak_head_normal_form, Environment},
@@ -100,7 +100,7 @@ fn partial_recursor_info(
             )));
         }
         // Add the indices to the type former.
-        type_former_ty = create_nary_pi(
+        type_former_ty = abstract_nary_pi(
             info.index_params.iter().cloned(),
             type_former_ty,
             &Provenance::Synthetic,
@@ -244,7 +244,7 @@ pub fn minor_premise_info(
                                 provenance: Provenance::Synthetic,
                                 contents: str_gen.generate(),
                             },
-                            metavariable: meta_gen.gen(create_nary_pi(
+                            metavariable: meta_gen.gen(abstract_nary_pi(
                                 inner_args.into_iter(),
                                 type_former_application,
                                 &Provenance::Synthetic,
@@ -255,7 +255,7 @@ pub fn minor_premise_info(
                 }));
 
             inductive_args.map(|inductive_args| {
-                let minor_premise_type = create_nary_pi(
+                let minor_premise_type = abstract_nary_pi(
                     split_result
                         .nonrecursive_and_recursive
                         .into_iter()
@@ -282,7 +282,7 @@ pub fn minor_premise_info(
 /// Splits the arguments to this intro rule into nonrecursive and recursive categories.
 /// Returns the list of all parameters, then the list of recursive ones,
 /// then the returned value after instantiating the intro rule with the parameters.
-fn split_intro_rule_type(
+pub fn split_intro_rule_type(
     env: &Environment,
     meta_gen: &mut MetavariableGenerator,
     ind: &Inductive,
@@ -332,19 +332,19 @@ fn split_intro_rule_type(
     })
 }
 
-struct SplitIntroRuleResult {
-    nonrecursive_and_recursive: Vec<LocalConstant>,
-    recursive: Vec<LocalConstant>,
-    result_ty: Expr,
+pub struct SplitIntroRuleResult {
+    pub nonrecursive_and_recursive: Vec<LocalConstant>,
+    pub recursive: Vec<LocalConstant>,
+    pub result_ty: Expr,
     /// If this is true, this intro rule does not prevent a K-style eliminator.
     /// A declaration is a target for K-like reduction when it has one intro, the intro has zero
     /// (index) arguments, and it is a proposition.
-    is_k_target: bool,
+    pub is_k_target: bool,
 }
 
 /// Given an expression of the form `(I As is)` where `I` is the inductive datatype being defined, `As` are the
 /// global parameters, and `is` are the indices provided to it, return `is`.
-fn get_indices<'a>(
+pub fn get_indices<'a>(
     env: &Environment,
     meta_gen: &mut MetavariableGenerator,
     result_ty: &'a Expr,

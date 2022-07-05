@@ -7,7 +7,7 @@ use fnodes::{
 };
 
 use crate::{
-    expr::{abstract_pi, create_nary_application, create_nary_pi, ExprPrinter},
+    expr::{abstract_nary_pi, abstract_pi, create_nary_application, ExprPrinter},
     typeck::{self, CertifiedDefinition, Environment},
 };
 
@@ -21,7 +21,7 @@ pub fn generate_recursor(
     meta_gen: &mut MetavariableGenerator,
     ind: &Inductive,
     info: &PartialInductiveInformation,
-) -> Dr<CertifiedDefinition> {
+) -> Dr<(RecursorInfo, CertifiedDefinition)> {
     recursor_info(env, meta_gen, ind, info).bind(|rec_info| {
         let def = generate_recursor_core(env, meta_gen, ind, info, &rec_info);
         let mut print = ExprPrinter::new(env.db);
@@ -30,7 +30,7 @@ pub fn generate_recursor(
             print.print(&def.contents.ty),
             // &def.contents.ty
         );
-        typeck::check(env, &def)
+        typeck::check(env, &def).map(|def| (rec_info, def))
     })
 }
 
@@ -58,7 +58,7 @@ fn generate_recursor_core(
     }
 
     // Create the type for the eliminator.
-    let mut eliminator_type = create_nary_pi(
+    let mut eliminator_type = abstract_nary_pi(
         info.index_params.iter().cloned(),
         Expr::new_synthetic(ExprContents::Pi(abstract_pi(
             rec_info.major_premise.clone(),
@@ -68,7 +68,7 @@ fn generate_recursor_core(
     );
 
     // Abstract the introduction rules.
-    eliminator_type = create_nary_pi(
+    eliminator_type = abstract_nary_pi(
         rec_info.minor_premises.iter().cloned(),
         eliminator_type,
         &Provenance::Synthetic,
@@ -81,7 +81,7 @@ fn generate_recursor_core(
     )));
 
     // Abstract the global parameters.
-    eliminator_type = create_nary_pi(
+    eliminator_type = abstract_nary_pi(
         info.global_params.iter().cloned(),
         eliminator_type,
         &Provenance::Synthetic,

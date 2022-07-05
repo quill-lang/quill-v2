@@ -10,6 +10,8 @@ use fcommon::{Dr, PathData, Source};
 use fnodes::{basic_nodes::Provenance, inductive::Inductive, module::Item};
 use typeck::{CertifiedDefinition, Environment};
 
+use crate::expr::ExprPrinter;
+
 // Expose this either when we're running `cargo doc` or executing tests.
 #[cfg(any(test, doc))]
 mod test_db;

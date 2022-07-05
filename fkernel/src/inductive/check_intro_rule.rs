@@ -287,7 +287,7 @@ fn check_positivity(
 
 /// Returns true if the expression is a term of the form `(I As t)` where `I` is the inductive being
 /// defined, `As` are the global parameters, and `I` does not occur in the indices `t`.
-pub(in crate::inductive) fn is_valid_inductive_application(
+pub fn is_valid_inductive_application(
     env: &Environment,
     meta_gen: &mut MetavariableGenerator,
     e: &Expr,
@@ -332,7 +332,7 @@ pub(in crate::inductive) fn is_valid_inductive_application(
 }
 
 /// Returns true if the expression is a recursive argument.
-pub(in crate::inductive) fn is_recursive_argument(
+pub fn is_recursive_argument(
     env: &Environment,
     meta_gen: &mut MetavariableGenerator,
     mut e: Expr,

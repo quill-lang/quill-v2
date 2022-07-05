@@ -3,7 +3,7 @@
 
 use fnodes::{basic_nodes::Provenance, expr::*};
 
-use super::abstract_pi;
+use super::{abstract_lambda, abstract_pi};
 
 /// If this expression is a function application, return the leftmost function in the call chain.
 /// For example, applying this function to `foo 1 2 3` returns `foo`,
@@ -57,9 +57,24 @@ pub fn create_nary_application(
     })
 }
 
+/// Creates a [`Lambda`] expression that can be evaluated with the given local constants in `arguments`
+/// to produce the expression `result`.
+pub fn abstract_nary_lambda(
+    locals: impl DoubleEndedIterator<Item = LocalConstant>,
+    result: Expr,
+    provenance: &Provenance,
+) -> Expr {
+    locals.rev().fold(result, |result, local| {
+        Expr::new_with_provenance(
+            provenance,
+            ExprContents::Lambda(abstract_lambda(local, result)),
+        )
+    })
+}
+
 /// Creates a [`Pi`] expression that can be evaluated with the given local constants in `arguments`
 /// to produce the expression `result`.
-pub fn create_nary_pi(
+pub fn abstract_nary_pi(
     locals: impl DoubleEndedIterator<Item = LocalConstant>,
     result: Expr,
     provenance: &Provenance,

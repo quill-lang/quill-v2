@@ -251,4 +251,10 @@
                 (bound 2)))
             ))))
   ))
+  (ind Nat () ()
+    (sort (univsucc (univzero)))
+    0 (
+    (Nat.zero (inst (test test Nat) ()))
+    (Nat.succ (pi k ex (inst (test test Nat) ()) (inst (test test Nat) ())))
+  ))
 )
