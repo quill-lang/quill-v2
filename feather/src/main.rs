@@ -1,11 +1,8 @@
-use std::{collections::HashSet, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
-use fcommon::{FileReader, Intern, InternExt, PathData, Source, SourceType};
+use fcommon::{FileReader, Intern, PathData, Source, SourceType};
 use fkernel::{expr::ExprPrinter, TypeChecker};
-use fnodes::{
-    expr::{Expr, ExprContents},
-    ListSexprWrapper, PrettyPrintSettings, SexprSerialiseExt,
-};
+use fnodes::expr::{Expr, ExprContents};
 use salsa::Durability;
 use tracing::info;
 use tracing_subscriber::{fmt::format::FmtSpan, FmtSubscriber};
@@ -46,9 +43,9 @@ fn main() {
     }
 
     if let Some(result) = result.value() {
-        for def in &result.defs {
+        for def in &result.definitions {
             let mut printer = ExprPrinter::new(db.up());
-            tracing::info!(
+            tracing::debug!(
                 "certified definition {}\nsort: {}\ntype: {}\nvalue: {}\nreducibility hints: {}",
                 db.lookup_intern_string_data(def.def().contents.name.contents),
                 printer.print(&Expr::new_synthetic(ExprContents::Sort(def.sort().clone()))),
@@ -61,6 +58,20 @@ fn main() {
                     .unwrap_or_else(|| "no body".to_string()),
                 def.reducibility_hints()
             )
+        }
+        for ind in &result.inductives {
+            let mut printer = ExprPrinter::new(db.up());
+            tracing::debug!(
+                "certified inductive {}",
+                db.lookup_intern_string_data(ind.inductive().contents.name.contents),
+            );
+            for comp_rule in ind.computation_rules() {
+                tracing::trace!(
+                    "certified computation rule {} => {}",
+                    printer.print(&comp_rule.eliminator_application),
+                    printer.print(&comp_rule.minor_premise_application)
+                )
+            }
         }
 
         // let node = ListSexprWrapper::serialise_into_node(&db, &**result);

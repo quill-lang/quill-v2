@@ -25,11 +25,7 @@ pub fn generate_recursor(
     recursor_info(env, meta_gen, ind, info).bind(|rec_info| {
         let def = generate_recursor_core(env, ind, info, &rec_info);
         let mut print = ExprPrinter::new(env.db);
-        tracing::info!(
-            "eliminator has type {}",
-            print.print(&def.contents.ty),
-            // &def.contents.ty
-        );
+        tracing::debug!("eliminator has type {}", print.print(&def.contents.ty));
         typeck::check(env, &def).map(|def| (rec_info, def))
     })
 }

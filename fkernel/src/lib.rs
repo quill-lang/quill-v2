@@ -8,6 +8,7 @@ use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use fcommon::{Dr, Source};
 use fnodes::{basic_nodes::Provenance, module::Item};
+use inductive::CertifiedInductive;
 use typeck::{CertifiedDefinition, Environment};
 
 // Expose this either when we're running `cargo doc` or executing tests.
@@ -30,7 +31,8 @@ pub trait TypeChecker: fnodes::SexprParserExt {
 pub struct CertifiedModule {
     /// The origin of the module in code.
     provenance: Provenance,
-    pub defs: Vec<CertifiedDefinition>,
+    pub definitions: Vec<CertifiedDefinition>,
+    pub inductives: Vec<CertifiedInductive>,
 }
 
 impl Debug for CertifiedModule {
@@ -44,6 +46,7 @@ fn certify(db: &dyn TypeChecker, source: Source) -> Dr<Arc<CertifiedModule>> {
     let source_path = db.lookup_intern_path_data(source.path);
     db.module_from_feather_source(source).bind(|module| {
         let mut definitions = Vec::<CertifiedDefinition>::new();
+        let mut inductives = Vec::<CertifiedInductive>::new();
         let mut reports = Vec::new();
         for item in &module.contents.items {
             let env = Environment {
@@ -59,7 +62,16 @@ fn certify(db: &dyn TypeChecker, source: Source) -> Dr<Arc<CertifiedModule>> {
                     }
                     defs
                 },
-                inductives: HashMap::new(),
+                inductives: {
+                    let mut inds = HashMap::new();
+                    for ind in &inductives {
+                        let mut new_path_data = source_path.clone();
+                        new_path_data.0.push(ind.inductive().contents.name.contents);
+                        let path = db.intern_path_data(new_path_data);
+                        inds.insert(path, ind);
+                    }
+                    inds
+                },
             };
             match item {
                 Item::Definition(def) => {
@@ -80,6 +92,7 @@ fn certify(db: &dyn TypeChecker, source: Source) -> Dr<Arc<CertifiedModule>> {
                             definitions.push(intro_rule);
                         }
                         definitions.push(result.recursor);
+                        inductives.push(result.inductive);
                     }
                 }
             }
@@ -87,7 +100,8 @@ fn certify(db: &dyn TypeChecker, source: Source) -> Dr<Arc<CertifiedModule>> {
         Dr::ok_with_many(
             Arc::new(CertifiedModule {
                 provenance: module.provenance.clone(),
-                defs: definitions,
+                definitions,
+                inductives,
             }),
             reports,
         )

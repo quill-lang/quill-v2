@@ -44,10 +44,10 @@ pub fn generate_computation_rules(
     .map(|rules| {
         let mut print = ExprPrinter::new(env.db);
         for rule in &rules {
-            tracing::info!(
+            tracing::debug!(
                 "computation rule has value {} => {}",
                 print.print(&rule.eliminator_application),
-                print.print(&rule.minor_premise_application)
+                print.print(&rule.minor_premise_application),
             );
         }
         rules
@@ -55,7 +55,7 @@ pub fn generate_computation_rules(
 }
 
 /// A computation rule converts an application of an eliminator into an application of one of the minor premises to the eliminator.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct ComputationRule {
     pub eliminator_application: Expr,
     pub minor_premise_application: Expr,

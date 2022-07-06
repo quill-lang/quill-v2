@@ -157,14 +157,10 @@ fn check_index_parameter(
             // - the inductive data type has sort 0.
             if !is_zero(&info.sort.0) && !universe_at_most(sort.0.clone(), info.sort.0.clone()) {
                 let mut print = ExprPrinter::new(env.db);
-                tracing::debug!("LEFT: {}", print.print_universe(&sort.0));
-                tracing::debug!("RIGHT: {}", print.print_universe(&info.sort.0));
                 let mut l = sort.0.clone();
                 normalise_universe(&mut l);
                 let mut r = info.sort.0.clone();
                 normalise_universe(&mut r);
-                tracing::debug!("NEW LEFT: {}", print.print_universe(&sort.0));
-                tracing::debug!("NEW RIGHT: {}", print.print_universe(&info.sort.0));
                 return Dr::fail(
                     Report::new(
                         ReportKind::Error,

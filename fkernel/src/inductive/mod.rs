@@ -98,11 +98,11 @@ pub(crate) fn check_inductive_type(
                 move |(intro_rules, recursor, computation_rules)| CertifiedInductiveInformation {
                     inductive: CertifiedInductive {
                         inductive: ind.clone(),
+                        computation_rules,
                     },
                     type_declaration,
                     intro_rules,
                     recursor,
-                    computation_rules,
                 },
             )
         })
@@ -119,18 +119,22 @@ pub(crate) struct CertifiedInductiveInformation {
     pub intro_rules: Vec<CertifiedDefinition>,
     /// The recursor for this inductive data type.
     pub recursor: CertifiedDefinition,
-    /// The reduction rules used for computing applications of the recursor.
-    pub computation_rules: Vec<ComputationRule>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct CertifiedInductive {
     /// The inductive data type we have certified.
     inductive: Inductive,
+    /// The reduction rules used for computing applications of the recursor.
+    computation_rules: Vec<ComputationRule>,
 }
 
 impl CertifiedInductive {
     pub fn inductive(&self) -> &Inductive {
         &self.inductive
+    }
+
+    pub fn computation_rules(&self) -> &[ComputationRule] {
+        self.computation_rules.as_ref()
     }
 }

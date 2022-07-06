@@ -3,13 +3,15 @@ use std::{collections::HashMap, fmt::Display};
 use fcommon::{Path, Source};
 use fnodes::{definition::Definition, expr::Sort, inductive::Inductive, SexprParser};
 
+use crate::inductive::CertifiedInductive;
+
 /// A typing environment, normally called capital gamma in the literature.
 /// Contains information about everything we can see in the current position in a file.
 pub struct Environment<'a> {
     pub source: Source,
     pub db: &'a dyn SexprParser,
     pub definitions: HashMap<Path, &'a CertifiedDefinition>,
-    pub inductives: HashMap<Path, &'a Inductive>,
+    pub inductives: HashMap<Path, &'a CertifiedInductive>,
 }
 
 /// A definition that has been verified by the type checker.
