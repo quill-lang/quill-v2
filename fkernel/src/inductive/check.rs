@@ -59,24 +59,21 @@ pub fn check_inductive_type(
             // the rest are pushed into `index_params`.
             let mut global_params = Vec::new();
             let mut index_params = Vec::new();
-            loop {
-                if let ExprContents::Pi(pi) = ty.contents {
-                    let local = pi.generate_local(meta_gen);
-                    if (global_params.len() as u32) < ind.contents.global_params {
-                        // This parameter is a global parameter.
-                        global_params.push(local.clone());
-                    } else {
-                        index_params.push(local.clone());
-                    }
-                    ty = *pi.result;
-                    instantiate(
-                        &mut ty,
-                        &Expr::new_synthetic(ExprContents::LocalConstant(local)),
-                    );
-                    to_weak_head_normal_form(env, &mut ty);
+
+            while let ExprContents::Pi(pi) = ty.contents {
+                let local = pi.generate_local(meta_gen);
+                if (global_params.len() as u32) < ind.contents.global_params {
+                    // This parameter is a global parameter.
+                    global_params.push(local.clone());
                 } else {
-                    break;
+                    index_params.push(local.clone());
                 }
+                ty = *pi.result;
+                instantiate(
+                    &mut ty,
+                    &Expr::new_synthetic(ExprContents::LocalConstant(local)),
+                );
+                to_weak_head_normal_form(env, &mut ty);
             }
 
             // By now, we should have supplied exactly the correct amount of `global_params`.

@@ -1,5 +1,8 @@
 //! Manipulates chains of successor universes.
 
+// Allow this lint to increase readability in complex chains of logic.
+#![allow(clippy::if_same_then_else)]
+
 use std::ops::DerefMut;
 
 use fnodes::{basic_nodes::Provenance, universe::*};
@@ -78,8 +81,8 @@ pub fn normalise_universe(u: &mut Universe) {
             *u = normalise_max_chain(max);
         }
         UniverseContents::UniverseImpredicativeMax(imax) => {
-            normalise_universe(&mut *imax.left);
-            normalise_universe(&mut *imax.right);
+            normalise_universe(&mut imax.left);
+            normalise_universe(&mut imax.right);
             // We now need to check if we can perform a simplification on this `imax` operation.
             let imax = std::mem::replace(
                 imax,
@@ -314,8 +317,6 @@ mod tests {
     use fcommon::SourceType;
     use fnodes::expr::ExprContents;
     use fnodes::expr::Sort;
-    use fnodes::universe::Universe;
-    use fnodes::universe::UniverseContents;
     use fnodes::{module::Module, SexprParser};
 
     #[test]

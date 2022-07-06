@@ -3,7 +3,7 @@ use fnodes::{
     basic_nodes::{Name, Provenance, QualifiedName},
     expr::{
         Apply, BinderAnnotation, Expr, ExprContents, Inst, LocalConstant, MetavariableGenerator,
-        Pi, Sort,
+        Sort,
     },
     inductive::{Inductive, IntroRule},
     universe::{Universe, UniverseContents, UniverseVariable},
@@ -11,8 +11,8 @@ use fnodes::{
 
 use crate::{
     expr::{
-        abstract_nary_pi, abstract_pi, apply_args, create_nary_application,
-        destructure_as_nary_application, instantiate, ExprPrinter,
+        abstract_nary_pi, abstract_pi, apply_args, create_nary_application, instantiate,
+        ExprPrinter,
     },
     typeck::{as_sort, infer_type, to_weak_head_normal_form, Environment},
     universe::is_zero,
@@ -189,70 +189,66 @@ pub fn minor_premise_info(
                     env.db.lookup_intern_string_data(intro_rule.name.contents)
                 ),
             );
-            let inductive_args =
-                Dr::sequence(split_result.recursive.iter().enumerate().map(|(i, arg)| {
-                    let mut local_ty = *arg.metavariable.ty.clone();
-                    to_weak_head_normal_form(env, &mut local_ty);
-                    let mut inner_args = Vec::new();
-                    while let ExprContents::Pi(pi) = local_ty.contents {
-                        let inner_arg = pi.generate_local(meta_gen);
-                        inner_args.push(inner_arg.clone());
-                        local_ty = *pi.result;
-                        instantiate(
-                            &mut local_ty,
-                            &Expr::new_synthetic(ExprContents::LocalConstant(inner_arg)),
-                        );
+            let inductive_args = Dr::sequence(split_result.recursive.iter().map(|arg| {
+                let mut local_ty = *arg.metavariable.ty.clone();
+                to_weak_head_normal_form(env, &mut local_ty);
+                let mut inner_args = Vec::new();
+                while let ExprContents::Pi(pi) = local_ty.contents {
+                    let inner_arg = pi.generate_local(meta_gen);
+                    inner_args.push(inner_arg.clone());
+                    local_ty = *pi.result;
+                    instantiate(
+                        &mut local_ty,
+                        &Expr::new_synthetic(ExprContents::LocalConstant(inner_arg)),
+                    );
+                }
+                get_indices(env, meta_gen, &local_ty, info).map(|intro_rule_indices| {
+                    // Create the inner application of the minor premise.
+                    let mut type_former_application = intro_rule_indices.iter().fold(
+                        Expr::new_synthetic(ExprContents::LocalConstant(type_former.clone())),
+                        |func, arg| {
+                            Expr::new_synthetic(ExprContents::Apply(Apply {
+                                function: Box::new(func),
+                                argument: Box::new((*arg).clone()),
+                            }))
+                        },
+                    );
+
+                    // If we're doing dependent elimination, provide the value being eliminated.
+                    if info.dependent_elimination {
+                        type_former_application = Expr::new_synthetic(ExprContents::Apply(Apply {
+                            function: Box::new(type_former_application),
+                            argument: inner_args.iter().fold(
+                                Box::new(Expr::new_synthetic(ExprContents::LocalConstant(
+                                    arg.clone(),
+                                ))),
+                                |func, arg| {
+                                    Box::new(Expr::new_synthetic(ExprContents::Apply(Apply {
+                                        function: func,
+                                        argument: Box::new(Expr::new_synthetic(
+                                            ExprContents::LocalConstant(arg.clone()),
+                                        )),
+                                    })))
+                                },
+                            ),
+                        }));
                     }
-                    get_indices(env, meta_gen, &local_ty, info).map(|intro_rule_indices| {
-                        // Create the inner application of the minor premise.
-                        let mut type_former_application = intro_rule_indices.iter().fold(
-                            Expr::new_synthetic(ExprContents::LocalConstant(type_former.clone())),
-                            |func, arg| {
-                                Expr::new_synthetic(ExprContents::Apply(Apply {
-                                    function: Box::new(func),
-                                    argument: Box::new((*arg).clone()),
-                                }))
-                            },
-                        );
 
-                        // If we're doing dependent elimination, provide the value being eliminated.
-                        if info.dependent_elimination {
-                            type_former_application =
-                                Expr::new_synthetic(ExprContents::Apply(Apply {
-                                    function: Box::new(type_former_application),
-                                    argument: inner_args.iter().fold(
-                                        Box::new(Expr::new_synthetic(ExprContents::LocalConstant(
-                                            arg.clone(),
-                                        ))),
-                                        |func, arg| {
-                                            Box::new(Expr::new_synthetic(ExprContents::Apply(
-                                                Apply {
-                                                    function: func,
-                                                    argument: Box::new(Expr::new_synthetic(
-                                                        ExprContents::LocalConstant(arg.clone()),
-                                                    )),
-                                                },
-                                            )))
-                                        },
-                                    ),
-                                }));
-                        }
-
-                        // Create the new local constant.
-                        LocalConstant {
-                            name: Name {
-                                provenance: Provenance::Synthetic,
-                                contents: str_gen.generate(),
-                            },
-                            metavariable: meta_gen.gen(abstract_nary_pi(
-                                inner_args.into_iter(),
-                                type_former_application,
-                                &Provenance::Synthetic,
-                            )),
-                            binder_annotation: BinderAnnotation::Explicit,
-                        }
-                    })
-                }));
+                    // Create the new local constant.
+                    LocalConstant {
+                        name: Name {
+                            provenance: Provenance::Synthetic,
+                            contents: str_gen.generate(),
+                        },
+                        metavariable: meta_gen.gen(abstract_nary_pi(
+                            inner_args.into_iter(),
+                            type_former_application,
+                            &Provenance::Synthetic,
+                        )),
+                        binder_annotation: BinderAnnotation::Explicit,
+                    }
+                })
+            }));
 
             inductive_args.map(|inductive_args| {
                 let minor_premise_type = abstract_nary_pi(
@@ -477,7 +473,7 @@ fn eliminate_only_at_prop(
     }
 
     // Every argument in `args_to_check` must occur in `ty_arguments`.
-    let (ty_function, ty_arguments) = destructure_as_nary_application(&ty);
+    let ty_arguments = apply_args(&ty);
     for arg_to_check in args_to_check {
         if !ty_arguments.iter().any(|arg| {
             arg.eq_ignoring_provenance(&Expr::new_synthetic(ExprContents::LocalConstant(

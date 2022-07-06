@@ -1,12 +1,12 @@
 //! Utilities for traversing the expression tree for things like find-and-replace operations.
 
-use std::{borrow::BorrowMut, cell::Cell};
+use std::cell::Cell;
 
 use fcommon::Str;
 use fnodes::{
     basic_nodes::{DeBruijnIndex, DeBruijnOffset, Name},
     expr::*,
-    universe::{Universe, UniverseContents, UniverseVariable},
+    universe::{Universe, UniverseVariable},
 };
 
 use crate::{
@@ -155,7 +155,7 @@ pub fn first_local_or_metavariable(e: &Expr) -> Option<&Expr> {
 
 /// Gets the maximum height of reducible definitions contained inside this expression.
 pub fn get_max_height(env: &Environment, e: &Expr) -> DefinitionHeight {
-    let mut height = Cell::new(0);
+    let height = Cell::new(0);
     find_in_expr(e, |inner, _offset| {
         if let ExprContents::Inst(inst) = &inner.contents {
             if let Some(inner_height) = definition_height(env, inst) {
@@ -233,7 +233,7 @@ pub fn instantiate_universe_parameters(
     universe_params: &[Name],
     universe_arguments: &[Universe],
 ) {
-    replace_in_expr(e, |e, offset| match &e.contents {
+    replace_in_expr(e, |e, _offset| match &e.contents {
         ExprContents::Inst(inst) => {
             let mut replace = inst.clone();
             for univ in &mut replace.universes {

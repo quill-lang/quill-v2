@@ -2,7 +2,7 @@ use fcommon::Dr;
 use fnodes::{
     basic_nodes::{Name, Provenance},
     definition::{Definition, DefinitionContents},
-    expr::{Apply, Expr, ExprContents, MetavariableGenerator, Pi},
+    expr::{Apply, Expr, ExprContents, MetavariableGenerator},
     inductive::Inductive,
 };
 
@@ -23,7 +23,7 @@ pub fn generate_recursor(
     info: &PartialInductiveInformation,
 ) -> Dr<(RecursorInfo, CertifiedDefinition)> {
     recursor_info(env, meta_gen, ind, info).bind(|rec_info| {
-        let def = generate_recursor_core(env, meta_gen, ind, info, &rec_info);
+        let def = generate_recursor_core(env, ind, info, &rec_info);
         let mut print = ExprPrinter::new(env.db);
         tracing::info!(
             "eliminator has type {}",
@@ -36,7 +36,6 @@ pub fn generate_recursor(
 
 fn generate_recursor_core(
     env: &Environment,
-    meta_gen: &mut MetavariableGenerator,
     ind: &Inductive,
     info: &PartialInductiveInformation,
     rec_info: &RecursorInfo,

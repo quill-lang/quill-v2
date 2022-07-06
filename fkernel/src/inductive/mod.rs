@@ -1,14 +1,11 @@
 use fcommon::Dr;
 use fnodes::{
     definition::{Definition, DefinitionContents},
-    expr::{Expr, MetavariableGenerator},
+    expr::MetavariableGenerator,
     inductive::Inductive,
 };
 
-use crate::{
-    expr::ExprPrinter,
-    typeck::{self, CertifiedDefinition, Environment},
-};
+use crate::typeck::{self, CertifiedDefinition, Environment};
 
 mod check;
 mod check_intro_rule;
@@ -17,9 +14,9 @@ mod recursor;
 mod recursor_info;
 
 use self::{
-    check::PartialInductiveInformation, check_intro_rule::check_intro_rule,
-    comp_rule::{generate_computation_rules, ComputationRule}, recursor::generate_recursor,
-    recursor_info::recursor_info,
+    check_intro_rule::check_intro_rule,
+    comp_rule::{generate_computation_rules, ComputationRule},
+    recursor::generate_recursor,
 };
 
 /// Verifies that an inductive type is valid and can be added to the environment.
@@ -70,7 +67,7 @@ pub(crate) fn check_inductive_type(
                         .0
                         .push(intro_rule.def().contents.name.contents);
                     let path = env.db.intern_path_data(new_path_data);
-                    env.definitions.insert(path, &intro_rule);
+                    env.definitions.insert(path, intro_rule);
                 }
 
                 // Form the recursor.
@@ -83,7 +80,7 @@ pub(crate) fn check_inductive_type(
                         .0
                         .push(recursor_def.def().contents.name.contents);
                     let path = env.db.intern_path_data(new_path_data);
-                    env.definitions.insert(path, &recursor_def);
+                    env.definitions.insert(path, recursor_def);
 
                     // Generate the computation rules for the recursor.
                     let comp_rules =

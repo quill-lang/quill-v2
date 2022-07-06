@@ -11,7 +11,7 @@ use crate::{expr::instantiate, universe::normalise_universe};
 
 use super::{
     env::Environment,
-    infer::{infer_type, infer_type_core},
+    infer::infer_type_core,
     unfold::{head_definition_height, unfold_definition},
     whnf::to_weak_head_normal_form,
 };
@@ -107,7 +107,7 @@ pub(in crate::typeck) fn definitionally_equal_core<'a>(
                 if let Some(result) =
                     try_eta_expansion(env, meta_gen, lambda, &left.provenance, &right)
                 {
-                    return Ok(result?);
+                    return result;
                 }
             }
         }
@@ -117,7 +117,7 @@ pub(in crate::typeck) fn definitionally_equal_core<'a>(
                 if let Some(result) =
                     try_eta_expansion(env, meta_gen, lambda, &right.provenance, &left)
                 {
-                    return Ok(result?);
+                    return result;
                 }
             }
         }
@@ -160,7 +160,7 @@ fn lambda_definitionally_equal<'a>(
     left: &Lambda,
     right: &Lambda,
 ) -> Result<bool, Box<dyn FnOnce(Report) -> Report + 'a>> {
-    if !definitionally_equal_core(env, meta_gen, &*left.parameter_ty, &*right.parameter_ty)? {
+    if !definitionally_equal_core(env, meta_gen, &left.parameter_ty, &right.parameter_ty)? {
         return Ok(false);
     }
     // The parameter types are the same.
@@ -193,7 +193,7 @@ fn pi_definitionally_equal<'a>(
     left: &Pi,
     right: &Pi,
 ) -> Result<bool, Box<dyn FnOnce(Report) -> Report + 'a>> {
-    if !definitionally_equal_core(env, meta_gen, &*left.parameter_ty, &*right.parameter_ty)? {
+    if !definitionally_equal_core(env, meta_gen, &left.parameter_ty, &right.parameter_ty)? {
         return Ok(false);
     }
     // The parameter types are the same.
@@ -236,13 +236,13 @@ fn equal_propositions<'a>(
     right: &Expr,
 ) -> Result<bool, Box<dyn FnOnce(Report) -> Report + 'a>> {
     // If the type of `left_type` is `Prop` (that is, universe zero), then proof irrelevance applies.
-    let mut left_type = infer_type_core(env, meta_gen, left, true)?;
+    let left_type = infer_type_core(env, meta_gen, left, true)?;
     let mut left_type_type = infer_type_core(env, meta_gen, &left_type, true)?;
     to_weak_head_normal_form(env, &mut left_type_type);
     if left_type_type.eq_ignoring_provenance(&Expr::new_synthetic(ExprContents::Sort(Sort(
         Universe::new_synthetic(UniverseContents::UniverseZero),
     )))) {
-        let right_type = infer_type_core(env, meta_gen, left, true)?;
+        let right_type = infer_type_core(env, meta_gen, right, true)?;
         definitionally_equal_core(env, meta_gen, &left_type, &right_type)
     } else {
         Ok(false)
@@ -308,13 +308,13 @@ fn try_eta_expansion<'a>(
     lambda_provenance: &Provenance,
     expr: &Expr,
 ) -> Option<Result<bool, Box<dyn FnOnce(Report) -> Report + 'a>>> {
-    let mut expr_type = match infer_type_core(env, meta_gen, &expr, true) {
+    let mut expr_type = match infer_type_core(env, meta_gen, expr, true) {
         Ok(value) => value,
         Err(err) => return Some(Err(err)),
     };
 
     to_weak_head_normal_form(env, &mut expr_type);
-    if let ExprContents::Pi(pi) = &expr_type.contents {
+    if let ExprContents::Pi(_) = &expr_type.contents {
         let new_expr = Expr::new_with_provenance(
             &expr.provenance,
             ExprContents::Lambda(Lambda {

@@ -1,6 +1,5 @@
 //! Unfolds definitions.
 
-use fcommon::InternExt;
 use fnodes::expr::{Expr, ExprContents, Inst};
 
 use super::env::{DefinitionHeight, Environment, ReducibilityHints};
@@ -19,7 +18,7 @@ pub fn head_definition_height(env: &Environment, e: &Expr) -> Option<DefinitionH
                     None
                 }
             }),
-        ExprContents::Apply(ap) => head_definition_height(env, &*ap.function),
+        ExprContents::Apply(ap) => head_definition_height(env, &ap.function),
         _ => None,
     }
 }
@@ -61,7 +60,7 @@ pub fn unfold_definition<'a>(env: &'a Environment, e: &mut Expr) -> bool {
                 false
             }
         }
-        ExprContents::Apply(ap) => unfold_definition(env, &mut *ap.function),
+        ExprContents::Apply(ap) => unfold_definition(env, &mut ap.function),
         _ => false,
     }
 }

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Display};
 
-use fcommon::{Intern, Path, Source};
+use fcommon::{Path, Source};
 use fnodes::{definition::Definition, expr::Sort, inductive::Inductive, SexprParser};
 
 /// A typing environment, normally called capital gamma in the literature.

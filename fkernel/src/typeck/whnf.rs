@@ -2,7 +2,7 @@
 //!
 //! Conversion rules: <https://coq.inria.fr/refman/language/core/conversion.html>
 
-use fnodes::expr::{Expr, ExprContents, Metavariable};
+use fnodes::expr::{Expr, ExprContents};
 
 use crate::expr::instantiate;
 

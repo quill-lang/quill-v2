@@ -63,7 +63,7 @@ impl<'a> ExprPrinter<'a> {
                     "{} : {}",
                     self.db
                         .lookup_intern_string_data(lambda.parameter_name.contents),
-                    self.print(&*lambda.parameter_ty)
+                    self.print(&lambda.parameter_ty)
                 );
                 let binder = match lambda.binder_annotation {
                     BinderAnnotation::Explicit => format!("({})", contents),

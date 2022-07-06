@@ -4,8 +4,7 @@ use fcommon::{Dr, Label, LabelType, Report, ReportKind, Span};
 use fnodes::{basic_nodes::Provenance, expr::*, universe::*};
 
 use crate::expr::{
-    abstract_pi, closed, has_free_variables, instantiate, instantiate_universe_parameters,
-    ExprPrinter,
+    abstract_pi, has_free_variables, instantiate, instantiate_universe_parameters, ExprPrinter,
 };
 
 use super::{defeq::definitionally_equal_core, env::Environment, whnf::to_weak_head_normal_form};
@@ -48,13 +47,11 @@ pub(crate) fn infer_type_core<'a>(
 ) -> Result<Expr, Box<dyn FnOnce(Report) -> Report + 'a>> {
     match &e.contents {
         ExprContents::Bound(_) => unreachable!("expression should not have free variables"),
-        ExprContents::Inst(inst) => infer_type_inst(env, e.provenance.span(), check, inst),
+        ExprContents::Inst(inst) => infer_type_inst(env, e.provenance.span(), inst),
         ExprContents::Let(inner) => {
             infer_type_let(env, meta_gen, e.provenance.span(), check, inner)
         }
-        ExprContents::Lambda(lambda) => {
-            infer_type_lambda(env, meta_gen, e.provenance.span(), check, lambda)
-        }
+        ExprContents::Lambda(lambda) => infer_type_lambda(env, meta_gen, check, lambda),
         ExprContents::Pi(pi) => infer_type_pi(env, meta_gen, e.provenance.span(), check, pi),
         ExprContents::Apply(apply) => {
             infer_type_apply(env, meta_gen, e.provenance.span(), check, apply)
@@ -68,7 +65,6 @@ pub(crate) fn infer_type_core<'a>(
 fn infer_type_inst<'a>(
     env: &'a Environment,
     span: Span,
-    check: bool,
     inst: &Inst,
 ) -> Result<Expr, Box<dyn FnOnce(Report) -> Report + 'a>> {
     let path = inst.name.to_path(env.db.up());
@@ -126,14 +122,14 @@ fn infer_type_let<'a>(
     if check {
         // The type of the value to assign must be a type.
         // That is, its type must be a sort.
-        let let_type_type = infer_type_core(env, meta_gen, &*inner.to_assign_ty, check)?;
+        let let_type_type = infer_type_core(env, meta_gen, &inner.to_assign_ty, check)?;
         as_sort_core(env, inner.to_assign_ty.provenance.span(), let_type_type)?;
 
         // Infer the type of the value to substitute.
-        let let_value_type = infer_type_core(env, meta_gen, &*inner.to_assign, check)?;
+        let let_value_type = infer_type_core(env, meta_gen, &inner.to_assign, check)?;
 
         // The value that we assign must have type definitionally equal to the `to_assign_ty`.
-        if !definitionally_equal_core(env, meta_gen, &let_value_type, &*inner.to_assign_ty)? {
+        if !definitionally_equal_core(env, meta_gen, &let_value_type, &inner.to_assign_ty)? {
             let inner = inner.clone();
             return Err(Box::new(move |report| {
                 let mut printer = ExprPrinter::new(env.db);
@@ -141,29 +137,28 @@ fn infer_type_let<'a>(
                     .with_label(Label::new(env.source, span, LabelType::Error))
                     .with_message(format!(
                         "argument to let-expression {} had type {}, but was expected to have type {}",
-                        printer.print(&*inner.to_assign),
+                        printer.print(&inner.to_assign),
                         printer.print(&let_value_type),
-                        printer.print(&*inner.to_assign_ty),
+                        printer.print(&inner.to_assign_ty),
                     ))
             }));
         }
     }
 
     let mut body = *inner.body.clone();
-    instantiate(&mut body, &*inner.to_assign);
+    instantiate(&mut body, &inner.to_assign);
     infer_type_core(env, meta_gen, &body, check)
 }
 
 fn infer_type_lambda<'a>(
     env: &'a Environment,
     meta_gen: &mut MetavariableGenerator,
-    span: Span,
     check: bool,
     lambda: &Lambda,
 ) -> Result<Expr, Box<dyn FnOnce(Report) -> Report + 'a>> {
     if check {
         // The argument type must be a type.
-        let argument_type_type = infer_type_core(env, meta_gen, &*lambda.parameter_ty, check)?;
+        let argument_type_type = infer_type_core(env, meta_gen, &lambda.parameter_ty, check)?;
         as_sort_core(
             env,
             lambda.parameter_ty.provenance.span(),
@@ -181,7 +176,7 @@ fn infer_type_lambda<'a>(
             ExprContents::LocalConstant(new_local.clone()),
         ),
     );
-    let mut return_type = infer_type_core(env, meta_gen, &body, check)?;
+    let return_type = infer_type_core(env, meta_gen, &body, check)?;
     Ok(Expr::new_with_provenance(
         &lambda.parameter_ty.provenance,
         ExprContents::Pi(abstract_pi(new_local, return_type)),
@@ -229,35 +224,33 @@ fn infer_type_apply<'a>(
     let function_type = as_pi(
         env,
         span.clone(),
-        infer_type_core(env, meta_gen, &*apply.function, check)?,
+        infer_type_core(env, meta_gen, &apply.function, check)?,
     )?;
-    let argument_type = infer_type_core(env, meta_gen, &*apply.argument, check)?;
-    if check {
-        if !definitionally_equal_core(env, meta_gen, &argument_type, &*function_type.parameter_ty)?
-        {
-            let parameter_ty = function_type.clone();
-            return Err(Box::new(move |report| {
-                let mut printer = ExprPrinter::new(env.db);
-                report
-                    .with_label(Label::new(env.source, span, LabelType::Error))
-                    .with_message(format!(
-                        "function of type {} cannot be applied to value of type {}",
-                        printer.print(&Expr::new_synthetic(ExprContents::Pi(function_type))),
-                        printer.print(&argument_type),
-                    ))
-            }));
-        }
+    let argument_type = infer_type_core(env, meta_gen, &apply.argument, check)?;
+    if check
+        && !definitionally_equal_core(env, meta_gen, &argument_type, &function_type.parameter_ty)?
+    {
+        return Err(Box::new(move |report| {
+            let mut printer = ExprPrinter::new(env.db);
+            report
+                .with_label(Label::new(env.source, span, LabelType::Error))
+                .with_message(format!(
+                    "function of type {} cannot be applied to value of type {}",
+                    printer.print(&Expr::new_synthetic(ExprContents::Pi(function_type))),
+                    printer.print(&argument_type),
+                ))
+        }));
     }
     let mut return_type = *function_type.result;
-    instantiate(&mut return_type, &*apply.argument);
+    instantiate(&mut return_type, &apply.argument);
     Ok(return_type)
 }
 
 fn infer_type_sort(provenance: &Provenance, sort: &Sort) -> Expr {
     Expr::new_with_provenance(
-        &provenance,
+        provenance,
         ExprContents::Sort(Sort(Universe::new_with_provenance(
-            &provenance,
+            provenance,
             UniverseContents::UniverseSucc(UniverseSucc(Box::new(sort.0.clone()))),
         ))),
     )
@@ -292,7 +285,7 @@ fn as_sort_core<'a>(
 
 /// Expands the given expression until it is a [`Sort`].
 /// If the expression was not a sort, returns a failed [`Dr`].
-pub fn as_sort<'a>(env: &'a Environment, e: Expr) -> Dr<Sort> {
+pub fn as_sort(env: &Environment, e: Expr) -> Dr<Sort> {
     let provenance = e.provenance.clone();
     match as_sort_core(env, provenance.span(), e) {
         Ok(sort) => Dr::ok(sort),

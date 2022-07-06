@@ -6,11 +6,9 @@
 
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
-use fcommon::{Dr, PathData, Source};
-use fnodes::{basic_nodes::Provenance, inductive::Inductive, module::Item};
+use fcommon::{Dr, Source};
+use fnodes::{basic_nodes::Provenance, module::Item};
 use typeck::{CertifiedDefinition, Environment};
-
-use crate::expr::ExprPrinter;
 
 // Expose this either when we're running `cargo doc` or executing tests.
 #[cfg(any(test, doc))]
@@ -65,7 +63,7 @@ fn certify(db: &dyn TypeChecker, source: Source) -> Dr<Arc<CertifiedModule>> {
             };
             match item {
                 Item::Definition(def) => {
-                    let (result, more_reports) = typeck::check(&env, &def).destructure();
+                    let (result, more_reports) = typeck::check(&env, def).destructure();
                     reports.extend(more_reports);
                     if let Some(result) = result {
                         definitions.push(result);

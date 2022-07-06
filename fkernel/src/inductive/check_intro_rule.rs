@@ -1,24 +1,21 @@
-use std::cell::Cell;
-
 use fcommon::{Dr, Label, LabelType, Report, ReportKind};
 use fnodes::{
-    basic_nodes::{Name, QualifiedName},
     definition::{Definition, DefinitionContents},
-    expr::{Expr, ExprContents, Inst, MetavariableGenerator, Pi, Sort},
+    expr::{Expr, ExprContents, MetavariableGenerator, Pi, Sort},
     inductive::{Inductive, IntroRule},
-    universe::{Universe, UniverseContents, UniverseVariable},
+    universe::{Universe, UniverseContents},
 };
 
 use crate::{
     expr::{
-        apply_args, closed, destructure_as_nary_application, find_constant, has_free_variables,
-        instantiate, ExprPrinter,
+        destructure_as_nary_application, find_constant, has_free_variables, instantiate,
+        ExprPrinter,
     },
     typeck::{
         self, as_sort, check_no_local_or_metavariable, definitionally_equal, infer_type,
         to_weak_head_normal_form, CertifiedDefinition, Environment,
     },
-    universe::{is_nonzero, is_zero, normalise_universe, universe_at_most},
+    universe::{is_zero, normalise_universe, universe_at_most},
 };
 
 use super::check::PartialInductiveInformation;
@@ -76,8 +73,8 @@ fn check_intro_rule_core(
                         let defeq_result = definitionally_equal(
                             env,
                             meta_gen,
-                            &*pi.parameter_ty,
-                            &*info.global_params[parameter_index as usize].metavariable.ty,
+                            &pi.parameter_ty,
+                            &info.global_params[parameter_index as usize].metavariable.ty,
                         );
                         match defeq_result.value() {
                             Some(true) => {}
@@ -141,6 +138,7 @@ fn check_intro_rule_core(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn check_index_parameter(
     env: &Environment,
     meta_gen: &mut MetavariableGenerator,
@@ -152,43 +150,41 @@ fn check_index_parameter(
     parameter_index: u32,
 ) -> Dr<Expr> {
     let local = pi.generate_local(meta_gen);
-    infer_type(env, meta_gen, &*pi.parameter_ty, true).bind(|sort| {
+    infer_type(env, meta_gen, &pi.parameter_ty, true).bind(|sort| {
         as_sort(env, sort).bind(|sort| {
             // The type of the type of this index parameter is allowed if
             // - its level is at most the level of the inductive data type being declared, or
             // - the inductive data type has sort 0.
-            if !is_zero(&info.sort.0) {
-                if !universe_at_most(sort.0.clone(), info.sort.0.clone()) {
-                    let mut print = ExprPrinter::new(env.db);
-                    tracing::debug!("LEFT: {}", print.print_universe(&sort.0));
-                    tracing::debug!("RIGHT: {}", print.print_universe(&info.sort.0));
-                    let mut l = sort.0.clone();
-                    normalise_universe(&mut l);
-                    let mut r = info.sort.0.clone();
-                    normalise_universe(&mut r);
-                    tracing::debug!("NEW LEFT: {}", print.print_universe(&sort.0));
-                    tracing::debug!("NEW RIGHT: {}", print.print_universe(&info.sort.0));
-                    return Dr::fail(
-                        Report::new(
-                            ReportKind::Error,
-                            env.source,
-                            pi.result.provenance.span().start,
-                        )
-                        .with_message("this is an invalid argument for this intro rule")
-                        .with_label(Label::new(env.source, pi.result.provenance.span(), LabelType::Error)
-                            .with_message(format!(
-                                "this type had sort {}, which could exceed the inductive's sort {}",
-                                print.print(&Expr::new_synthetic(ExprContents::Sort(sort))),
-                                print.print(&Expr::new_synthetic(ExprContents::Sort(info.sort.clone()))),
-                            )))
-                        .with_label(Label::new(env.source, ind.contents.ty.provenance.span().clone(), LabelType::Note)
-                            .with_message(format!(
-                                "error was emitted because the resulting inductive has sort {}, which may be in a higher universe than {}",
-                                print.print(&Expr::new_synthetic(ExprContents::Sort(info.sort.clone()))),
-                                print.print(&Expr::new_synthetic(ExprContents::Sort(Sort(Universe::new_synthetic(UniverseContents::UniverseZero))))),
-                            ))),
-                    );
-                }
+            if !is_zero(&info.sort.0) && !universe_at_most(sort.0.clone(), info.sort.0.clone()) {
+                let mut print = ExprPrinter::new(env.db);
+                tracing::debug!("LEFT: {}", print.print_universe(&sort.0));
+                tracing::debug!("RIGHT: {}", print.print_universe(&info.sort.0));
+                let mut l = sort.0.clone();
+                normalise_universe(&mut l);
+                let mut r = info.sort.0.clone();
+                normalise_universe(&mut r);
+                tracing::debug!("NEW LEFT: {}", print.print_universe(&sort.0));
+                tracing::debug!("NEW RIGHT: {}", print.print_universe(&info.sort.0));
+                return Dr::fail(
+                    Report::new(
+                        ReportKind::Error,
+                        env.source,
+                        pi.result.provenance.span().start,
+                    )
+                    .with_message("this is an invalid argument for this intro rule")
+                    .with_label(Label::new(env.source, pi.result.provenance.span(), LabelType::Error)
+                        .with_message(format!(
+                            "this type had sort {}, which could exceed the inductive's sort {}",
+                            print.print(&Expr::new_synthetic(ExprContents::Sort(sort))),
+                            print.print(&Expr::new_synthetic(ExprContents::Sort(info.sort.clone()))),
+                        )))
+                    .with_label(Label::new(env.source, ind.contents.ty.provenance.span(), LabelType::Note)
+                        .with_message(format!(
+                            "error was emitted because the resulting inductive has sort {}, which may be in a higher universe than {}",
+                            print.print(&Expr::new_synthetic(ExprContents::Sort(info.sort.clone()))),
+                            print.print(&Expr::new_synthetic(ExprContents::Sort(Sort(Universe::new_synthetic(UniverseContents::UniverseZero))))),
+                        ))),
+                );
             }
 
             // Check that the inductive data type occurs strictly positively.
@@ -257,7 +253,7 @@ fn check_positivity(
     if find_constant(&e, &segments).is_some() {
         // This is a recursive argument, so we need to check for positivity.
         if let ExprContents::Pi(pi) = e.contents {
-            if let Some(value) = find_constant(&*pi.parameter_ty, &segments) {
+            if let Some(value) = find_constant(&pi.parameter_ty, &segments) {
                 // This is a non-positive occurence of the inductive type being declared.
                 Dr::fail(todo!())
             } else {

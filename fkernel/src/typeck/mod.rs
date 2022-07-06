@@ -78,8 +78,8 @@ pub fn check(env: &Environment, def: &Definition) -> Dr<CertifiedDefinition> {
 }
 
 pub fn check_no_local_or_metavariable(env: &Environment, e: &Expr) -> Dr<()> {
-    if let Some(inner) = first_local_or_metavariable(&e) {
-        return Dr::fail(
+    if let Some(inner) = first_local_or_metavariable(e) {
+        Dr::fail(
             Report::new(
                 ReportKind::Error,
                 env.source,
@@ -102,7 +102,7 @@ pub fn check_no_local_or_metavariable(env: &Environment, e: &Expr) -> Dr<()> {
                 ExprContents::LocalConstant(_) => "local constant found here",
                 _ => unreachable!()
             }),),
-        );
+        )
     } else {
         Dr::ok(())
     }
