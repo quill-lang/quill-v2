@@ -18,7 +18,7 @@ mod recursor_info;
 
 use self::{
     check::PartialInductiveInformation, check_intro_rule::check_intro_rule,
-    comp_rule::generate_computation_rules, recursor::generate_recursor,
+    comp_rule::{generate_computation_rules, ComputationRule}, recursor::generate_recursor,
     recursor_info::recursor_info,
 };
 
@@ -123,7 +123,7 @@ pub(crate) struct CertifiedInductiveInformation {
     /// The recursor for this inductive data type.
     pub recursor: CertifiedDefinition,
     /// The reduction rules used for computing applications of the recursor.
-    pub computation_rules: Vec<Expr>,
+    pub computation_rules: Vec<ComputationRule>,
 }
 
 #[derive(Debug)]

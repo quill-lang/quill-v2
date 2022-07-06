@@ -7,10 +7,8 @@ use fnodes::{
 };
 
 use crate::{
-    expr::{
-        abstract_lambda, abstract_nary_lambda, create_nary_application, instantiate, ExprPrinter,
-    },
-    typeck::{self, to_weak_head_normal_form, Environment},
+    expr::{abstract_nary_lambda, apply_args, instantiate, ExprPrinter},
+    typeck::{self, definitionally_equal, to_weak_head_normal_form, Environment},
 };
 
 use super::{
@@ -25,7 +23,7 @@ pub fn generate_computation_rules(
     ind: &Inductive,
     info: &PartialInductiveInformation,
     rec_info: &RecursorInfo,
-) -> Dr<Vec<Expr>> {
+) -> Dr<Vec<ComputationRule>> {
     Dr::sequence(
         ind.contents
             .intro_rules
@@ -46,10 +44,21 @@ pub fn generate_computation_rules(
     .map(|rules| {
         let mut print = ExprPrinter::new(env.db);
         for rule in &rules {
-            tracing::info!("computation rule has value {}", print.print(rule));
+            tracing::info!(
+                "computation rule has value {} => {}",
+                print.print(&rule.eliminator_application),
+                print.print(&rule.minor_premise_application)
+            );
         }
         rules
     })
+}
+
+/// A computation rule converts an application of an eliminator into an application of one of the minor premises to the eliminator.
+#[derive(Debug)]
+pub struct ComputationRule {
+    pub eliminator_application: Expr,
+    pub minor_premise_application: Expr,
 }
 
 fn generate_computation_rule(
@@ -60,9 +69,70 @@ fn generate_computation_rule(
     minor_premise: &LocalConstant,
     info: &PartialInductiveInformation,
     rec_info: &RecursorInfo,
-) -> Dr<Expr> {
+) -> Dr<ComputationRule> {
+    let eliminator_name = env.db.intern_string_data(format!(
+        "{}.rec",
+        env.db.lookup_intern_string_data(ind.contents.name.contents)
+    ));
+
+    let eliminator = Expr::new_synthetic(ExprContents::Inst(Inst {
+        name: QualifiedName {
+            provenance: Provenance::Synthetic,
+            segments: env
+                .db
+                .lookup_intern_path_data(env.source.path)
+                .0
+                .into_iter()
+                .chain(std::iter::once(eliminator_name))
+                .map(|s| Name {
+                    provenance: Provenance::Synthetic,
+                    contents: s,
+                })
+                .collect(),
+        },
+        universes: ind
+            .contents
+            .universe_params
+            .iter()
+            .map(|univ| {
+                Universe::new_with_provenance(
+                    &univ.provenance,
+                    UniverseContents::UniverseVariable(UniverseVariable(univ.contents)),
+                )
+            })
+            .collect(),
+    }));
+
+    let intro_rule_expr = Expr::new_synthetic(ExprContents::Inst(Inst {
+        name: QualifiedName {
+            provenance: Provenance::Synthetic,
+            segments: env
+                .db
+                .lookup_intern_path_data(env.source.path)
+                .0
+                .into_iter()
+                .map(|s| Name {
+                    provenance: Provenance::Synthetic,
+                    contents: s,
+                })
+                .chain(std::iter::once(intro_rule.name.clone()))
+                .collect(),
+        },
+        universes: ind
+            .contents
+            .universe_params
+            .iter()
+            .map(|univ| {
+                Universe::new_with_provenance(
+                    &univ.provenance,
+                    UniverseContents::UniverseVariable(UniverseVariable(univ.contents)),
+                )
+            })
+            .collect(),
+    }));
+
     split_intro_rule_type(env, meta_gen, ind, info, intro_rule.ty.clone()).bind(|split_result| {
-        Dr::sequence(split_result.recursive.iter().enumerate().map(|(i, arg)| {
+        Dr::sequence(split_result.recursive.iter().map(|arg| {
             let mut local_ty = *arg.metavariable.ty.clone();
             to_weak_head_normal_form(env, &mut local_ty);
             let mut inner_args = Vec::new();
@@ -79,39 +149,6 @@ fn generate_computation_rule(
 
             get_indices(env, meta_gen, &local_ty, info).map(|intro_rule_indices| {
                 // Create the application of the eliminator.
-                let eliminator_name = env.db.intern_string_data(format!(
-                    "{}.rec",
-                    env.db.lookup_intern_string_data(ind.contents.name.contents)
-                ));
-
-                let eliminator = Expr::new_synthetic(ExprContents::Inst(Inst {
-                    name: QualifiedName {
-                        provenance: Provenance::Synthetic,
-                        segments: env
-                            .db
-                            .lookup_intern_path_data(env.source.path)
-                            .0
-                            .into_iter()
-                            .chain(std::iter::once(eliminator_name))
-                            .map(|s| Name {
-                                provenance: Provenance::Synthetic,
-                                contents: s,
-                            })
-                            .collect(),
-                    },
-                    universes: ind
-                        .contents
-                        .universe_params
-                        .iter()
-                        .map(|univ| {
-                            Universe::new_with_provenance(
-                                &univ.provenance,
-                                UniverseContents::UniverseVariable(UniverseVariable(univ.contents)),
-                            )
-                        })
-                        .collect(),
-                }));
-
                 let mut eliminator_application = info
                     .global_params
                     .iter()
@@ -119,7 +156,7 @@ fn generate_computation_rule(
                     .chain(&rec_info.minor_premises)
                     .map(|local| Expr::new_synthetic(ExprContents::LocalConstant(local.clone())))
                     .chain(intro_rule_indices.iter().copied().cloned())
-                    .fold(eliminator, |func, arg| {
+                    .fold(eliminator.clone(), |func, arg| {
                         Expr::new_synthetic(ExprContents::Apply(Apply {
                             function: Box::new(func),
                             argument: Box::new(arg),
@@ -149,6 +186,63 @@ fn generate_computation_rule(
             })
         }))
         .bind(|eliminator_invocations| {
+            let mut intro_rule_ty = intro_rule.ty.clone();
+            while let ExprContents::Pi(pi) = intro_rule_ty.contents {
+                let inner_arg = pi.generate_local(meta_gen);
+                intro_rule_ty = *pi.result;
+                instantiate(
+                    &mut intro_rule_ty,
+                    &Expr::new_synthetic(ExprContents::LocalConstant(inner_arg)),
+                );
+            }
+
+            // Create the left hand side of the computation rule.
+            let eliminator_arguments = info
+                .global_params
+                .iter()
+                .chain(std::iter::once(&rec_info.type_former))
+                .chain(&rec_info.minor_premises)
+                .map(|local| Expr::new_synthetic(ExprContents::LocalConstant(local.clone())))
+                .chain(
+                    apply_args(&intro_rule_ty)
+                        .into_iter()
+                        .skip(info.global_params.len())
+                        .cloned(),
+                )
+                .chain(std::iter::once(
+                    info.global_params
+                        .iter()
+                        .chain(&split_result.nonrecursive_and_recursive)
+                        .map(|local| {
+                            Expr::new_synthetic(ExprContents::LocalConstant(local.clone()))
+                        })
+                        .fold(intro_rule_expr, |func, arg| {
+                            Expr::new_synthetic(ExprContents::Apply(Apply {
+                                function: Box::new(func),
+                                argument: Box::new(arg),
+                            }))
+                        }),
+                ));
+
+            let eliminator_application = eliminator_arguments.fold(eliminator, |func, arg| {
+                Expr::new_synthetic(ExprContents::Apply(Apply {
+                    function: Box::new(func),
+                    argument: Box::new(arg),
+                }))
+            });
+
+            let computation_rule_lhs = abstract_nary_lambda(
+                info.global_params
+                    .iter()
+                    .chain(std::iter::once(&rec_info.type_former))
+                    .chain(&rec_info.minor_premises)
+                    .chain(&split_result.nonrecursive_and_recursive)
+                    .cloned(),
+                eliminator_application.clone(),
+                &Provenance::Synthetic,
+            );
+
+            // Create the right hand side of the computation rule.
             let minor_premise_application = split_result
                 .nonrecursive_and_recursive
                 .iter()
@@ -165,7 +259,6 @@ fn generate_computation_rule(
                     },
                 );
 
-            // Create the right hand side of the computation rule.
             let computation_rule_rhs = abstract_nary_lambda(
                 info.global_params
                     .iter()
@@ -173,13 +266,27 @@ fn generate_computation_rule(
                     .chain(&rec_info.minor_premises)
                     .chain(&split_result.nonrecursive_and_recursive)
                     .cloned(),
-                minor_premise_application,
+                minor_premise_application.clone(),
                 &Provenance::Synthetic,
             );
 
-            typeck::infer_type(env, meta_gen, &computation_rule_rhs, true).map(|_| {
-                // The type of the RHS of the computation rule was valid.
-                computation_rule_rhs
+            typeck::infer_type(env, meta_gen, &computation_rule_lhs, true).bind(|ty_lhs| {
+                // The type of the LHS of the computation rule was valid.
+                typeck::infer_type(env, meta_gen, &computation_rule_rhs, true).bind(|ty_rhs| {
+                    // The type of the RHS of the computation rule was valid.
+                    // Check that the types are equal.
+                    definitionally_equal(env, meta_gen, &ty_lhs, &ty_rhs).bind(|defeq| {
+                        if defeq {
+                            // The computation rule is valid.
+                            Dr::ok(ComputationRule {
+                                eliminator_application,
+                                minor_premise_application,
+                            })
+                        } else {
+                            Dr::fail(todo!())
+                        }
+                    })
+                })
             })
         })
     })

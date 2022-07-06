@@ -1,4 +1,4 @@
-use fcommon::{Dr, Str, StrGenerator};
+use fcommon::{Dr, Label, LabelType, Report, ReportKind, Str, StrGenerator};
 use fnodes::{
     basic_nodes::{Name, Provenance, QualifiedName},
     expr::{
@@ -350,16 +350,28 @@ pub fn get_indices<'a>(
     result_ty: &'a Expr,
     info: &PartialInductiveInformation,
 ) -> Dr<Vec<&'a Expr>> {
-    is_valid_inductive_application(env, meta_gen, &result_ty, info).bind(|is_valid| {
+    is_valid_inductive_application(env, meta_gen, result_ty, info).bind(|is_valid| {
         if is_valid {
             Dr::ok(
-                apply_args(&result_ty)
+                apply_args(result_ty)
                     .into_iter()
                     .skip(info.global_params.len())
                     .collect(),
             )
         } else {
-            Dr::fail(todo!())
+            let mut print = ExprPrinter::new(env.db);
+            Dr::fail(
+                Report::new(
+                    ReportKind::Error,
+                    env.source,
+                    result_ty.provenance.span().start,
+                )
+                .with_message("this was not a valid application of the inductive data type")
+                .with_label(
+                    Label::new(env.source, result_ty.provenance.span(), LabelType::Error)
+                        .with_message(format!("expression was {}", print.print(result_ty))),
+                ),
+            )
         }
     })
 }
