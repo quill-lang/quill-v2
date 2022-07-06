@@ -187,7 +187,7 @@ where
     }
 
     fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
-        (&**self).serialise(db)
+        (**self).serialise(db)
     }
 }
 

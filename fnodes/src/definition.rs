@@ -45,7 +45,7 @@ impl ListSexpr for Definition {
             Ok([name, universe_params, ty]) => Definition {
                 provenance: Provenance::Sexpr {
                     source,
-                    span: span.clone(),
+                    span,
                 },
                 contents: DefinitionContents {
                     name: Name::parse(db, source, name)?,
@@ -60,7 +60,7 @@ impl ListSexpr for Definition {
                 Definition {
                     provenance: Provenance::Sexpr {
                         source,
-                        span: span.clone(),
+                        span,
                     },
                     contents: DefinitionContents {
                         name: Name::parse(db, source, name)?,

@@ -58,7 +58,7 @@ impl Provenance {
 impl AtomicSexpr for String {
     fn parse_atom(
         _db: &dyn SexprParser,
-        source: Source,
+        _source: Source,
         text: String,
     ) -> Result<Self, ParseErrorReason> {
         Ok(text)
@@ -72,7 +72,7 @@ impl AtomicSexpr for String {
 impl AtomicSexpr for Str {
     fn parse_atom(
         db: &dyn SexprParser,
-        source: Source,
+        _source: Source,
         text: String,
     ) -> Result<Self, ParseErrorReason> {
         Ok(db.intern_string_data(text))

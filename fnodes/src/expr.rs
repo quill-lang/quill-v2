@@ -54,9 +54,7 @@
 //! sub-expression (or sub-value, if `E` is [`Value`]).
 //! Like with shadow names, `#[sub_exprs]` can be used to denote an iterable field with
 //! sub-expression values.
-use std::collections::HashMap;
 
-use crate::universe::{Metauniverse, UniverseContents};
 use crate::*;
 use crate::{basic_nodes::*, universe::Universe};
 use fcommon::{Source, Span};
@@ -346,14 +344,9 @@ pub struct LocalConstant {
 }
 
 /// Generates unique inference variable names.
+#[derive(Default)]
 pub struct MetavariableGenerator {
     next_var: u32,
-}
-
-impl Default for MetavariableGenerator {
-    fn default() -> Self {
-        Self { next_var: 0 }
-    }
 }
 
 impl MetavariableGenerator {

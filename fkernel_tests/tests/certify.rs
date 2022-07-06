@@ -33,8 +33,8 @@ impl Debug for TestDatabase {
 }
 
 impl FileWatcher for TestDatabase {
-    fn watch(&self, src: Source) {}
-    fn did_change_file(&mut self, src: Source) {}
+    fn watch(&self, _src: Source) {}
+    fn did_change_file(&mut self, _src: Source) {}
 }
 
 impl salsa::Database for TestDatabase {}
@@ -46,7 +46,7 @@ fn run_test(file: &str) {
 
     let source = Source {
         path: db.intern_path_data(PathData(
-            file.split("/")
+            file.split('/')
                 .map(|segment| db.intern_string_data(segment.to_string().replace(".sexp", "")))
                 .collect(),
         )),

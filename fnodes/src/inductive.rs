@@ -87,10 +87,7 @@ impl ListSexpr for Inductive {
             force_arity(span.clone(), args)?;
 
         let inductive = Inductive {
-            provenance: Provenance::Sexpr {
-                source,
-                span: span.clone(),
-            },
+            provenance: Provenance::Sexpr { source, span },
             contents: InductiveContents {
                 name: Name::parse(db, source, name)?,
                 universe_params: ListSexprWrapper::parse(db, source, universe_params)?,
