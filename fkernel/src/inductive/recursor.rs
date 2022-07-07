@@ -22,12 +22,36 @@ pub fn generate_recursor(
     ind: &Inductive,
     info: &PartialInductiveInformation,
 ) -> Dr<(RecursorInfo, CertifiedDefinition)> {
-    recursor_info(env, meta_gen, ind, info).bind(|rec_info| {
-        let def = generate_recursor_core(env, ind, info, &rec_info);
-        let mut print = ExprPrinter::new(env.db);
-        tracing::debug!("eliminator has type {}", print.print(&def.contents.ty));
-        typeck::check(env, &def).map(|def| (rec_info, def))
-    })
+    recursor_info(env, meta_gen, ind, info)
+        .bind(|rec_info| {
+            let def = generate_recursor_core(env, ind, info, &rec_info);
+            let mut print = ExprPrinter::new(env.db);
+            tracing::debug!("eliminator has type {}", print.print(&def.contents.ty));
+
+            let mut env = env.clone();
+
+            // Add the universe parameter created for the type former if applicable.
+            let mut universe_variables = env.universe_variables.to_owned();
+            match rec_info.recursor_universe {
+                RecursorUniverse::Prop => {}
+                RecursorUniverse::Parameter(param) => {
+                    let new_universe_parameter = Name {
+                        provenance: ind.provenance.clone(),
+                        contents: param,
+                    };
+                    universe_variables.insert(0, new_universe_parameter);
+                }
+            };
+            env.universe_variables = &universe_variables;
+
+            typeck::check(&env, &def).map(|def| (rec_info, def))
+        })
+        .map_reports(|report| {
+            report.with_note(format!(
+                "error raised while creating the recursor for type {}",
+                env.db.lookup_intern_string_data(ind.contents.name.contents)
+            ))
+        })
 }
 
 fn generate_recursor_core(

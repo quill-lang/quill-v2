@@ -7,6 +7,7 @@ use crate::inductive::CertifiedInductive;
 
 /// A typing environment, normally called capital gamma in the literature.
 /// Contains information about everything we can see in the current position in a file.
+#[derive(Clone)]
 pub struct Environment<'a> {
     pub source: Source,
     pub db: &'a dyn SexprParser,

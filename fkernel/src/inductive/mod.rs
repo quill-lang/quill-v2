@@ -2,7 +2,7 @@ use fcommon::Dr;
 use fnodes::{
     definition::{Definition, DefinitionContents},
     expr::MetavariableGenerator,
-    inductive::Inductive,
+    inductive::Inductive, basic_nodes::Name,
 };
 
 use crate::typeck::{self, CertifiedDefinition, Environment};
@@ -16,7 +16,7 @@ mod recursor_info;
 use self::{
     check_intro_rule::check_intro_rule,
     comp_rule::{generate_computation_rules, ComputationRule},
-    recursor::generate_recursor,
+    recursor::generate_recursor, recursor_info::RecursorUniverse,
 };
 
 /// Verifies that an inductive type is valid and can be added to the environment.
@@ -81,6 +81,20 @@ pub(crate) fn check_inductive_type(
                         .push(recursor_def.def().contents.name.contents);
                     let path = env.db.intern_path_data(new_path_data);
                     env.definitions.insert(path, recursor_def);
+
+                    // Add the universe parameter created for the type former if applicable.
+                    let mut universe_variables = env.universe_variables.to_owned();
+                    match rec_info.recursor_universe {
+                        RecursorUniverse::Prop => {}
+                        RecursorUniverse::Parameter(param) => {
+                            let new_universe_parameter = Name {
+                                provenance: ind.provenance.clone(),
+                                contents: param,
+                            };
+                            universe_variables.insert(0, new_universe_parameter);
+                        }
+                    };
+                    env.universe_variables = &universe_variables;
 
                     // Generate the computation rules for the recursor.
                     let comp_rules =

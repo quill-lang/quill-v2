@@ -507,6 +507,14 @@ impl<T> Dr<T> {
             );
         }
     }
+
+    /// Applies the given function to all reports in this diagnostic result.
+    pub fn map_reports(mut self, f: impl Fn(Report) -> Report) -> Self {
+        for report in &mut self.reports {
+            *report = f(report.clone());
+        }
+        self
+    }
 }
 
 impl<T> FromIterator<Dr<T>> for Dr<Vec<T>> {

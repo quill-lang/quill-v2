@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use fcommon::{Dr, Path};
+use fcommon::Dr;
 use fnodes::{
     basic_nodes::{Name, Provenance, QualifiedName},
     expr::*,
@@ -45,6 +45,13 @@ pub fn generate_computation_rules(
                     info,
                     rec_info,
                 )
+                .map_reports(|report| {
+                    report.with_note(format!(
+                        "error raised while creating the computation rule for intro rule {} on type {}",
+                        env.db.lookup_intern_string_data(intro_rule.name.contents),
+                        env.db.lookup_intern_string_data(ind.contents.name.contents)
+                    ))
+                })
             }),
     )
     .map(|rules| {
@@ -243,6 +250,14 @@ fn generate_computation_rule(
         env.db.lookup_intern_string_data(ind.contents.name.contents)
     ));
 
+    let eliminator_universe = match rec_info.recursor_universe {
+        RecursorUniverse::Prop => Vec::new(),
+        RecursorUniverse::Parameter(param) => vec![Name {
+            provenance: ind.provenance.clone(),
+            contents: param,
+        }],
+    };
+
     let eliminator = Expr::new_synthetic(ExprContents::Inst(Inst {
         name: QualifiedName {
             provenance: Provenance::Synthetic,
@@ -258,10 +273,9 @@ fn generate_computation_rule(
                 })
                 .collect(),
         },
-        universes: ind
-            .contents
-            .universe_params
+        universes: eliminator_universe
             .iter()
+            .chain(&ind.contents.universe_params)
             .map(|univ| {
                 Universe::new_with_provenance(
                     &univ.provenance,
@@ -270,14 +284,6 @@ fn generate_computation_rule(
             })
             .collect(),
     }));
-
-    let eliminator_universe = match rec_info.recursor_universe {
-        RecursorUniverse::Prop => Vec::new(),
-        RecursorUniverse::Parameter(param) => vec![Name {
-            provenance: ind.provenance.clone(),
-            contents: param,
-        }],
-    };
 
     let intro_rule_expr = Expr::new_synthetic(ExprContents::Inst(Inst {
         name: QualifiedName {
@@ -294,9 +300,10 @@ fn generate_computation_rule(
                 .chain(std::iter::once(intro_rule.name.clone()))
                 .collect(),
         },
-        universes: eliminator_universe
+        universes: ind
+            .contents
+            .universe_params
             .iter()
-            .chain(&ind.contents.universe_params)
             .map(|univ| {
                 Universe::new_with_provenance(
                     &univ.provenance,
