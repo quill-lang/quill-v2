@@ -49,32 +49,31 @@ fn certify(db: &dyn TypeChecker, source: Source) -> Dr<Arc<CertifiedModule>> {
         let mut inductives = Vec::<CertifiedInductive>::new();
         let mut reports = Vec::new();
         for item in &module.contents.items {
-            let env = Environment {
-                source,
-                db: db.up(),
-                definitions: {
-                    let mut defs = HashMap::new();
-                    for def in &definitions {
-                        let mut new_path_data = source_path.clone();
-                        new_path_data.0.push(def.def().contents.name.contents);
-                        let path = db.intern_path_data(new_path_data);
-                        defs.insert(path, def);
-                    }
-                    defs
-                },
-                inductives: {
-                    let mut inds = HashMap::new();
-                    for ind in &inductives {
-                        let mut new_path_data = source_path.clone();
-                        new_path_data.0.push(ind.inductive().contents.name.contents);
-                        let path = db.intern_path_data(new_path_data);
-                        inds.insert(path, ind);
-                    }
-                    inds
-                },
-            };
+            let mut local_definitions = HashMap::new();
+            for def in &definitions {
+                let mut new_path_data = source_path.clone();
+                new_path_data.0.push(def.def().contents.name.contents);
+                let path = db.intern_path_data(new_path_data);
+                local_definitions.insert(path, def);
+            }
+
+            let mut local_inductives = HashMap::new();
+            for ind in &inductives {
+                let mut new_path_data = source_path.clone();
+                new_path_data.0.push(ind.inductive().contents.name.contents);
+                let path = db.intern_path_data(new_path_data);
+                local_inductives.insert(path, ind);
+            }
+
             match item {
                 Item::Definition(def) => {
+                    let env = Environment {
+                        source,
+                        db: db.up(),
+                        definitions: local_definitions,
+                        inductives: local_inductives,
+                        universe_variables: &def.contents.universe_params,
+                    };
                     let (result, more_reports) = typeck::check(&env, def).destructure();
                     reports.extend(more_reports);
                     if let Some(result) = result {
@@ -82,6 +81,13 @@ fn certify(db: &dyn TypeChecker, source: Source) -> Dr<Arc<CertifiedModule>> {
                     }
                 }
                 Item::Inductive(ind) => {
+                    let env = Environment {
+                        source,
+                        db: db.up(),
+                        definitions: local_definitions,
+                        inductives: local_inductives,
+                        universe_variables: &ind.contents.universe_params,
+                    };
                     let (result, more_reports) =
                         inductive::check_inductive_type(env, ind).destructure();
                     reports.extend(more_reports);

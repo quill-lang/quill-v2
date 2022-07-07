@@ -11,7 +11,7 @@ use fnodes::{
 
 use crate::{
     typeck::{definition_height, DefinitionHeight, Environment},
-    universe::instantiate_universe,
+    universe::{instantiate_universe, instantiate_universe_variable},
 };
 
 enum ReplaceResult {
@@ -336,4 +336,64 @@ pub fn abstract_pi(local: LocalConstant, mut return_type: Expr) -> Pi {
         parameter_ty: local.metavariable.ty,
         result: Box::new(return_type),
     }
+}
+
+pub fn replace_local(e: &mut Expr, local: &LocalConstant, replacement: &Expr) {
+    replace_in_expr(e, |e, offset| {
+        if let ExprContents::LocalConstant(inner) = &e.contents
+            && inner.metavariable.index == local.metavariable.index {
+            // We should replace this local variable.
+            let mut replacement = replacement.clone();
+            lift_free_vars(&mut replacement, offset);
+            ReplaceResult::ReplaceWith(replacement)
+        } else {
+            ReplaceResult::Skip
+        }
+    })
+}
+
+pub fn replace_universe_variable(e: &mut Expr, var: &UniverseVariable, replacement: &Universe) {
+    replace_in_expr(e, |e, offset| match &e.contents {
+        ExprContents::Inst(inst) => {
+            let mut inst = inst.clone();
+            for u in &mut inst.universes {
+                instantiate_universe_variable(u, var, replacement);
+            }
+            ReplaceResult::ReplaceWith(Expr::new_with_provenance(
+                &e.provenance,
+                ExprContents::Inst(inst),
+            ))
+        }
+        ExprContents::Sort(sort) => {
+            let mut u = sort.0.clone();
+            instantiate_universe_variable(&mut u, var, replacement);
+            ReplaceResult::ReplaceWith(Expr::new_with_provenance(
+                &e.provenance,
+                ExprContents::Sort(Sort(u)),
+            ))
+        }
+        ExprContents::Metavariable(meta) => {
+            let mut ty = meta.ty.clone();
+            replace_universe_variable(&mut ty, var, replacement);
+            ReplaceResult::ReplaceWith(Expr::new_with_provenance(
+                &e.provenance,
+                ExprContents::Metavariable(Metavariable { ty, ..meta.clone() }),
+            ))
+        }
+        ExprContents::LocalConstant(local) => {
+            let mut ty = local.metavariable.ty.clone();
+            replace_universe_variable(&mut ty, var, replacement);
+            ReplaceResult::ReplaceWith(Expr::new_with_provenance(
+                &e.provenance,
+                ExprContents::LocalConstant(LocalConstant {
+                    metavariable: Metavariable {
+                        ty,
+                        ..local.metavariable
+                    },
+                    ..local.clone()
+                }),
+            ))
+        }
+        _ => ReplaceResult::Skip,
+    })
 }

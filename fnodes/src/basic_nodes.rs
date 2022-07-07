@@ -283,6 +283,15 @@ impl QualifiedName {
     pub fn display(&self, intern: &dyn Intern) -> String {
         self.to_path(intern).display(intern)
     }
+
+    pub fn eq_ignoring_provenance(&self, other: &QualifiedName) -> bool {
+        self.segments.len() == other.segments.len()
+            && self
+                .segments
+                .iter()
+                .zip(&other.segments)
+                .all(|(left, right)| left.contents == right.contents)
+    }
 }
 
 impl ListSexpr for QualifiedName {

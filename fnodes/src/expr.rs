@@ -177,6 +177,18 @@ pub struct Inst {
     pub universes: Vec<Universe>,
 }
 
+impl Inst {
+    pub fn eq_ignoring_provenance(&self, other: &Inst) -> bool {
+        self.name.eq_ignoring_provenance(&other.name)
+            && self.universes.len() == other.universes.len()
+            && self
+                .universes
+                .iter()
+                .zip(&other.universes)
+                .all(|(left, right)| left.eq_ignoring_provenance(right))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
 #[list_sexpr_keyword = "let"]
 pub struct Let {

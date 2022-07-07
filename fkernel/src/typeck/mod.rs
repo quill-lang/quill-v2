@@ -4,6 +4,7 @@ use fcommon::{Dr, Label, LabelType, Report, ReportKind};
 use fnodes::{
     definition::Definition,
     expr::{Expr, ExprContents, MetavariableGenerator},
+    universe::{Universe, UniverseVariable},
 };
 
 mod defeq;
@@ -47,6 +48,7 @@ pub fn check(env: &Environment, def: &Definition) -> Dr<CertifiedDefinition> {
                                             def.clone(),
                                             sort,
                                             ReducibilityHints::Regular { height: get_max_height(env, &expr) + 1 },
+                                            DefinitionOrigin::Feather,
                                         ))
                                     } else {
                                         let mut printer = ExprPrinter::new(env.db);
@@ -70,6 +72,7 @@ pub fn check(env: &Environment, def: &Definition) -> Dr<CertifiedDefinition> {
                         def.clone(),
                         sort,
                         ReducibilityHints::Opaque,
+                        DefinitionOrigin::Feather,
                     ))
                 }
             })

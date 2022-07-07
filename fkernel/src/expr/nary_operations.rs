@@ -33,7 +33,7 @@ pub fn apply_args(e: &Expr) -> Vec<&Expr> {
 }
 
 /// Suppose that this expression is an n-ary function application, where n is zero or a positive integer.
-/// Then, this function returns the [leftmost_function] of this expression, and the list of [apply_args]
+/// Then, this function returns the [`leftmost_function`] of this expression, and the list of [`apply_args`]
 /// that were applied to it.
 /// Applying this function to `foo 1 2 3` returns `(foo, [1, 2, 3])`.
 pub fn destructure_as_nary_application(e: &Expr) -> (&Expr, Vec<&Expr>) {

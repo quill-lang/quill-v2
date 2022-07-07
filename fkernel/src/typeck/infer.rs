@@ -47,7 +47,7 @@ pub(crate) fn infer_type_core<'a>(
 ) -> Result<Expr, Box<dyn FnOnce(Report) -> Report + 'a>> {
     match &e.contents {
         ExprContents::Bound(_) => unreachable!("expression should not have free variables"),
-        ExprContents::Inst(inst) => infer_type_inst(env, e.provenance.span(), inst),
+        ExprContents::Inst(inst) => infer_type_inst(env, e.provenance.span(), check, inst),
         ExprContents::Let(inner) => {
             infer_type_let(env, meta_gen, e.provenance.span(), check, inner)
         }
@@ -56,7 +56,7 @@ pub(crate) fn infer_type_core<'a>(
         ExprContents::Apply(apply) => {
             infer_type_apply(env, meta_gen, e.provenance.span(), check, apply)
         }
-        ExprContents::Sort(sort) => Ok(infer_type_sort(&e.provenance, sort)),
+        ExprContents::Sort(sort) => infer_type_sort(env, &e.provenance, check, sort),
         ExprContents::Metavariable(var) => Ok(*var.ty.clone()),
         ExprContents::LocalConstant(local) => Ok(*local.metavariable.ty.clone()),
     }
@@ -65,6 +65,7 @@ pub(crate) fn infer_type_core<'a>(
 fn infer_type_inst<'a>(
     env: &'a Environment,
     span: Span,
+    check: bool,
     inst: &Inst,
 ) -> Result<Expr, Box<dyn FnOnce(Report) -> Report + 'a>> {
     let path = inst.name.to_path(env.db.up());
@@ -72,6 +73,11 @@ fn infer_type_inst<'a>(
         Some(def) => {
             if def.def().contents.universe_params.len() == inst.universes.len() {
                 let mut e = def.def().contents.ty.clone();
+                if check {
+                    for u in &inst.universes {
+                        check_valid_universe(env, u)?;
+                    }
+                }
                 instantiate_universe_parameters(
                     &mut e,
                     &def.def().contents.universe_params,
@@ -82,6 +88,9 @@ fn infer_type_inst<'a>(
                 let inst = inst.clone();
                 Err(Box::new(move |report| {
                     report
+                        .with_message(
+                            "incorrect number of universe parameters were supplied to definition",
+                        )
                         .with_label(Label::new(env.source, span, LabelType::Error).with_message(
                             format!(
                                 "definition {} has {} universe parameters, but {} were supplied",
@@ -246,14 +255,22 @@ fn infer_type_apply<'a>(
     Ok(return_type)
 }
 
-fn infer_type_sort(provenance: &Provenance, sort: &Sort) -> Expr {
-    Expr::new_with_provenance(
+fn infer_type_sort<'a>(
+    env: &'a Environment,
+    provenance: &Provenance,
+    check: bool,
+    sort: &Sort,
+) -> Result<Expr, Box<dyn FnOnce(Report) -> Report + 'a>> {
+    if check {
+        check_valid_universe(env, &sort.0)?;
+    }
+    Ok(Expr::new_with_provenance(
         provenance,
         ExprContents::Sort(Sort(Universe::new_with_provenance(
             provenance,
             UniverseContents::UniverseSucc(UniverseSucc(Box::new(sort.0.clone()))),
         ))),
-    )
+    ))
 }
 
 /// Expands the given expression until it is a [`Sort`].
@@ -321,5 +338,48 @@ fn as_pi<'a>(
                     ))
             }))
         }
+    }
+}
+
+/// Check that this universe contains no uninitialised universe variables and no metauniverses.
+fn check_valid_universe<'a>(
+    env: &'a Environment,
+    u: &Universe,
+) -> Result<(), Box<dyn FnOnce(Report) -> Report + 'a>> {
+    match &u.contents {
+        UniverseContents::UniverseZero => Ok(()),
+        UniverseContents::UniverseVariable(var) => {
+            // Check that this universe variable was given as a universe parameter.
+            if env
+                .universe_variables
+                .iter()
+                .any(|name| var.0 == name.contents)
+            {
+                Ok(())
+            } else {
+                let span = u.provenance.span();
+                let parameter_name = env.db.lookup_intern_string_data(var.0);
+                Err(Box::new(move |report| {
+                    report
+                        .with_message("could not find universe parameter")
+                        .with_label(Label::new(env.source, span, LabelType::Error).with_message(
+                            format!(
+                                "universe parameter {} could not be found in the environment",
+                                parameter_name,
+                            ),
+                        ))
+                }))
+            }
+        }
+        UniverseContents::UniverseSucc(inner) => check_valid_universe(env, &inner.0),
+        UniverseContents::UniverseMax(max) => {
+            check_valid_universe(env, &max.left)?;
+            check_valid_universe(env, &max.right)
+        }
+        UniverseContents::UniverseImpredicativeMax(imax) => {
+            check_valid_universe(env, &imax.left)?;
+            check_valid_universe(env, &imax.right)
+        }
+        UniverseContents::Metauniverse(_) => Err(todo!()),
     }
 }

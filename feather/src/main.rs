@@ -11,7 +11,7 @@ use upcast::Upcast;
 mod db;
 
 fn main() {
-    let log_level = tracing::Level::TRACE;
+    let log_level = tracing::Level::INFO;
     let subscriber = FmtSubscriber::builder()
         .with_writer(std::io::stderr)
         .with_max_level(log_level)
@@ -60,18 +60,10 @@ fn main() {
             )
         }
         for ind in &result.inductives {
-            let mut printer = ExprPrinter::new(db.up());
             tracing::debug!(
                 "certified inductive {}",
                 db.lookup_intern_string_data(ind.inductive().contents.name.contents),
             );
-            for comp_rule in ind.computation_rules() {
-                tracing::trace!(
-                    "certified computation rule {} => {}",
-                    printer.print(&comp_rule.eliminator_application),
-                    printer.print(&comp_rule.minor_premise_application)
-                )
-            }
         }
 
         // let node = ListSexprWrapper::serialise_into_node(&db, &**result);

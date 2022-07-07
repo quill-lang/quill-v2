@@ -29,32 +29,36 @@ pub fn recursor_info(
     ind: &Inductive,
     info: &PartialInductiveInformation,
 ) -> Dr<RecursorInfo> {
-    partial_recursor_info(env, meta_gen, ind, info).bind(|(major_premise, type_former)| {
-        Dr::sequence(ind.contents.intro_rules.iter().map(|intro_rule| {
-            minor_premise_info(env, meta_gen, ind, intro_rule, info, type_former.clone())
-        }))
-        .map(|minor_premises| {
-            let mut is_k_target = is_zero(&info.sort.0) && ind.contents.intro_rules.len() == 1;
-            let minor_premises = minor_premises
-                .into_iter()
-                .map(|(premise, is_k_target_inner)| {
-                    is_k_target &= is_k_target_inner;
-                    premise
-                })
-                .collect::<Vec<_>>();
-            RecursorInfo {
-                major_premise,
-                type_former,
-                minor_premises,
-                is_k_target,
-            }
-        })
-    })
+    partial_recursor_info(env, meta_gen, ind, info).bind(
+        |(major_premise, recursor_universe, type_former)| {
+            Dr::sequence(ind.contents.intro_rules.iter().map(|intro_rule| {
+                minor_premise_info(env, meta_gen, ind, intro_rule, info, type_former.clone())
+            }))
+            .map(|minor_premises| {
+                let mut is_k_target = is_zero(&info.sort.0) && ind.contents.intro_rules.len() == 1;
+                let minor_premises = minor_premises
+                    .into_iter()
+                    .map(|(premise, is_k_target_inner)| {
+                        is_k_target &= is_k_target_inner;
+                        premise
+                    })
+                    .collect::<Vec<_>>();
+                RecursorInfo {
+                    major_premise,
+                    recursor_universe,
+                    type_former,
+                    minor_premises,
+                    is_k_target,
+                }
+            })
+        },
+    )
 }
 
 /// Information about how the recursor will be constructed.
 pub struct RecursorInfo {
     pub major_premise: LocalConstant,
+    pub recursor_universe: RecursorUniverse,
     pub type_former: LocalConstant,
     pub minor_premises: Vec<LocalConstant>,
     pub is_k_target: bool,
@@ -66,7 +70,7 @@ fn partial_recursor_info(
     meta_gen: &mut MetavariableGenerator,
     ind: &Inductive,
     info: &PartialInductiveInformation,
-) -> Dr<(LocalConstant, LocalConstant)> {
+) -> Dr<(LocalConstant, RecursorUniverse, LocalConstant)> {
     let major_premise = LocalConstant {
         name: Name {
             provenance: Provenance::Synthetic,
@@ -115,7 +119,7 @@ fn partial_recursor_info(
             binder_annotation: BinderAnnotation::Explicit,
         };
 
-        (major_premise, type_former)
+        (major_premise, recursor_universe, type_former)
     })
 }
 
@@ -411,7 +415,7 @@ fn recursor_universe(
     })
 }
 
-enum RecursorUniverse {
+pub enum RecursorUniverse {
     Prop,
     Parameter(Str),
 }

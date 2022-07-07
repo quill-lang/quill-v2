@@ -259,10 +259,28 @@ pub fn instantiate_universe(u: &mut Universe, var: UniverseVariable, replacement
 }
 
 /// Replace the given metauniverse with the provided replacement.
-pub fn instantiate_metauniverse(u: &mut Universe, meta: Metauniverse, replacement: &Universe) {
+pub fn instantiate_metauniverse(u: &mut Universe, meta: &Metauniverse, replacement: &Universe) {
     replace_in_universe(u, |inner| match &inner.contents {
         UniverseContents::Metauniverse(inner_meta) => {
-            if *inner_meta == meta {
+            if *inner_meta == *meta {
+                ReplaceResult::ReplaceWith(replacement.clone())
+            } else {
+                ReplaceResult::Skip
+            }
+        }
+        _ => ReplaceResult::Skip,
+    })
+}
+
+/// Replace the given universe variable with the provided replacement.
+pub fn instantiate_universe_variable(
+    u: &mut Universe,
+    var: &UniverseVariable,
+    replacement: &Universe,
+) {
+    replace_in_universe(u, |inner| match &inner.contents {
+        UniverseContents::UniverseVariable(inner_var) => {
+            if inner_var.0 == var.0 {
                 ReplaceResult::ReplaceWith(replacement.clone())
             } else {
                 ReplaceResult::Skip

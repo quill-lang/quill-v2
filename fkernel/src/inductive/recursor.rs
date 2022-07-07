@@ -13,7 +13,7 @@ use crate::{
 
 use super::{
     check::PartialInductiveInformation,
-    recursor_info::{recursor_info, RecursorInfo},
+    recursor_info::{recursor_info, RecursorInfo, RecursorUniverse},
 };
 
 pub fn generate_recursor(
@@ -82,8 +82,16 @@ fn generate_recursor_core(
         &Provenance::Synthetic,
     );
 
+    let eliminator_universe = match rec_info.recursor_universe {
+        RecursorUniverse::Prop => Vec::new(),
+        RecursorUniverse::Parameter(param) => vec![Name {
+            provenance: ind.provenance.clone(),
+            contents: param,
+        }],
+    };
+
     Definition {
-        provenance: Provenance::Synthetic,
+        provenance: ind.provenance.clone(),
         contents: DefinitionContents {
             name: Name {
                 contents: env.db.intern_string_data(format!(
@@ -92,7 +100,10 @@ fn generate_recursor_core(
                 )),
                 provenance: ind.contents.name.provenance.clone(),
             },
-            universe_params: ind.contents.universe_params.clone(),
+            universe_params: eliminator_universe
+                .into_iter()
+                .chain(ind.contents.universe_params.clone())
+                .collect(),
             ty: eliminator_type,
             expr: None,
         },

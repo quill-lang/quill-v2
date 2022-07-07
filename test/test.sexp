@@ -257,4 +257,19 @@
     (Nat.zero (inst (test test Nat) ()))
     (Nat.succ (pi k ex (inst (test test Nat) ()) (inst (test test Nat) ())))
   ))
+  (def Nat.is_zero ()
+    (pi n ex (inst (test test Nat) ())
+      (inst (test test Bool) ()))
+    (ap (ap (ap
+      (inst (test test Nat.rec) ((univsucc (univzero))))
+      (lam n ex
+        (inst (test test Nat) ())
+        (inst (test test Bool) ())))
+      (inst (test test true) ()))
+      (lam k ex
+        (inst (test test Nat) ())
+        (lam hk ex
+          (inst (test test Bool) ())
+          (inst (test test false) ()))))
+  )
 )

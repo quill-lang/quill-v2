@@ -1,4 +1,6 @@
-use fcommon::Dr;
+use std::collections::HashMap;
+
+use fcommon::{Dr, Path};
 use fnodes::{
     basic_nodes::{Name, Provenance, QualifiedName},
     expr::*,
@@ -7,13 +9,17 @@ use fnodes::{
 };
 
 use crate::{
-    expr::{abstract_nary_lambda, apply_args, instantiate, ExprPrinter},
+    expr::{
+        abstract_nary_lambda, apply_args, instantiate, replace_local, replace_universe_variable,
+        ExprPrinter,
+    },
     typeck::{self, definitionally_equal, to_weak_head_normal_form, Environment},
+    universe::instantiate_universe_variable,
 };
 
 use super::{
     check::PartialInductiveInformation,
-    recursor_info::{get_indices, split_intro_rule_type, RecursorInfo},
+    recursor_info::{get_indices, split_intro_rule_type, RecursorInfo, RecursorUniverse},
 };
 
 /// Creates the computation rules for computing outputs of the recursor.
@@ -55,10 +61,172 @@ pub fn generate_computation_rules(
 }
 
 /// A computation rule converts an application of an eliminator into an application of one of the minor premises to the eliminator.
+///
+/// Suppose that we have an eliminator application of the form `I.rec p (I.intro_i q)` where `p` is a list of parameters to the eliminator,
+/// and `(I.intro_i q)` is the major premise, formed of an intro rule `I.intro_i` and a list of parameters `q`.
+/// The computation rule for this intro rule is a rewrite rule for converting expressions of this form into their evaluated forms,
+/// where the recursor is not at the head of the expression.
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct ComputationRule {
-    pub eliminator_application: Expr,
-    pub minor_premise_application: Expr,
+    eliminator_application: Expr,
+    minor_premise_application: Expr,
+}
+
+impl ComputationRule {
+    /// See [`ComputationRule`] for more information.
+    ///
+    /// To evaluate an expression of the form `I.rec p (I.intro_i q)` using a computation rule, we return a copy of `minor_premise_application`,
+    /// where the local constants in `parameters` and `intro_rule_args` have been replaced with the corresponding values in `p` and `q`.
+    ///
+    /// Returns [`None`] if this was not a valid instance of the computation rule.
+    pub fn evaluate(&self, eliminator_application: &Expr) -> Option<Expr> {
+        pattern_match(self.eliminator_application.clone(), eliminator_application).map(|result| {
+            let mut application = self.minor_premise_application.clone();
+            result.replace(&mut application);
+            application
+        })
+    }
+}
+
+#[derive(Default)]
+struct PatternMatchResult<'a> {
+    local_map: HashMap<LocalConstant, &'a Expr>,
+    universe_map: HashMap<UniverseVariable, &'a Universe>,
+}
+
+impl<'a> PatternMatchResult<'a> {
+    pub fn replace(&self, e: &mut Expr) {
+        for (local, replacement) in self.local_map.iter() {
+            replace_local(e, local, replacement);
+        }
+        for (var, replacement) in self.universe_map.iter() {
+            replace_universe_variable(e, var, replacement);
+        }
+    }
+
+    fn replace_universe(&self, u: &mut Universe) {
+        for (var, replacement) in self.universe_map.iter() {
+            instantiate_universe_variable(u, var, replacement);
+        }
+    }
+
+    /// Combines two pattern match results into a single result.
+    pub fn with(mut self, other: Self) -> Self {
+        self.local_map.extend(other.local_map);
+        self.universe_map.extend(other.universe_map);
+        self
+    }
+}
+
+/// Takes a pattern expression containing local constants together with a target expression which we suppose matches the pattern.
+/// The target expression should not contain local constants or metavariables, and the pattern should not contain metavariables.
+/// This function will try to replace the local constants in the pattern with expressions sourced from the target expression such that the resulting
+/// pattern expression after the substitution is equal to the target expression. If no substitution could be found, return `None`.
+fn pattern_match(pattern: Expr, target: &Expr) -> Option<PatternMatchResult> {
+    match (pattern.contents, &target.contents) {
+        (ExprContents::Bound(pattern_bound), ExprContents::Bound(target_bound)) => {
+            if pattern_bound.index == target_bound.index {
+                Some(PatternMatchResult::default())
+            } else {
+                None
+            }
+        }
+        (ExprContents::Inst(pattern_inst), ExprContents::Inst(target_inst)) => {
+            if pattern_inst.name.eq_ignoring_provenance(&target_inst.name) {
+                pattern_inst
+                    .universes
+                    .into_iter()
+                    .zip(&target_inst.universes)
+                    .fold(
+                        Some(PatternMatchResult::default()),
+                        |map, (pattern, target)| {
+                            map.and_then(|map| {
+                                pattern_match_universe(pattern, target)
+                                    .map(|inner_map| map.with(inner_map))
+                            })
+                        },
+                    )
+            } else {
+                None
+            }
+        }
+        (ExprContents::Let(mut pattern_let), ExprContents::Let(target_let)) => {
+            pattern_match(*pattern_let.to_assign, &target_let.to_assign).and_then(|map| {
+                map.replace(&mut pattern_let.body);
+                pattern_match(*pattern_let.body, &target_let.to_assign)
+                    .map(|inner_map| map.with(inner_map))
+            })
+        }
+        (ExprContents::Lambda(mut pattern_lambda), ExprContents::Lambda(target_lambda)) => {
+            pattern_match(*pattern_lambda.parameter_ty, &target_lambda.parameter_ty).and_then(
+                |map| {
+                    map.replace(&mut pattern_lambda.result);
+                    pattern_match(*pattern_lambda.result, &target_lambda.result)
+                        .map(|inner_map| map.with(inner_map))
+                },
+            )
+        }
+        (ExprContents::Pi(mut pattern_pi), ExprContents::Pi(target_pi)) => {
+            pattern_match(*pattern_pi.parameter_ty, &target_pi.parameter_ty).and_then(|map| {
+                map.replace(&mut pattern_pi.result);
+                pattern_match(*pattern_pi.result, &target_pi.result)
+                    .map(|inner_map| map.with(inner_map))
+            })
+        }
+        (ExprContents::Apply(mut pattern_apply), ExprContents::Apply(target_apply)) => {
+            pattern_match(*pattern_apply.function, &target_apply.function).and_then(|map| {
+                map.replace(&mut pattern_apply.argument);
+                pattern_match(*pattern_apply.argument, &target_apply.argument)
+                    .map(|inner_map| map.with(inner_map))
+            })
+        }
+        (ExprContents::Sort(pattern_sort), ExprContents::Sort(target_sort)) => {
+            pattern_match_universe(pattern_sort.0, &target_sort.0)
+        }
+        (ExprContents::LocalConstant(pattern_local), _) => {
+            // Replace the given local constant with the replacement.
+            let mut map = PatternMatchResult::default();
+            map.local_map.insert(pattern_local, target);
+            Some(map)
+        }
+        _ => None,
+    }
+}
+
+/// Performs the same task as [`pattern_match`], but operates on universes instead of expressions.
+fn pattern_match_universe(pattern: Universe, target: &Universe) -> Option<PatternMatchResult> {
+    match (pattern.contents, &target.contents) {
+        (UniverseContents::UniverseZero, UniverseContents::UniverseZero) => {
+            Some(PatternMatchResult::default())
+        }
+        (
+            UniverseContents::UniverseSucc(pattern_inner),
+            UniverseContents::UniverseSucc(target_inner),
+        ) => pattern_match_universe(*pattern_inner.0, &target_inner.0),
+        (
+            UniverseContents::UniverseMax(mut pattern_max),
+            UniverseContents::UniverseMax(target_max),
+        ) => pattern_match_universe(*pattern_max.left, &target_max.left).and_then(|map| {
+            map.replace_universe(&mut pattern_max.right);
+            pattern_match_universe(*pattern_max.right, &target_max.right)
+                .map(|inner_map| map.with(inner_map))
+        }),
+        (
+            UniverseContents::UniverseImpredicativeMax(mut pattern_imax),
+            UniverseContents::UniverseImpredicativeMax(target_imax),
+        ) => pattern_match_universe(*pattern_imax.left, &target_imax.left).and_then(|map| {
+            map.replace_universe(&mut pattern_imax.right);
+            pattern_match_universe(*pattern_imax.right, &target_imax.right)
+                .map(|inner_map| map.with(inner_map))
+        }),
+        (UniverseContents::UniverseVariable(pattern_var), _) => {
+            // Replace the given universe variable with the replacement.
+            let mut map = PatternMatchResult::default();
+            map.universe_map.insert(pattern_var, target);
+            Some(map)
+        }
+        _ => None,
+    }
 }
 
 fn generate_computation_rule(
@@ -103,6 +271,14 @@ fn generate_computation_rule(
             .collect(),
     }));
 
+    let eliminator_universe = match rec_info.recursor_universe {
+        RecursorUniverse::Prop => Vec::new(),
+        RecursorUniverse::Parameter(param) => vec![Name {
+            provenance: ind.provenance.clone(),
+            contents: param,
+        }],
+    };
+
     let intro_rule_expr = Expr::new_synthetic(ExprContents::Inst(Inst {
         name: QualifiedName {
             provenance: Provenance::Synthetic,
@@ -118,10 +294,9 @@ fn generate_computation_rule(
                 .chain(std::iter::once(intro_rule.name.clone()))
                 .collect(),
         },
-        universes: ind
-            .contents
-            .universe_params
+        universes: eliminator_universe
             .iter()
+            .chain(&ind.contents.universe_params)
             .map(|univ| {
                 Universe::new_with_provenance(
                     &univ.provenance,

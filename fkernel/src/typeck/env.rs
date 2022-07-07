@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fmt::Display};
 
 use fcommon::{Path, Source};
-use fnodes::{definition::Definition, expr::Sort, inductive::Inductive, SexprParser};
+use fnodes::{basic_nodes::Name, definition::Definition, expr::Sort, SexprParser};
 
 use crate::inductive::CertifiedInductive;
 
@@ -12,6 +12,7 @@ pub struct Environment<'a> {
     pub db: &'a dyn SexprParser,
     pub definitions: HashMap<Path, &'a CertifiedDefinition>,
     pub inductives: HashMap<Path, &'a CertifiedInductive>,
+    pub universe_variables: &'a [Name],
 }
 
 /// A definition that has been verified by the type checker.
@@ -22,6 +23,16 @@ pub struct CertifiedDefinition {
     /// The type of the type of the definition, stored as a sort.
     sort: Sort,
     reducibility_hints: ReducibilityHints,
+    /// Why this definition exists.
+    origin: DefinitionOrigin,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum DefinitionOrigin {
+    /// This definition was written directly in Feather code.
+    Feather,
+    /// This definition is the recursor for an inductive type.
+    Recursor { inductive: Path },
 }
 
 impl CertifiedDefinition {
@@ -29,11 +40,13 @@ impl CertifiedDefinition {
         def: Definition,
         sort: Sort,
         reducibility_hints: ReducibilityHints,
+        origin: DefinitionOrigin,
     ) -> Self {
         Self {
             def,
             sort,
             reducibility_hints,
+            origin,
         }
     }
 
@@ -47,6 +60,10 @@ impl CertifiedDefinition {
 
     pub fn reducibility_hints(&self) -> &ReducibilityHints {
         &self.reducibility_hints
+    }
+
+    pub fn origin(&self) -> &DefinitionOrigin {
+        &self.origin
     }
 }
 
