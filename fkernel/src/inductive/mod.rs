@@ -1,11 +1,11 @@
-use fcommon::Dr;
+use fcommon::{Dr, PathData};
 use fnodes::{
     definition::{Definition, DefinitionContents},
     expr::MetavariableGenerator,
     inductive::Inductive, basic_nodes::Name,
 };
 
-use crate::typeck::{self, CertifiedDefinition, Environment};
+use crate::typeck::{self, CertifiedDefinition, Environment, DefinitionOrigin};
 
 mod check;
 mod check_intro_rule;
@@ -39,7 +39,16 @@ pub(crate) fn check_inductive_type(
                 expr: None,
             },
         };
-        typeck::check(&env, &type_declaration).bind(move |type_declaration| {
+        typeck::check(&env, &type_declaration, DefinitionOrigin::TypeDeclaration {
+            inductive: env.db.intern_path_data(PathData(
+                env.db
+                    .lookup_intern_path_data(env.source.path)
+                    .0
+                    .into_iter()
+                    .chain(std::iter::once(ind.contents.name.contents))
+                    .collect(),
+            )),
+        }).bind(move |type_declaration| {
             // Shorten the lifetime parameter on `env` to just this block.
             let mut env: Environment<'_> = env;
             {

@@ -1,4 +1,4 @@
-use fcommon::Dr;
+use fcommon::{Dr, PathData};
 use fnodes::{
     basic_nodes::{Name, Provenance},
     definition::{Definition, DefinitionContents},
@@ -8,7 +8,7 @@ use fnodes::{
 
 use crate::{
     expr::{abstract_nary_pi, abstract_pi, create_nary_application, ExprPrinter},
-    typeck::{self, CertifiedDefinition, Environment},
+    typeck::{self, CertifiedDefinition, Environment, DefinitionOrigin},
 };
 
 use super::{
@@ -44,7 +44,21 @@ pub fn generate_recursor(
             };
             env.universe_variables = &universe_variables;
 
-            typeck::check(&env, &def).map(|def| (rec_info, def))
+            typeck::check(
+                &env,
+                &def,
+                DefinitionOrigin::Recursor {
+                    inductive: env.db.intern_path_data(PathData(
+                        env.db
+                            .lookup_intern_path_data(env.source.path)
+                            .0
+                            .into_iter()
+                            .chain(std::iter::once(ind.contents.name.contents))
+                            .collect(),
+                    )),
+                },
+            )
+            .map(|def| (rec_info, def))
         })
         .map_reports(|report| {
             report.with_note(format!(

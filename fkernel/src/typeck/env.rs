@@ -32,6 +32,10 @@ pub struct CertifiedDefinition {
 pub enum DefinitionOrigin {
     /// This definition was written directly in Feather code.
     Feather,
+    /// This definition is the type declaration for an inductive type.
+    TypeDeclaration { inductive: Path },
+    /// This definition is an intro rule for an inductive type.
+    IntroRule { inductive: Path },
     /// This definition is the recursor for an inductive type.
     Recursor { inductive: Path },
 }

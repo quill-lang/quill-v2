@@ -4,7 +4,7 @@
 
 use fnodes::expr::{Expr, ExprContents};
 
-use crate::expr::{apply_args, destructure_as_nary_application, instantiate, leftmost_function};
+use crate::expr::{instantiate, leftmost_function};
 
 use super::{env::Environment, unfold::unfold_definition, DefinitionOrigin};
 

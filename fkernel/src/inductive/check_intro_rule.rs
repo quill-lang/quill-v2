@@ -1,4 +1,4 @@
-use fcommon::{Dr, Label, LabelType, Report, ReportKind};
+use fcommon::{Dr, Label, LabelType, Report, ReportKind, PathData};
 use fnodes::{
     definition::{Definition, DefinitionContents},
     expr::{Expr, ExprContents, MetavariableGenerator, Pi, Sort},
@@ -13,7 +13,7 @@ use crate::{
     },
     typeck::{
         self, as_sort, check_no_local_or_metavariable, definitionally_equal, infer_type,
-        to_weak_head_normal_form, CertifiedDefinition, Environment,
+        to_weak_head_normal_form, CertifiedDefinition, Environment, DefinitionOrigin,
     },
     universe::{is_zero, normalise_universe, universe_at_most},
 };
@@ -47,6 +47,16 @@ pub fn check_intro_rule(
                     expr: None,
                 },
             },
+            DefinitionOrigin::IntroRule {
+                inductive: env.db.intern_path_data(PathData(
+                    env.db
+                        .lookup_intern_path_data(env.source.path)
+                        .0
+                        .into_iter()
+                        .chain(std::iter::once(ind.contents.name.contents))
+                        .collect(),
+                )),
+            }
         )
     })
 }

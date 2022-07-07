@@ -9,7 +9,7 @@ use std::{collections::HashMap, fmt::Debug, sync::Arc};
 use fcommon::{Dr, Source};
 use fnodes::{basic_nodes::Provenance, module::Item};
 use inductive::CertifiedInductive;
-use typeck::{CertifiedDefinition, Environment};
+use typeck::{CertifiedDefinition, DefinitionOrigin, Environment};
 
 // Expose this either when we're running `cargo doc` or executing tests.
 #[cfg(any(test, doc))]
@@ -74,7 +74,8 @@ fn certify(db: &dyn TypeChecker, source: Source) -> Dr<Arc<CertifiedModule>> {
                         inductives: local_inductives,
                         universe_variables: &def.contents.universe_params,
                     };
-                    let (result, more_reports) = typeck::check(&env, def).destructure();
+                    let (result, more_reports) =
+                        typeck::check(&env, def, DefinitionOrigin::Feather).destructure();
                     reports.extend(more_reports);
                     if let Some(result) = result {
                         definitions.push(result);
