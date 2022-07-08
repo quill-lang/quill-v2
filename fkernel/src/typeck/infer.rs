@@ -117,6 +117,12 @@ fn infer_type_inst<'a>(
                     "definition {} could not be found in the environment",
                     path.display(env.db.up())
                 ))
+                .with_note(
+                    env.definitions
+                        .keys()
+                        .map(|def| format!("\n      \u{2022} {}", def.display(env.db.up())))
+                        .fold("environment contains:".to_string(), |l, r| l + &r),
+                )
         })),
     }
 }
