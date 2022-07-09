@@ -529,8 +529,6 @@ pub struct Expr {
     pub provenance: Provenance,
     /// The actual contents of this expression.
     pub contents: ExprContents,
-    /// If the expression has a type annotation, the type is given here.
-    pub ty: Option<Box<Expr>>,
 }
 
 impl std::fmt::Debug for Expr {
@@ -548,7 +546,6 @@ impl Expr {
         Self {
             provenance: Provenance::Sexpr { source, span },
             contents,
-            ty: None,
         }
     }
 
@@ -556,7 +553,6 @@ impl Expr {
         Self {
             provenance: Provenance::Synthetic,
             contents,
-            ty: None,
         }
     }
 
@@ -564,7 +560,6 @@ impl Expr {
         Self {
             provenance: provenance.clone(),
             contents,
-            ty: None,
         }
     }
 
@@ -576,7 +571,7 @@ impl Expr {
 
     /// Compares two expressions for equality, ignoring the provenance data.
     pub fn eq_ignoring_provenance(&self, other: &Expr) -> bool {
-        let result = match (&self.contents, &other.contents) {
+        match (&self.contents, &other.contents) {
             (ExprContents::Bound(left), ExprContents::Bound(right)) => left.index == right.index,
             (ExprContents::Inst(left), ExprContents::Inst(right)) => todo!(),
             (ExprContents::Let(left), ExprContents::Let(right)) => todo!(),
@@ -604,14 +599,7 @@ impl Expr {
                 left.metavariable.index == right.metavariable.index
             }
             _ => false,
-        };
-
-        result
-            && match (&self.ty, &other.ty) {
-                (None, None) => true,
-                (Some(left), Some(right)) => left.eq_ignoring_provenance(right),
-                _ => false,
-            }
+        }
     }
 }
 

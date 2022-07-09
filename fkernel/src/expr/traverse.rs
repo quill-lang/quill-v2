@@ -24,8 +24,6 @@ enum ReplaceResult {
 /// Traverses the expression tree and finds expressions matching the provided replacement function.
 /// If any matched, the replacement function generates the value to replace the found value with.
 /// The provided [`DeBruijnOffset`] gives the amount of binders the [`Expr`] argument is currently under.
-///
-/// Replacement occurs in types of expressions as well as their values.
 fn replace_in_expr(
     e: &mut Expr,
     replace_fn: impl Clone + Fn(&Expr, DeBruijnOffset) -> ReplaceResult,
@@ -45,33 +43,29 @@ fn replace_in_expr_offset(
             // Traverse the sub-expressions of `e`.
             match &mut e.contents {
                 ExprContents::LocalConstant(local) => {
-                    replace_in_expr_offset(&mut local.metavariable.ty, replace_fn.clone(), offset);
+                    replace_in_expr_offset(&mut local.metavariable.ty, replace_fn, offset);
                 }
                 ExprContents::Metavariable(var) => {
-                    replace_in_expr_offset(&mut var.ty, replace_fn.clone(), offset);
+                    replace_in_expr_offset(&mut var.ty, replace_fn, offset);
                 }
                 ExprContents::Let(let_expr) => {
                     replace_in_expr_offset(&mut let_expr.to_assign, replace_fn.clone(), offset);
                     replace_in_expr_offset(&mut let_expr.to_assign_ty, replace_fn.clone(), offset);
-                    replace_in_expr_offset(&mut let_expr.body, replace_fn.clone(), offset.succ());
+                    replace_in_expr_offset(&mut let_expr.body, replace_fn, offset.succ());
                 }
                 ExprContents::Lambda(lambda) => {
                     replace_in_expr_offset(&mut lambda.parameter_ty, replace_fn.clone(), offset);
-                    replace_in_expr_offset(&mut lambda.result, replace_fn.clone(), offset.succ());
+                    replace_in_expr_offset(&mut lambda.result, replace_fn, offset.succ());
                 }
                 ExprContents::Pi(pi) => {
                     replace_in_expr_offset(&mut pi.parameter_ty, replace_fn.clone(), offset);
-                    replace_in_expr_offset(&mut pi.result, replace_fn.clone(), offset.succ());
+                    replace_in_expr_offset(&mut pi.result, replace_fn, offset.succ());
                 }
                 ExprContents::Apply(apply) => {
                     replace_in_expr_offset(&mut apply.function, replace_fn.clone(), offset);
-                    replace_in_expr_offset(&mut apply.argument, replace_fn.clone(), offset);
+                    replace_in_expr_offset(&mut apply.argument, replace_fn, offset);
                 }
                 _ => {}
-            }
-            // Replace any instances of the pattern in the type of the expression as well.
-            if let Some(ty) = &mut e.ty {
-                replace_in_expr_offset(ty, replace_fn, offset);
             }
         }
         ReplaceResult::ReplaceWith(e_replaced) => {
@@ -85,8 +79,6 @@ fn replace_in_expr_offset(
 /// Traverses the expression tree and finds expressions matching the provided predicate.
 /// If any return `true`, the first such expression is returned.
 /// The tree is traversed depth first.
-///
-/// The find operation occurs in types of expressions as well as their values.
 fn find_in_expr(
     e: &Expr,
     predicate: impl Clone + Fn(&Expr, DeBruijnOffset) -> bool,
@@ -105,11 +97,9 @@ fn find_in_expr_offset(
     } else {
         match &e.contents {
             ExprContents::LocalConstant(local) => {
-                find_in_expr_offset(&local.metavariable.ty, predicate.clone(), offset)
+                find_in_expr_offset(&local.metavariable.ty, predicate, offset)
             }
-            ExprContents::Metavariable(var) => {
-                find_in_expr_offset(&var.ty, predicate.clone(), offset)
-            }
+            ExprContents::Metavariable(var) => find_in_expr_offset(&var.ty, predicate, offset),
             ExprContents::Let(let_expr) => {
                 find_in_expr_offset(&let_expr.to_assign, predicate.clone(), offset).or_else(|| {
                     find_in_expr_offset(&let_expr.to_assign_ty, predicate.clone(), offset).or_else(
@@ -132,14 +122,6 @@ fn find_in_expr_offset(
             }
             _ => None,
         }
-        .or_else(|| {
-            // Look in the type of the expression as well.
-            if let Some(ty) = &e.ty {
-                find_in_expr_offset(ty, predicate, offset)
-            } else {
-                None
-            }
-        })
     }
 }
 
@@ -353,7 +335,7 @@ pub fn replace_local(e: &mut Expr, local: &LocalConstant, replacement: &Expr) {
 }
 
 pub fn replace_universe_variable(e: &mut Expr, var: &UniverseVariable, replacement: &Universe) {
-    replace_in_expr(e, |e, offset| match &e.contents {
+    replace_in_expr(e, |e, _offset| match &e.contents {
         ExprContents::Inst(inst) => {
             let mut inst = inst.clone();
             for u in &mut inst.universes {

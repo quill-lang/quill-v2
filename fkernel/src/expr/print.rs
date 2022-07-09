@@ -125,11 +125,7 @@ impl<'a> ExprPrinter<'a> {
             ExprContents::Let(_) => todo!(),
             ExprContents::Metavariable(_) => todo!(),
             ExprContents::LocalConstant(local) => {
-                format!(
-                    "{}",
-                    self.db.lookup_intern_string_data(local.name.contents),
-                    // self.print(&local.metavariable.ty)
-                )
+                self.db.lookup_intern_string_data(local.name.contents)
             }
         }
     }

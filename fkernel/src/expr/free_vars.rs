@@ -8,7 +8,7 @@ use fnodes::{basic_nodes::DeBruijnIndex, expr::*};
 /// If the expression is `let x = _ in #1`, we return `#0`, because the `#1` inside the `let` body
 /// refers to what we would call `#0` from outside the expression.
 fn first_free_variable_index(e: &Expr) -> DeBruijnIndex {
-    let contents = match &e.contents {
+    match &e.contents {
         ExprContents::Bound(Bound { index, .. }) => index.succ(),
         ExprContents::Inst(_) => DeBruijnIndex::zero(),
         ExprContents::Let(let_expr) => std::cmp::max(
@@ -30,11 +30,6 @@ fn first_free_variable_index(e: &Expr) -> DeBruijnIndex {
         ExprContents::Sort(_) => DeBruijnIndex::zero(),
         ExprContents::Metavariable(_) => DeBruijnIndex::zero(),
         ExprContents::LocalConstant(_) => DeBruijnIndex::zero(),
-    };
-    if let Some(ty) = &e.ty {
-        std::cmp::max(contents, first_free_variable_index(ty))
-    } else {
-        contents
     }
 }
 
