@@ -479,6 +479,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "qparse"
+version = "0.0.0"
+dependencies = [
+ "chumsky",
+ "fcommon",
+ "salsa",
+ "tracing",
+ "upcast",
+]
+
+[[package]]
+name = "quill"
+version = "0.0.0"
+dependencies = [
+ "fcommon",
+ "notify",
+ "qparse",
+ "salsa",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"

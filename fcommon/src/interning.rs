@@ -93,12 +93,15 @@ pub struct Source {
 pub enum SourceType {
     /// A feather source file, written as an S-expression encoded as UTF-8.
     Feather,
+    /// A quill source file, encoded as UTF-8.
+    Quill,
 }
 
 impl SourceType {
     pub fn extension(self) -> &'static str {
         match self {
             SourceType::Feather => "sexp",
+            SourceType::Quill => "quill",
         }
     }
 }
