@@ -10,7 +10,7 @@ use fnodes::{
     basic_nodes::{DeBruijnIndex, Name, Provenance},
     definition::{Definition, DefinitionContents},
     expr::{Apply, Bound, Expr, ExprContents, Inst, Lambda, Pi, Sort},
-    universe::{Universe, UniverseContents, UniverseSucc},
+    universe::{Universe, UniverseContents, UniverseSucc, UniverseVariable},
 };
 use qparse::{PDefinition, PExpr, PExprContents, PItem, PUniverse, PUniverseContents, QuillParser};
 
@@ -50,7 +50,7 @@ pub fn elaborate_and_certify(db: &dyn Elaborator, source: Source) -> Dr<Arc<Cert
                         db: db.up(),
                         definitions: local_definitions,
                         inductives: local_inductives,
-                        universe_variables: &[], // &def.contents.universe_params,
+                        universe_variables: &def.universe_params,
                     };
 
                     let (result, more_reports) = elaborate_definition(&env, def, span.clone())
@@ -110,7 +110,7 @@ fn elaborate_definition(env: &Environment, def: &PDefinition, span: Span) -> Dr<
             },
             contents: DefinitionContents {
                 name: def.name.clone(),
-                universe_params: Vec::new(),
+                universe_params: def.universe_params.clone(),
                 ty,
                 expr: Some(expr),
             },
@@ -122,7 +122,10 @@ fn elaborate_definition(env: &Environment, def: &PDefinition, span: Span) -> Dr<
 /// Their index in the list is the associated [`DeBruijnIndex`].
 fn elaborate_expr(env: &Environment, locals: &[Name], e: &PExpr) -> Dr<Expr> {
     match &e.contents {
-        PExprContents::QualifiedName { qualified_name } => {
+        PExprContents::QualifiedName {
+            qualified_name,
+            universes,
+        } => {
             if qualified_name.segments.len() == 1 {
                 // This is a local variable.
                 let name = &qualified_name.segments[0];
@@ -157,13 +160,17 @@ fn elaborate_expr(env: &Environment, locals: &[Name], e: &PExpr) -> Dr<Expr> {
                 }
             } else {
                 // This is the name of a definition.
-                Dr::ok(Expr::new_with_provenance(
-                    &e.provenance,
-                    ExprContents::Inst(Inst {
-                        name: qualified_name.clone(),
-                        universes: Vec::new(),
-                    }),
-                ))
+                Dr::sequence(universes.iter().map(|u| elaborate_universe(env, u))).map(
+                    |universes| {
+                        Expr::new_with_provenance(
+                            &e.provenance,
+                            ExprContents::Inst(Inst {
+                                name: qualified_name.clone(),
+                                universes,
+                            }),
+                        )
+                    },
+                )
             }
         }
         PExprContents::Apply { left, right } => elaborate_expr(env, locals, left).bind(|left| {
@@ -248,7 +255,12 @@ fn elaborate_universe(env: &Environment, u: &PUniverse) -> Dr<Universe> {
                     )
                 },
             )),
-            Err(_) => todo!(),
+            Err(_) => Dr::ok(Universe::new_with_provenance(
+                &provenance,
+                UniverseContents::UniverseVariable(UniverseVariable(
+                    env.db.intern_string_data(text.to_owned()),
+                )),
+            )),
         },
     }
 }

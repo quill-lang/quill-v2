@@ -28,6 +28,10 @@ pub enum Token {
     LParen,
     /// `)`
     RParen,
+    /// `{`
+    LBrace,
+    /// `}`
+    RBrace,
     /// `:`
     Type,
     /// `=`
@@ -69,6 +73,8 @@ impl Token {
             Token::Scope => 2,
             Token::LParen => 1,
             Token::RParen => 1,
+            Token::LBrace => 1,
+            Token::RBrace => 1,
             Token::Type => 1,
             Token::Assign => 1,
             Token::Comma => 1,
@@ -89,6 +95,8 @@ impl Display for Token {
             Token::Scope => write!(f, "'::'"),
             Token::LParen => write!(f, "'('"),
             Token::RParen => write!(f, "')'"),
+            Token::LBrace => write!(f, "'{{'"),
+            Token::RBrace => write!(f, "'}}'"),
             Token::Type => write!(f, "':'"),
             Token::Assign => write!(f, "'='"),
             Token::Comma => write!(f, "','"),
@@ -166,6 +174,10 @@ where
             self.split_pre_token_recursive(before, after, Token::LParen, span)
         } else if let Some((before, after)) = text.split_once(')') {
             self.split_pre_token_recursive(before, after, Token::RParen, span)
+        } else if let Some((before, after)) = text.split_once('{') {
+            self.split_pre_token_recursive(before, after, Token::LBrace, span)
+        } else if let Some((before, after)) = text.split_once('}') {
+            self.split_pre_token_recursive(before, after, Token::RBrace, span)
         } else if let Some((before, after)) = text.split_once(':') {
             self.split_pre_token_recursive(before, after, Token::Type, span)
         } else if let Some((before, after)) = text.split_once('=') {
@@ -256,6 +268,7 @@ pub struct PDefinition {
     pub name: Name,
     pub ty: PExpr,
     pub value: PExpr,
+    pub universe_params: Vec<Name>,
 }
 
 impl Debug for PDefinition {
@@ -275,6 +288,7 @@ pub struct PExpr {
 pub enum PExprContents {
     QualifiedName {
         qualified_name: QualifiedName,
+        universes: Vec<PUniverse>,
     },
     Apply {
         left: Box<PExpr>,
@@ -386,17 +400,36 @@ where
     fn parse_definition(&mut self) -> Dr<(PItem, Span)> {
         // Parse the name of the definition.
         self.parse_name().bind(|name| {
-            self.parse_exact(Token::Type).bind(|_type_span| {
-                self.parse_expr().bind(|ty| {
-                    self.parse_exact(Token::Assign).bind(|_assign_span| {
-                        self.parse_expr().map(|value| {
-                            let span = name.provenance.span().start..value.provenance.span().end;
-                            (
-                                PItem::Definition {
-                                    def: PDefinition { name, ty, value },
-                                },
-                                span,
-                            )
+            // We might have a sequence of universe parameters `::{...}` here.
+            let universe_parameters = match self.stream.next() {
+                Some((Token::Scope, _)) => self
+                    .parse_exact(Token::LBrace)
+                    .bind(|_| self.parse_universe_parameters()),
+                Some((token, span)) => {
+                    self.stream.push(token, span);
+                    Dr::ok(Vec::new())
+                }
+                None => Dr::ok(Vec::new()),
+            };
+            universe_parameters.bind(|universe_params| {
+                self.parse_exact(Token::Type).bind(|_type_span| {
+                    self.parse_expr().bind(|ty| {
+                        self.parse_exact(Token::Assign).bind(|_assign_span| {
+                            self.parse_expr().map(|value| {
+                                let span =
+                                    name.provenance.span().start..value.provenance.span().end;
+                                (
+                                    PItem::Definition {
+                                        def: PDefinition {
+                                            name,
+                                            ty,
+                                            value,
+                                            universe_params,
+                                        },
+                                    },
+                                    span,
+                                )
+                            })
                         })
                     })
                 })
@@ -421,12 +454,15 @@ where
                     },
                     contents: self.db.intern_string_data(text),
                 })
-                .map(|qualified_name| PExpr {
+                .map(|(qualified_name, universes)| PExpr {
                     provenance: Provenance::Quill {
                         source: self.source,
                         span,
                     },
-                    contents: PExprContents::QualifiedName { qualified_name },
+                    contents: PExprContents::QualifiedName {
+                        qualified_name,
+                        universes,
+                    },
                 }),
             Some((Token::LParen, lparen_span)) => self.parse_expr().bind(|expr| {
                 self.parse_exact(Token::RParen).map(|rparen_span| PExpr {
@@ -549,7 +585,7 @@ where
                             },
                             contents: self.db.intern_string_data(text),
                         })
-                        .map(|qualified_name| PExpr {
+                        .map(|(qualified_name, universes)| PExpr {
                             provenance: Provenance::Quill {
                                 source: self.source,
                                 span: lhs.provenance.span().start..span.end,
@@ -561,7 +597,10 @@ where
                                         source: self.source,
                                         span,
                                     },
-                                    contents: PExprContents::QualifiedName { qualified_name },
+                                    contents: PExprContents::QualifiedName {
+                                        qualified_name,
+                                        universes,
+                                    },
                                 }),
                             },
                         })
@@ -716,30 +755,106 @@ where
     }
 
     /// Parses a qualified name with the given initial token.
-    fn parse_qualified_name(&mut self, initial: Name) -> Dr<QualifiedName> {
+    /// If universe parameters were provided to this qualified name, return them as well.
+    fn parse_qualified_name(&mut self, initial: Name) -> Dr<(QualifiedName, Vec<PUniverse>)> {
         match self.stream.next() {
-            Some((Token::Scope, _)) => self
-                .parse_name()
-                .bind(|inner_name| self.parse_qualified_name(inner_name))
-                .map(|mut name| {
-                    name.provenance = Provenance::Quill {
-                        source: self.source,
-                        span: initial.provenance.span().start..name.provenance.span().end,
-                    };
-                    name.segments.insert(0, initial);
-                    name
-                }),
+            Some((Token::Scope, _)) => {
+                // What follows should either be more name segments or a `{` to start a sequence of universe parameters.
+                match self.stream.next() {
+                    Some((Token::Lexical { text }, span)) => self
+                        .parse_qualified_name(Name {
+                            provenance: Provenance::Quill {
+                                source: self.source,
+                                span,
+                            },
+                            contents: self.db.intern_string_data(text),
+                        })
+                        .map(|(mut name, universes)| {
+                            name.provenance = Provenance::Quill {
+                                source: self.source,
+                                span: initial.provenance.span().start..name.provenance.span().end,
+                            };
+                            name.segments.insert(0, initial);
+                            (name, universes)
+                        }),
+                    Some((Token::LBrace, span)) => {
+                        // This is a sequence of universe parameters.
+                        self.parse_universes().map(|universes| {
+                            (
+                                QualifiedName {
+                                    provenance: initial.provenance.clone(),
+                                    segments: vec![initial],
+                                },
+                                universes,
+                            )
+                        })
+                    }
+                    _ => todo!(),
+                }
+            }
             Some((token, span)) => {
                 self.stream.push(token, span);
-                Dr::ok(QualifiedName {
+                Dr::ok((
+                    QualifiedName {
+                        provenance: initial.provenance.clone(),
+                        segments: vec![initial],
+                    },
+                    Vec::new(),
+                ))
+            }
+            None => Dr::ok((
+                QualifiedName {
                     provenance: initial.provenance.clone(),
                     segments: vec![initial],
-                })
+                },
+                Vec::new(),
+            )),
+        }
+    }
+
+    /// The initial brace `{` is assumed to have been parsed.
+    fn parse_universes(&mut self) -> Dr<Vec<PUniverse>> {
+        let mut universes = Dr::ok(Vec::new());
+        loop {
+            match self.stream.next() {
+                Some((Token::RBrace, span)) => {
+                    // This is the end of the list of universe parameters.
+                    break universes;
+                }
+                Some((token, span)) => {
+                    self.stream.push(token, span);
+                    universes = universes.bind(|mut universes| {
+                        self.parse_universe(false).map(|univ| {
+                            universes.push(univ);
+                            universes
+                        })
+                    });
+                }
+                None => todo!(),
             }
-            None => Dr::ok(QualifiedName {
-                provenance: initial.provenance.clone(),
-                segments: vec![initial],
-            }),
+        }
+    }
+
+    /// The initial brace `{` is assumed to have been parsed.
+    fn parse_universe_parameters(&mut self) -> Dr<Vec<Name>> {
+        let mut universe_parameters = Dr::ok(Vec::new());
+        loop {
+            match self.stream.next() {
+                Some((Token::RBrace, span)) => {
+                    // This is the end of the list of universe parameters.
+                    break universe_parameters;
+                }
+                Some((token, span)) => {
+                    self.stream.push(token, span);
+                    universe_parameters = universe_parameters.bind(|mut universes| {
+                        self.parse_name().map(|name| {
+                            universes.push(name);
+                            universes
+                        })
+                    });
+                }
+                None => todo!(),
+            }
         }
     }
 

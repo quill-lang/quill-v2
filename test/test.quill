@@ -1,16 +1,16 @@
-def id : forall (A : Sort 0), forall (a : A), A =
-fn (A : Sort 0), fn (a : A), a
+def id::{u} : forall (A : Sort u), forall (a : A), A =
+fn (A : Sort u), fn (a : A), a
 
-def S_combinator :
-forall (A : Sort 0), forall (B : Sort 0), forall (C : Sort 0),
+def S_combinator::{u v w} :
+forall (A : Sort u), forall (B : Sort v), forall (C : Sort w),
 forall (z : forall (a : A), forall (b : B), C), forall (y : forall (a : A), B), forall (z : A), C =
-fn (A : Sort 0), fn (B : Sort 0), fn (C : Sort 0),
+fn (A : Sort u), fn (B : Sort v), fn (C : Sort w),
 fn (x : forall (a : A), forall (b : B), C), fn (y : forall (a : A), B), fn (z : A), (x z) (y z)
 
-def K_combinator :
-forall (A : Sort 0), forall (B : Sort 0), forall (a : A), forall (b : B), A =
-fn (A : Sort 0), fn (B : Sort 0), fn (a : A), fn (b : B), a
+def K_combinator::{u v} :
+forall (A : Sort u), forall (B : Sort v), forall (a : A), forall (b : B), A =
+fn (A : Sort u), fn (B : Sort v), fn (a : A), fn (b : B), a
 
-def I_combinator :
-forall (A : Sort 0), forall (a : A), A =
-fn (A : Sort 0), fn (a : A), test::test::K_combinator A A a a
+def I_combinator::{u} :
+forall (A : Sort u), forall (a : A), A =
+fn (A : Sort u), fn (a : A), test::test::K_combinator::{u u} A A a a
