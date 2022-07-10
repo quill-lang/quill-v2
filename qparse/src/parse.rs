@@ -239,17 +239,24 @@ where
 /// A parsed item from the input stream.
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum PItem {
-    Definition { ty: PExpr, value: PExpr },
+    Definition { def: PDefinition },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PDefinition {
+    pub name: Name,
+    pub ty: PExpr,
+    pub value: PExpr,
 }
 
 /// A parsed expression from the input stream.
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PExpr {
-    provenance: Provenance,
-    contents: PExprContents,
+    pub provenance: Provenance,
+    pub contents: PExprContents,
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PExprContents {
     Lexical {
         text: String,
@@ -289,26 +296,26 @@ pub enum PExprContents {
 }
 
 /// A parsed universe from the input stream.
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PUniverse {
-    provenance: Provenance,
-    contents: PUniverseContents,
+    pub provenance: Provenance,
+    pub contents: PUniverseContents,
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PUniverseContents {
     Lexical { text: String },
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PBinder {
-    binder_annotation: BinderAnnotation,
-    name: Name,
-    ty: Box<PExpr>,
+    pub binder_annotation: BinderAnnotation,
+    pub name: Name,
+    pub ty: Box<PExpr>,
 }
 
 /// Parses a list of items from a stream of pre-tokens.
-pub fn parse_items(
+pub(crate) fn parse_items(
     db: &dyn Intern,
     source: Source,
     stream: TokenIterator<impl Iterator<Item = (PreToken, Span)>>,
@@ -362,7 +369,12 @@ where
                     self.parse_exact(Token::Assign).bind(|_assign_span| {
                         self.parse_expr().map(|value| {
                             let span = name.provenance.span().start..value.provenance.span().end;
-                            (PItem::Definition { ty, value }, span)
+                            (
+                                PItem::Definition {
+                                    def: PDefinition { name, ty, value },
+                                },
+                                span,
+                            )
                         })
                     })
                 })

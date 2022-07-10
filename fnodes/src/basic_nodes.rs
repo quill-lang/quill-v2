@@ -404,6 +404,12 @@ impl Display for DeBruijnIndex {
 }
 
 impl DeBruijnIndex {
+    /// Constructs a de Bruijn index explicitly.
+    /// Do not use this if possible, prefer [`Self::zero`] and [`Self::succ`].
+    pub fn new(idx: u32) -> Self {
+        Self(idx)
+    }
+
     /// The lowest de Bruijn index.
     pub fn zero() -> DeBruijnIndex {
         Self(0)

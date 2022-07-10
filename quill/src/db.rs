@@ -5,12 +5,22 @@ use std::{
 };
 
 use fcommon::*;
+use fkernel::TypeCheckerStorage;
+use fnodes::SexprParserStorage;
 use notify::{RecommendedWatcher, Watcher};
+use qelab::ElaboratorStorage;
 use qparse::QuillParserStorage;
 use salsa::Snapshot;
 
 /// The main database that manages all the compiler's queries.
-#[salsa::database(FileReaderStorage, InternStorage, QuillParserStorage)]
+#[salsa::database(
+    FileReaderStorage,
+    InternStorage,
+    QuillParserStorage,
+    SexprParserStorage,
+    TypeCheckerStorage,
+    ElaboratorStorage
+)]
 pub struct FeatherDatabase {
     storage: salsa::Storage<Self>,
     watcher: Arc<Mutex<RecommendedWatcher>>,

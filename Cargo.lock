@@ -479,6 +479,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "qelab"
+version = "0.0.0"
+dependencies = [
+ "fcommon",
+ "fkernel",
+ "fnodes",
+ "qparse",
+ "salsa",
+ "tracing",
+]
+
+[[package]]
 name = "qparse"
 version = "0.0.0"
 dependencies = [
@@ -494,11 +506,15 @@ name = "quill"
 version = "0.0.0"
 dependencies = [
  "fcommon",
+ "fkernel",
+ "fnodes",
  "notify",
+ "qelab",
  "qparse",
  "salsa",
  "tracing",
  "tracing-subscriber",
+ "upcast",
 ]
 
 [[package]]

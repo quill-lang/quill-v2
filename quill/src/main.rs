@@ -1,15 +1,18 @@
 use std::{path::PathBuf, sync::Arc};
 
 use fcommon::{FileReader, Intern, PathData, Source, SourceType};
-use qparse::QuillParser;
+use fkernel::expr::ExprPrinter;
+use fnodes::expr::{Expr, ExprContents};
+use qelab::Elaborator;
 use salsa::Durability;
 use tracing::info;
 use tracing_subscriber::{fmt::format::FmtSpan, FmtSubscriber};
+use upcast::Upcast;
 
 mod db;
 
 fn main() {
-    let log_level = tracing::Level::INFO;
+    let log_level = tracing::Level::TRACE;
     let subscriber = FmtSubscriber::builder()
         .with_writer(std::io::stderr)
         .with_max_level(log_level)
@@ -32,7 +35,7 @@ fn main() {
         ty: SourceType::Quill,
     };
 
-    let result = db.parse_quill(source);
+    let result = db.elaborate_and_certify(source);
     // Use a locked version of `stderr`, so that reports are not interspersed
     // with other things such as tracing messages from other threads.
     let mut stderr = std::io::stderr().lock();
@@ -40,8 +43,45 @@ fn main() {
         report.render(&db, &mut stderr);
     }
 
-    if let Some(value) = result.value() {
-        tracing::info!("{:#?}", value);
+    if let Some(result) = result.value() {
+        for def in &result.definitions {
+            let mut printer = ExprPrinter::new(db.up());
+            tracing::debug!(
+                "certified definition {}\nsort: {}\ntype: {}\nvalue: {}\nreducibility hints: {}",
+                db.lookup_intern_string_data(def.def().contents.name.contents),
+                printer.print(&Expr::new_synthetic(ExprContents::Sort(def.sort().clone()))),
+                printer.print(&def.def().contents.ty),
+                def.def()
+                    .contents
+                    .expr
+                    .as_ref()
+                    .map(|e| printer.print(e))
+                    .unwrap_or_else(|| "no body".to_string()),
+                def.reducibility_hints()
+            )
+        }
+        for ind in &result.inductives {
+            tracing::debug!(
+                "certified inductive {}",
+                db.lookup_intern_string_data(ind.inductive().contents.name.contents),
+            );
+        }
+
+        // let node = ListSexprWrapper::serialise_into_node(&db, &**result);
+        // let pretty_print = PrettyPrintSettings {
+        //     no_indent_for: {
+        //         let mut map = HashSet::new();
+        //         for s in ["local", "iu64", "iunit", "fu64", "funit", "funiverse"] {
+        //             map.insert(s.to_string());
+        //         }
+        //         map
+        //     },
+        // };
+        // std::fs::write(
+        //     db.path_to_path_buf(path).with_extension("tyck.sexp"),
+        //     node.to_string(&pretty_print),
+        // )
+        // .unwrap();
     }
 
     /*

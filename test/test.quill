@@ -1,2 +1,8 @@
 def id : forall (A : Sort 0), forall (a : A), A =
 fn (A : Sort 0), fn (a : A), a
+
+def S_combinator :
+forall (A : Sort 0), forall (B : Sort 0), forall (C : Sort 0),
+forall (z : forall (a : A), forall (b : B), C), forall (y : forall (a : A), B), forall (z : A), C =
+fn (A : Sort 0), fn (B : Sort 0), fn (C : Sort 0),
+fn (x : forall (a : A), forall (b : B), C), fn (y : forall (a : A), B), fn (z : A), (x z) (y z)

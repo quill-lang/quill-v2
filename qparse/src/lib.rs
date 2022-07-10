@@ -6,7 +6,7 @@
 mod parse;
 mod pre_lex;
 
-use parse::*;
+pub use parse::*;
 use pre_lex::*;
 
 use std::sync::Arc;
