@@ -34,13 +34,22 @@ impl ListSexpr for Span {
 /// The place the node came from.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Provenance {
-    Sexpr { source: Source, span: Span },
+    /// The node originated from being written directly in a quill source file.
+    Quill {
+        source: Source,
+        span: Span,
+    },
+    Sexpr {
+        source: Source,
+        span: Span,
+    },
     Synthetic,
 }
 
 impl Provenance {
     pub fn source(&self) -> Option<Source> {
         match self {
+            Provenance::Quill { source, .. } => Some(*source),
             Provenance::Sexpr { source, .. } => Some(*source),
             Provenance::Synthetic => None,
         }
@@ -49,6 +58,7 @@ impl Provenance {
     /// Returns the span, or `0..0` if it was synthetic.
     pub fn span(&self) -> Span {
         match self {
+            Provenance::Quill { span, .. } => span.clone(),
             Provenance::Sexpr { span, .. } => span.clone(),
             Provenance::Synthetic => 0..0,
         }
