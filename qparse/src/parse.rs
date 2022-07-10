@@ -1,7 +1,10 @@
 use std::{collections::BTreeMap, fmt::Display};
 
 use fcommon::{Dr, Intern, Label, LabelType, Report, ReportKind, Source, Span};
-use fnodes::basic_nodes::{Name, Provenance};
+use fnodes::{
+    basic_nodes::{Name, Provenance},
+    expr::BinderAnnotation,
+};
 
 use crate::pre_lex::PreToken;
 
@@ -24,6 +27,18 @@ pub enum Token {
     Type,
     /// `=`
     Assign,
+    /// `,`
+    Comma,
+    /// `def`
+    Def,
+    /// `fn`
+    Fn,
+    /// `forall`
+    Forall,
+    /// `let`
+    Let,
+    /// `Sort`
+    Sort,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -50,6 +65,12 @@ impl Token {
             Token::RParen => 1,
             Token::Type => 1,
             Token::Assign => 1,
+            Token::Comma => 1,
+            Token::Def => "def".chars().count(),
+            Token::Fn => "fn".chars().count(),
+            Token::Forall => "forall".chars().count(),
+            Token::Let => "let".chars().count(),
+            Token::Sort => "sort".chars().count(),
         }
     }
 }
@@ -58,14 +79,17 @@ impl Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Token::Lexical { text } => write!(f, "\"{}\"", text),
-            Token::Operator {
-                text,
-                info: precedence,
-            } => write!(f, "operator \"{}\"", text),
+            Token::Operator { text, .. } => write!(f, "operator \"{}\"", text),
             Token::LParen => write!(f, "'('"),
             Token::RParen => write!(f, "')'"),
             Token::Type => write!(f, "':'"),
             Token::Assign => write!(f, "'='"),
+            Token::Comma => write!(f, "','"),
+            Token::Def => write!(f, "'def'"),
+            Token::Fn => write!(f, "'fn'"),
+            Token::Forall => write!(f, "'forall'"),
+            Token::Let => write!(f, "'let'"),
+            Token::Sort => write!(f, "'Sort'"),
         }
     }
 }
@@ -130,27 +154,36 @@ where
         // We didn't find any operators in this text.
         // Now search for important tokens like left and right parentheses.
         if let Some((before, after)) = text.split_once('(') {
-            return self.split_pre_token_recursive(before, after, Token::LParen, span);
+            self.split_pre_token_recursive(before, after, Token::LParen, span)
         } else if let Some((before, after)) = text.split_once(')') {
-            return self.split_pre_token_recursive(before, after, Token::RParen, span);
+            self.split_pre_token_recursive(before, after, Token::RParen, span)
         } else if let Some((before, after)) = text.split_once(':') {
-            return self.split_pre_token_recursive(before, after, Token::Type, span);
+            self.split_pre_token_recursive(before, after, Token::Type, span)
         } else if let Some((before, after)) = text.split_once('=') {
-            return self.split_pre_token_recursive(before, after, Token::Assign, span);
-        }
-
-        // We didn't find any other tokens in this text.
-        if text.is_empty() {
-            Vec::new()
+            self.split_pre_token_recursive(before, after, Token::Assign, span)
+        } else if let Some((before, after)) = text.split_once(',') {
+            self.split_pre_token_recursive(before, after, Token::Comma, span)
         } else {
-            // Treat the text as a single token.
-            // TODO: Warn the user if this doesn't look like a single token.
-            vec![(
-                Token::Lexical {
-                    text: text.to_owned(),
-                },
-                span,
-            )]
+            // We didn't find any other tokens in this text.
+            if text.is_empty() {
+                Vec::new()
+            } else {
+                // Treat the text as a single token.
+                // TODO: Warn the user if this doesn't look like a single token.
+                vec![(
+                    match text {
+                        "def" => Token::Def,
+                        "fn" => Token::Fn,
+                        "forall" => Token::Forall,
+                        "let" => Token::Let,
+                        "Sort" => Token::Sort,
+                        _ => Token::Lexical {
+                            text: text.to_owned(),
+                        },
+                    },
+                    span,
+                )]
+            }
         }
     }
 
@@ -236,6 +269,42 @@ pub enum PExprContents {
         left: Box<PExpr>,
         right: Box<PExpr>,
     },
+    Forall {
+        binder: PBinder,
+        inner_expr: Box<PExpr>,
+    },
+    Function {
+        binder: PBinder,
+        inner_expr: Box<PExpr>,
+    },
+    Let {
+        name_to_assign: Name,
+        to_assign: Box<PExpr>,
+        to_assign_ty: Box<PExpr>,
+        body: Box<PExpr>,
+    },
+    Sort {
+        universe: PUniverse,
+    },
+}
+
+/// A parsed universe from the input stream.
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub struct PUniverse {
+    provenance: Provenance,
+    contents: PUniverseContents,
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub enum PUniverseContents {
+    Lexical { text: String },
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub struct PBinder {
+    binder_annotation: BinderAnnotation,
+    name: Name,
+    ty: Box<PExpr>,
 }
 
 /// Parses a list of items from a stream of pre-tokens.
@@ -278,10 +347,7 @@ where
     /// If the stream was empty, return [`None`].
     fn parse_item(&mut self) -> Dr<Option<(PItem, Span)>> {
         match self.stream.next() {
-            Some((Token::Lexical { text }, span)) => match text.as_str() {
-                "def" => self.parse_definition().map(Some),
-                _ => todo!(),
-            },
+            Some((Token::Def, _span)) => self.parse_definition().map(Some),
             Some((token, span)) => todo!(),
             None => Dr::ok(None),
         }
@@ -291,9 +357,9 @@ where
     fn parse_definition(&mut self) -> Dr<(PItem, Span)> {
         // Parse the name of the definition.
         self.parse_name().bind(|name| {
-            self.parse_exact(Token::Type).bind(|type_span| {
+            self.parse_exact(Token::Type).bind(|_type_span| {
                 self.parse_expr().bind(|ty| {
-                    self.parse_exact(Token::Assign).bind(|assign_span| {
+                    self.parse_exact(Token::Assign).bind(|_assign_span| {
                         self.parse_expr().map(|value| {
                             let span = name.provenance.span().start..value.provenance.span().end;
                             (PItem::Definition { ty, value }, span)
@@ -328,6 +394,77 @@ where
                     },
                     contents: expr.contents,
                 })
+            }),
+            Some((Token::Fn, forall_span)) => {
+                // Parse a binder, then parse the resulting expression.
+                self.parse_binder().bind(|binder| {
+                    self.parse_exact(Token::Comma).bind(|_comma_span| {
+                        self.parse_expr_with_precedence(min_precedence)
+                            .map(|inner_expr| PExpr {
+                                provenance: Provenance::Quill {
+                                    source: self.source,
+                                    span: forall_span.start..inner_expr.provenance.span().end,
+                                },
+                                contents: PExprContents::Function {
+                                    binder,
+                                    inner_expr: Box::new(inner_expr),
+                                },
+                            })
+                    })
+                })
+            }
+            Some((Token::Forall, forall_span)) => {
+                // Parse a binder, then parse the resulting expression.
+                self.parse_binder().bind(|binder| {
+                    self.parse_exact(Token::Comma).bind(|_comma_span| {
+                        self.parse_expr_with_precedence(min_precedence)
+                            .map(|inner_expr| PExpr {
+                                provenance: Provenance::Quill {
+                                    source: self.source,
+                                    span: forall_span.start..inner_expr.provenance.span().end,
+                                },
+                                contents: PExprContents::Forall {
+                                    binder,
+                                    inner_expr: Box::new(inner_expr),
+                                },
+                            })
+                    })
+                })
+            }
+            Some((Token::Let, let_span)) => {
+                // Parse the name, then parse the value we're assigning, then parse the resulting expression.
+                // The structure is `let a : b = c, d`.
+                self.parse_name().bind(|name_to_assign| {
+                    self.parse_exact(Token::Type).bind(|_| {
+                        self.parse_expr().bind(|to_assign_ty| {
+                            self.parse_exact(Token::Assign).bind(|_| {
+                                self.parse_expr().bind(|to_assign| {
+                                    self.parse_exact(Token::Comma).bind(|_| {
+                                        self.parse_expr().map(|body| PExpr {
+                                            provenance: Provenance::Quill {
+                                                source: self.source,
+                                                span: let_span.start..body.provenance.span().end,
+                                            },
+                                            contents: PExprContents::Let {
+                                                name_to_assign,
+                                                to_assign: Box::new(to_assign),
+                                                to_assign_ty: Box::new(to_assign_ty),
+                                                body: Box::new(body),
+                                            },
+                                        })
+                                    })
+                                })
+                            })
+                        })
+                    })
+                })
+            }
+            Some((Token::Sort, span)) => self.parse_universe(false).map(|universe| PExpr {
+                provenance: Provenance::Quill {
+                    source: self.source,
+                    span: span.start..universe.provenance.span().end,
+                },
+                contents: PExprContents::Sort { universe },
             }),
             Some((
                 Token::Operator {
@@ -480,6 +617,51 @@ where
         }
 
         lhs
+    }
+
+    fn parse_binder(&mut self) -> Dr<PBinder> {
+        self.parse_exact(Token::LParen).bind(|lparen_span| {
+            self.parse_name().bind(|name| {
+                self.parse_exact(Token::Type).bind(|ty_span| {
+                    self.parse_expr().bind(|ty| {
+                        self.parse_exact(Token::RParen).map(|rparen_span| PBinder {
+                            binder_annotation: BinderAnnotation::Explicit,
+                            name,
+                            ty: Box::new(ty),
+                        })
+                    })
+                })
+            })
+        })
+    }
+
+    /// Parses a universe from the input stream. If `parenthesised` is true, we allow expressions
+    /// such as `u + k` and `max u v` which can only be parsed when inside a set of parentheses.
+    fn parse_universe(&mut self, parenthesised: bool) -> Dr<PUniverse> {
+        match self.stream.next() {
+            Some((Token::Lexical { text }, span)) => match text.as_str() {
+                "max" => todo!(),
+                "imax" => todo!(),
+                _ => Dr::ok(PUniverse {
+                    provenance: Provenance::Quill {
+                        source: self.source,
+                        span,
+                    },
+                    contents: PUniverseContents::Lexical { text },
+                }),
+            },
+            Some((Token::LParen, lparen_span)) => self.parse_universe(true).bind(|univ| {
+                self.parse_exact(Token::RParen)
+                    .map(|rparen_span| PUniverse {
+                        provenance: Provenance::Quill {
+                            source: self.source,
+                            span: lparen_span.start..rparen_span.end,
+                        },
+                        contents: univ.contents,
+                    })
+            }),
+            _ => todo!(),
+        }
     }
 
     fn parse_name(&mut self) -> Dr<Name> {
