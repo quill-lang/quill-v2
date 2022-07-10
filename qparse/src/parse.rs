@@ -1,8 +1,11 @@
-use std::{collections::BTreeMap, fmt::Display};
+use std::{
+    collections::BTreeMap,
+    fmt::{Debug, Display},
+};
 
 use fcommon::{Dr, Intern, Label, LabelType, Report, ReportKind, Source, Span};
 use fnodes::{
-    basic_nodes::{Name, Provenance},
+    basic_nodes::{Name, Provenance, QualifiedName},
     expr::BinderAnnotation,
 };
 
@@ -19,6 +22,8 @@ pub enum Token {
         text: String,
         info: OperatorInfo,
     },
+    /// `::`
+    Scope,
     /// `(`
     LParen,
     /// `)`
@@ -61,6 +66,7 @@ impl Token {
         match self {
             Token::Lexical { text } => text.chars().count(),
             Token::Operator { text, .. } => text.chars().count(),
+            Token::Scope => 2,
             Token::LParen => 1,
             Token::RParen => 1,
             Token::Type => 1,
@@ -80,6 +86,7 @@ impl Display for Token {
         match self {
             Token::Lexical { text } => write!(f, "\"{}\"", text),
             Token::Operator { text, .. } => write!(f, "operator \"{}\"", text),
+            Token::Scope => write!(f, "'::'"),
             Token::LParen => write!(f, "'('"),
             Token::RParen => write!(f, "')'"),
             Token::Type => write!(f, "':'"),
@@ -153,7 +160,9 @@ where
 
         // We didn't find any operators in this text.
         // Now search for important tokens like left and right parentheses.
-        if let Some((before, after)) = text.split_once('(') {
+        if let Some((before, after)) = text.split_once("::") {
+            self.split_pre_token_recursive(before, after, Token::Scope, span)
+        } else if let Some((before, after)) = text.split_once('(') {
             self.split_pre_token_recursive(before, after, Token::LParen, span)
         } else if let Some((before, after)) = text.split_once(')') {
             self.split_pre_token_recursive(before, after, Token::RParen, span)
@@ -242,11 +251,17 @@ pub enum PItem {
     Definition { def: PDefinition },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct PDefinition {
     pub name: Name,
     pub ty: PExpr,
     pub value: PExpr,
+}
+
+impl Debug for PDefinition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<pdef>")
+    }
 }
 
 /// A parsed expression from the input stream.
@@ -258,8 +273,8 @@ pub struct PExpr {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PExprContents {
-    Lexical {
-        text: String,
+    QualifiedName {
+        qualified_name: QualifiedName,
     },
     Apply {
         left: Box<PExpr>,
@@ -355,7 +370,14 @@ where
     fn parse_item(&mut self) -> Dr<Option<(PItem, Span)>> {
         match self.stream.next() {
             Some((Token::Def, _span)) => self.parse_definition().map(Some),
-            Some((token, span)) => todo!(),
+            Some((token, span)) => Dr::fail(
+                Report::new(ReportKind::Error, self.source, span.start)
+                    .with_message(format!("expected item, got {}", token))
+                    .with_label(
+                        Label::new(self.source, span, LabelType::Error)
+                            .with_message("expected item here"),
+                    ),
+            ),
             None => Dr::ok(None),
         }
     }
@@ -391,13 +413,21 @@ where
     /// If any operator with higher precedence is met, that is not considered part of this parsed expression.
     fn parse_expr_with_precedence(&mut self, min_precedence: i32) -> Dr<PExpr> {
         let mut lhs = match self.stream.next() {
-            Some((Token::Lexical { text }, span)) => Dr::ok(PExpr {
-                provenance: Provenance::Quill {
-                    source: self.source,
-                    span,
-                },
-                contents: PExprContents::Lexical { text },
-            }),
+            Some((Token::Lexical { text }, span)) => self
+                .parse_qualified_name(Name {
+                    provenance: Provenance::Quill {
+                        source: self.source,
+                        span: span.clone(),
+                    },
+                    contents: self.db.intern_string_data(text),
+                })
+                .map(|qualified_name| PExpr {
+                    provenance: Provenance::Quill {
+                        source: self.source,
+                        span,
+                    },
+                    contents: PExprContents::QualifiedName { qualified_name },
+                }),
             Some((Token::LParen, lparen_span)) => self.parse_expr().bind(|expr| {
                 self.parse_exact(Token::RParen).map(|rparen_span| PExpr {
                     provenance: Provenance::Quill {
@@ -511,21 +541,30 @@ where
         loop {
             match self.stream.next() {
                 Some((Token::Lexical { text }, span)) => {
-                    lhs = lhs.map(|lhs| PExpr {
-                        provenance: Provenance::Quill {
-                            source: self.source,
-                            span: lhs.provenance.span().start..span.end,
-                        },
-                        contents: PExprContents::Apply {
-                            left: Box::new(lhs),
-                            right: Box::new(PExpr {
-                                provenance: Provenance::Quill {
-                                    source: self.source,
-                                    span,
-                                },
-                                contents: PExprContents::Lexical { text },
-                            }),
-                        },
+                    lhs = lhs.bind(|lhs| {
+                        self.parse_qualified_name(Name {
+                            provenance: Provenance::Quill {
+                                source: self.source,
+                                span: span.clone(),
+                            },
+                            contents: self.db.intern_string_data(text),
+                        })
+                        .map(|qualified_name| PExpr {
+                            provenance: Provenance::Quill {
+                                source: self.source,
+                                span: lhs.provenance.span().start..span.end,
+                            },
+                            contents: PExprContents::Apply {
+                                left: Box::new(lhs),
+                                right: Box::new(PExpr {
+                                    provenance: Provenance::Quill {
+                                        source: self.source,
+                                        span,
+                                    },
+                                    contents: PExprContents::QualifiedName { qualified_name },
+                                }),
+                            },
+                        })
                     });
                 }
                 Some((Token::LParen, lparen_span)) => {
@@ -673,6 +712,34 @@ where
                     })
             }),
             _ => todo!(),
+        }
+    }
+
+    /// Parses a qualified name with the given initial token.
+    fn parse_qualified_name(&mut self, initial: Name) -> Dr<QualifiedName> {
+        match self.stream.next() {
+            Some((Token::Scope, _)) => self
+                .parse_name()
+                .bind(|inner_name| self.parse_qualified_name(inner_name))
+                .map(|mut name| {
+                    name.provenance = Provenance::Quill {
+                        source: self.source,
+                        span: initial.provenance.span().start..name.provenance.span().end,
+                    };
+                    name.segments.insert(0, initial);
+                    name
+                }),
+            Some((token, span)) => {
+                self.stream.push(token, span);
+                Dr::ok(QualifiedName {
+                    provenance: initial.provenance.clone(),
+                    segments: vec![initial],
+                })
+            }
+            None => Dr::ok(QualifiedName {
+                provenance: initial.provenance.clone(),
+                segments: vec![initial],
+            }),
         }
     }
 

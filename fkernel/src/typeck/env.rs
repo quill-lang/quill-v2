@@ -1,4 +1,7 @@
-use std::{collections::HashMap, fmt::Display};
+use std::{
+    collections::HashMap,
+    fmt::{Debug, Display},
+};
 
 use fcommon::{Path, Source};
 use fnodes::{basic_nodes::Name, definition::Definition, expr::Sort, SexprParser};
@@ -14,6 +17,12 @@ pub struct Environment<'a> {
     pub definitions: HashMap<Path, &'a CertifiedDefinition>,
     pub inductives: HashMap<Path, &'a CertifiedInductive>,
     pub universe_variables: &'a [Name],
+}
+
+impl<'a> Debug for Environment<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<env>")
+    }
 }
 
 /// A definition that has been verified by the type checker.

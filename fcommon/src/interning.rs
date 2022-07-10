@@ -134,7 +134,7 @@ impl Path {
             .into_iter()
             .map(|s| intern.lookup_intern_string_data(s))
             .collect::<Vec<_>>()
-            .join(".")
+            .join("::")
     }
 }
 

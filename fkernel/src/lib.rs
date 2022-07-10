@@ -35,7 +35,7 @@ pub trait TypeChecker: fnodes::SexprParserExt {
 #[derive(PartialEq, Eq, Hash)]
 pub struct CertifiedModule {
     /// The origin of the module in code.
-    provenance: Provenance,
+    pub provenance: Provenance,
     pub definitions: Vec<CertifiedDefinition>,
     pub inductives: Vec<CertifiedInductive>,
 }
