@@ -1,13 +1,16 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
-use fcommon::{Dr, Label, LabelType, Report, ReportKind, Source, Span};
+use fcommon::{Dr, Label, LabelType, Path, PathData, Report, ReportKind, Source, Span};
 use fkernel::{
     inductive::{self, CertifiedInductive},
     typeck::{self, CertifiedDefinition, DefinitionOrigin, Environment},
     CertifiedModule, TypeChecker,
 };
 use fnodes::{
-    basic_nodes::{DeBruijnIndex, Name, Provenance},
+    basic_nodes::{DeBruijnIndex, Name, Provenance, QualifiedName},
     definition::{Definition, DefinitionContents},
     expr::{Apply, Bound, Expr, ExprContents, Inst, Lambda, Pi, Sort},
     inductive::{Inductive, InductiveContents, IntroRule},
@@ -107,10 +110,14 @@ pub fn elaborate_and_certify(db: &dyn Elaborator, source: Source) -> Dr<Arc<Cert
 /// things like type checking.
 #[tracing::instrument(level = "trace")]
 fn elaborate_definition(env: &Environment, def: &PDefinition, span: Span) -> Dr<Definition> {
-    elaborate_expr(env, &[], &def.ty).bind(|ty| {
-        elaborate_expr(env, &[], &def.value).map(|expr| Definition {
+    let env = ElabEnv {
+        env,
+        extra_defs: HashMap::new(),
+    };
+    elaborate_expr(&env, &[], &def.ty).bind(|ty| {
+        elaborate_expr(&env, &[], &def.value).map(|expr| Definition {
             provenance: Provenance::Quill {
-                source: env.source,
+                source: env.env.source,
                 span,
             },
             contents: DefinitionContents {
@@ -129,13 +136,27 @@ fn elaborate_definition(env: &Environment, def: &PDefinition, span: Span) -> Dr<
 /// things like type checking and construction of the eliminator.
 #[tracing::instrument(level = "trace")]
 fn elaborate_inductive(env: &Environment, ind: &PInductive, span: Span) -> Dr<Inductive> {
-    elaborate_expr(env, &[], &ind.ty).bind(|ty| {
+    let mut env = ElabEnv {
+        env,
+        extra_defs: HashMap::new(),
+    };
+    elaborate_expr(&env, &[], &ind.ty).bind(|ty| {
+        // The environment used here doesn't know about the inductive.
+        // We therefore need to add it into the elaboration environment now.
+        env.extra_defs.insert(
+            env.env.db.intern_path_data(PathData(
+                env.env
+                    .db
+                    .lookup_intern_path_data(env.env.source.path)
+                    .0
+                    .into_iter()
+                    .chain(std::iter::once(ind.name.contents))
+                    .collect(),
+            )),
+            ty.clone(),
+        );
         Dr::sequence(ind.intro_rules.iter().map(|(name, intro_rule_ty)| {
-            // TODO: The environment used here doesn't know about the inductive.
-            // This doesn't cause problems for the moment, but as soon as we start querying the
-            // environment for information about definitions, things will break when elaborating
-            // the intro rules.
-            elaborate_expr(env, &[], intro_rule_ty).map(|ty| IntroRule {
+            elaborate_expr(&env, &[], intro_rule_ty).map(|ty| IntroRule {
                 name: name.clone(),
                 ty,
             })
@@ -153,62 +174,55 @@ fn elaborate_inductive(env: &Environment, ind: &PInductive, span: Span) -> Dr<In
     })
 }
 
+struct ElabEnv<'a> {
+    env: &'a Environment<'a>,
+    /// Extra definitions that we know exist but that have not yet been certified.
+    /// The value associated to each key is the type of the definition.
+    extra_defs: HashMap<Path, Expr>,
+}
+
 /// The list of `locals` is the list of bound variables.
 /// Their index in the list is the associated [`DeBruijnIndex`].
-fn elaborate_expr(env: &Environment, locals: &[Name], e: &PExpr) -> Dr<Expr> {
+fn elaborate_expr(env: &ElabEnv, locals: &[Name], e: &PExpr) -> Dr<Expr> {
     match &e.contents {
         PExprContents::QualifiedName {
             qualified_name,
             universes,
-        } => {
-            if qualified_name.segments.len() == 1 {
-                // This is a local variable.
-                // Construct the relevant de Bruijn index for this local.
-                let name = &qualified_name.segments[0];
-                match locals
-                    .iter()
-                    .enumerate()
-                    .find(|(_, local)| local.contents == name.contents)
-                {
-                    Some((i, _)) => Dr::ok(Expr::new_with_provenance(
-                        &e.provenance,
-                        ExprContents::Bound(Bound {
-                            index: DeBruijnIndex::new(i as u32),
-                        }),
-                    )),
-                    None => Dr::fail(
-                        locals.iter().fold(
-                            Report::new(ReportKind::Error, env.source, e.provenance.span().start)
-                                .with_message(format!("could not find variable `{}`", env.db.lookup_intern_string_data(name.contents)))
-                                .with_label(
-                                    Label::new(env.source, e.provenance.span(), LabelType::Error)
-                                        .with_message("error was found here, local variables visible from this expression are underlined").with_priority(1000),
-                                ),
-                            |report, local| {
-                                report.with_label(Label::new(
-                                    env.source,
-                                    local.provenance.span(),
-                                    LabelType::Note,
-                                ).with_message(env.db.lookup_intern_string_data(local.contents)))
-                            },
-                        ),
-                    ),
-                }
-            } else {
-                // This is the name of a definition.
-                Dr::sequence(universes.iter().map(|u| elaborate_universe(env, u))).map(
-                    |universes| {
-                        Expr::new_with_provenance(
-                            &e.provenance,
-                            ExprContents::Inst(Inst {
-                                name: qualified_name.clone(),
-                                universes,
-                            }),
-                        )
-                    },
+        } => match resolve_name(env, locals, qualified_name) {
+            Some(ResolvedName::Bound(index)) => Dr::ok(Expr::new_with_provenance(
+                &qualified_name.provenance,
+                ExprContents::Bound(Bound { index }),
+            )),
+            Some(ResolvedName::QualifiedName(qualified_name)) => Dr::sequence(
+                universes.iter().map(|u| elaborate_universe(env, u)),
+            )
+            .map(|universes| {
+                Expr::new_with_provenance(
+                    &e.provenance,
+                    ExprContents::Inst(Inst {
+                        name: qualified_name,
+                        universes,
+                    }),
                 )
-            }
-        }
+            }),
+            None => Dr::fail(
+                locals.iter().fold(
+                    Report::new(ReportKind::Error, env.env.source, qualified_name.provenance.span().start)
+                        .with_message(format!("could not find variable `{}`", qualified_name.display(env.env.db.up())))
+                        .with_label(
+                            Label::new(env.env.source, qualified_name.provenance.span(), LabelType::Error)
+                                .with_message("error was found here, local variables visible from this expression are underlined").with_priority(1000),
+                        ),
+                    |report, local| {
+                        report.with_label(Label::new(
+                            env.env.source,
+                            local.provenance.span(),
+                            LabelType::Note,
+                        ).with_message(env.env.db.lookup_intern_string_data(local.contents)))
+                    },
+                ),
+            )
+        },
         PExprContents::Apply { left, right } => elaborate_expr(env, locals, left).bind(|left| {
             elaborate_expr(env, locals, right).map(|right| {
                 Expr::new_with_provenance(
@@ -278,7 +292,94 @@ fn elaborate_expr(env: &Environment, locals: &[Name], e: &PExpr) -> Dr<Expr> {
     }
 }
 
-fn elaborate_universe(env: &Environment, u: &PUniverse) -> Dr<Universe> {
+enum ResolvedName {
+    QualifiedName(QualifiedName),
+    Bound(DeBruijnIndex),
+}
+
+fn resolve_name(
+    env: &ElabEnv,
+    locals: &[Name],
+    qualified_name: &QualifiedName,
+) -> Option<ResolvedName> {
+    if qualified_name.segments.len() == 1 {
+        // This may be a local variable.
+        // Construct the relevant de Bruijn index for this local.
+        let name = &qualified_name.segments[0];
+        if let Some((i, _)) = locals
+            .iter()
+            .enumerate()
+            .find(|(_, local)| local.contents == name.contents)
+        {
+            return Some(ResolvedName::Bound(DeBruijnIndex::new(i as u32)));
+        }
+    }
+
+    let attempt = |qualified_name: QualifiedName| {
+        let path = qualified_name.to_path(env.env.db.up());
+        if env.env.definitions.contains_key(&path) || env.extra_defs.contains_key(&path) {
+            Some(ResolvedName::QualifiedName(qualified_name))
+        } else {
+            None
+        }
+    };
+
+    // This is the name of a definition.
+    // Try to resolve it.
+    if let Some(result) = attempt(qualified_name.clone()) {
+        return Some(result);
+    }
+
+    // Try to prepend all imported namespaces.
+    let mut new_name = qualified_name.clone();
+    new_name.segments = env
+        .env
+        .db
+        .lookup_intern_path_data(env.env.source.path)
+        .0
+        .iter()
+        .map(|s| Name {
+            provenance: qualified_name.provenance.clone(),
+            contents: *s,
+        })
+        .chain(new_name.segments)
+        .collect();
+    if let Some(result) = attempt(new_name.clone()) {
+        return Some(result);
+    }
+
+    tracing::debug!(
+        "couldn't find {}: {:#?} {:#?}",
+        qualified_name.display(env.env.db.up()),
+        env.env
+            .definitions
+            .keys()
+            .map(|k| env
+                .env
+                .db
+                .lookup_intern_path_data(*k)
+                .0
+                .iter()
+                .map(|s| env.env.db.lookup_intern_string_data(*s))
+                .collect::<Vec<_>>())
+            .collect::<Vec<_>>(),
+        env.extra_defs
+            .keys()
+            .map(|k| env
+                .env
+                .db
+                .lookup_intern_path_data(*k)
+                .0
+                .iter()
+                .map(|s| env.env.db.lookup_intern_string_data(*s))
+                .collect::<Vec<_>>())
+            .collect::<Vec<_>>()
+    );
+
+    None
+}
+
+fn elaborate_universe(env: &ElabEnv, u: &PUniverse) -> Dr<Universe> {
     let provenance = u.provenance.clone();
     match &u.contents {
         PUniverseContents::Lexical { text } => match text.parse() {
@@ -294,7 +395,7 @@ fn elaborate_universe(env: &Environment, u: &PUniverse) -> Dr<Universe> {
             Err(_) => Dr::ok(Universe::new_with_provenance(
                 &provenance,
                 UniverseContents::UniverseVariable(UniverseVariable(
-                    env.db.intern_string_data(text.to_owned()),
+                    env.env.db.intern_string_data(text.to_owned()),
                 )),
             )),
         },

@@ -13,33 +13,33 @@ fn (A : Sort u), fn (B : Sort v), fn (a : A), fn (b : B), a
 
 def I_combinator::{u} :
 forall (A : Sort u), forall (a : A), A =
-fn (A : Sort u), fn (a : A), test::test::K_combinator::{u u} A A a a
+fn (A : Sort u), fn (a : A), K_combinator::{u u} A A a a
 
 inductive Punit::{u} 0 : Sort u
-| star : test::test::Punit::{u}
+| star : Punit::{u}
 
 inductive True 0 : Sort 0
-| True.true : test::test::True
+| True.true : True
 
 inductive Bool 0 : Sort 1
-| false : test::test::Bool
-| true : test::test::Bool
+| false : Bool
+| true : Bool
 
 inductive Eq::{u} 2 : forall (A : Sort u), forall (a : A), forall (b : A), Sort 0
-| refl : forall (A : Sort u), forall (a : A), test::test::Eq::{u} A a a
+| refl : forall (A : Sort u), forall (a : A), Eq::{u} A a a
 
 inductive Nat 0 : Sort 1
-| zero : test::test::Nat
-| succ : forall (n : test::test::Nat), test::test::Nat
+| zero : Nat
+| succ : forall (n : Nat), Nat
 
-def is_zero : forall (n : test::test::Nat), test::test::Bool =
-test::test::Nat.rec::{1}
-    (fn (n : test::test::Nat), test::test::Bool)
-    test::test::true
-    (fn (n : test::test::Nat), fn (previous : test::test::Bool), test::test::false)
+def is_zero : forall (n : Nat), Bool =
+Nat.rec::{1}
+    (fn (n : Nat), Bool)
+    true
+    (fn (n : Nat), fn (previous : Bool), false)
 
-def zero_is_zero : test::test::Eq::{1} test::test::Bool (test::test::is_zero test::test::zero) test::test::true =
-test::test::refl::{1} test::test::Bool test::test::true
+def zero_is_zero : Eq::{1} Bool (is_zero zero) true =
+refl::{1} Bool true
 
-def one_is_not_zero : test::test::Eq::{1} test::test::Bool (test::test::is_zero (test::test::succ test::test::zero)) test::test::false =
-test::test::refl::{1} test::test::Bool test::test::false
+def one_is_not_zero : Eq::{1} Bool (is_zero (succ zero)) false =
+refl::{1} Bool false
