@@ -40,3 +40,6 @@ test::test::Nat.rec::{1}
 
 def zero_is_zero : test::test::Eq::{1} test::test::Bool (test::test::is_zero test::test::zero) test::test::true =
 test::test::refl::{1} test::test::Bool test::test::true
+
+def one_is_not_zero : test::test::Eq::{1} test::test::Bool (test::test::is_zero (test::test::succ test::test::zero)) test::test::false =
+test::test::refl::{1} test::test::Bool test::test::false

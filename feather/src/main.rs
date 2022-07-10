@@ -34,7 +34,7 @@ fn main() {
         ty: SourceType::Feather,
     };
 
-    let result = db.certify(source);
+    let result = db.certify_feather(source);
     // Use a locked version of `stderr`, so that reports are not interspersed
     // with other things such as tracing messages from other threads.
     let mut stderr = std::io::stderr().lock();

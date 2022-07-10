@@ -53,7 +53,7 @@ fn run_test(file: &str) {
         ty: SourceType::Feather,
     };
 
-    let result = db.certify(source);
+    let result = db.certify_feather(source);
     for report in result.reports() {
         report.render(&db, std::io::stdout());
     }
