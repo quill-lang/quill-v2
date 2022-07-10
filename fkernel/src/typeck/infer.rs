@@ -238,22 +238,32 @@ fn infer_type_apply<'a>(
 ) -> Result<Expr, Box<dyn FnOnce(Report) -> Report + 'a>> {
     let function_type = as_pi(
         env,
-        span.clone(),
+        span,
         infer_type_core(env, meta_gen, &apply.function, check)?,
     )?;
     let argument_type = infer_type_core(env, meta_gen, &apply.argument, check)?;
     if check
         && !definitionally_equal_core(env, meta_gen, &argument_type, &function_type.parameter_ty)?
     {
+        let func_span = apply.function.provenance.span();
+        let arg_span = apply.argument.provenance.span();
         return Err(Box::new(move |report| {
             let mut printer = ExprPrinter::new(env.db);
             report
-                .with_label(Label::new(env.source, span, LabelType::Error))
                 .with_message(format!(
-                    "function of type {} cannot be applied to value of type {}",
-                    printer.print(&Expr::new_synthetic(ExprContents::Pi(function_type))),
+                    "function of type\n\t{}\ncannot be applied to value of type\n\t{}\nthe function expets a parameter of type\n\t{}",
+                    printer.print(&Expr::new_synthetic(ExprContents::Pi(
+                        function_type.clone()
+                    ))),
                     printer.print(&argument_type),
+                    printer.print(&function_type.parameter_ty)
                 ))
+                .with_label(
+                    Label::new(env.source, func_span, LabelType::Error).with_message("function"),
+                )
+                .with_label(
+                    Label::new(env.source, arg_span, LabelType::Error).with_message("argument"),
+                )
         }));
     }
     let mut return_type = *function_type.result;

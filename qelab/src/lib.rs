@@ -1,8 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
-use fcommon::{Dr, Label, LabelType, Path, Report, ReportKind, Source, Span};
+use fcommon::{Dr, Label, LabelType, Report, ReportKind, Source, Span};
 use fkernel::{
-    inductive::CertifiedInductive,
+    inductive::{self, CertifiedInductive},
     typeck::{self, CertifiedDefinition, DefinitionOrigin, Environment},
     CertifiedModule, TypeChecker,
 };
@@ -10,9 +10,12 @@ use fnodes::{
     basic_nodes::{DeBruijnIndex, Name, Provenance},
     definition::{Definition, DefinitionContents},
     expr::{Apply, Bound, Expr, ExprContents, Inst, Lambda, Pi, Sort},
+    inductive::{Inductive, InductiveContents, IntroRule},
     universe::{Universe, UniverseContents, UniverseSucc, UniverseVariable},
 };
-use qparse::{PDefinition, PExpr, PExprContents, PItem, PUniverse, PUniverseContents, QuillParser};
+use qparse::{
+    PDefinition, PExpr, PExprContents, PInductive, PItem, PUniverse, PUniverseContents, QuillParser,
+};
 
 #[salsa::query_group(ElaboratorStorage)]
 pub trait Elaborator: QuillParser + TypeChecker {
@@ -60,27 +63,29 @@ pub fn elaborate_and_certify(db: &dyn Elaborator, source: Source) -> Dr<Arc<Cert
                     if let Some(result) = result {
                         definitions.push(result);
                     }
-                } /* Item::Inductive(ind) => {
-                      let env = Environment {
-                          source,
-                          db: db.up(),
-                          definitions: local_definitions,
-                          inductives: local_inductives,
-                          universe_variables: &ind.contents.universe_params,
-                      };
-                      let (result, more_reports) =
-                          inductive::check_inductive_type(env, ind).destructure();
-                      reports.extend(more_reports);
-                      if let Some(result) = result {
-                          // tracing::info!("{:#?}", result);
-                          definitions.push(result.type_declaration);
-                          for intro_rule in result.intro_rules {
-                              definitions.push(intro_rule);
-                          }
-                          definitions.push(result.recursor);
-                          inductives.push(result.inductive);
-                      }
-                  } */
+                }
+                PItem::Inductive { ind } => {
+                    let env = Environment {
+                        source,
+                        db: db.up(),
+                        definitions: local_definitions,
+                        inductives: local_inductives,
+                        universe_variables: &ind.universe_params,
+                    };
+                    let (result, more_reports) = elaborate_inductive(&env, ind, span.clone())
+                        .bind(|ind| inductive::check_inductive_type(env, &ind))
+                        .destructure();
+                    reports.extend(more_reports);
+                    if let Some(result) = result {
+                        // tracing::info!("{:#?}", result);
+                        definitions.push(result.type_declaration);
+                        for intro_rule in result.intro_rules {
+                            definitions.push(intro_rule);
+                        }
+                        definitions.push(result.recursor);
+                        inductives.push(result.inductive);
+                    }
+                }
             }
         }
         Dr::ok_with_many(
@@ -118,6 +123,36 @@ fn elaborate_definition(env: &Environment, def: &PDefinition, span: Span) -> Dr<
     })
 }
 
+/// Attempt to convert an inductive data type written in Quill code to Feather.
+///
+/// Once this elaboration is complete, the inductive can be passed to Feather's kernel for
+/// things like type checking and construction of the eliminator.
+#[tracing::instrument(level = "trace")]
+fn elaborate_inductive(env: &Environment, ind: &PInductive, span: Span) -> Dr<Inductive> {
+    elaborate_expr(env, &[], &ind.ty).bind(|ty| {
+        Dr::sequence(ind.intro_rules.iter().map(|(name, intro_rule_ty)| {
+            // TODO: The environment used here doesn't know about the inductive.
+            // This doesn't cause problems for the moment, but as soon as we start querying the
+            // environment for information about definitions, things will break when elaborating
+            // the intro rules.
+            elaborate_expr(env, &[], intro_rule_ty).map(|ty| IntroRule {
+                name: name.clone(),
+                ty,
+            })
+        }))
+        .map(|intro_rules| Inductive {
+            provenance: ind.name.provenance.clone(),
+            contents: InductiveContents {
+                name: ind.name.clone(),
+                universe_params: ind.universe_params.clone(),
+                ty,
+                global_params: ind.global_params,
+                intro_rules,
+            },
+        })
+    })
+}
+
 /// The list of `locals` is the list of bound variables.
 /// Their index in the list is the associated [`DeBruijnIndex`].
 fn elaborate_expr(env: &Environment, locals: &[Name], e: &PExpr) -> Dr<Expr> {
@@ -128,6 +163,7 @@ fn elaborate_expr(env: &Environment, locals: &[Name], e: &PExpr) -> Dr<Expr> {
         } => {
             if qualified_name.segments.len() == 1 {
                 // This is a local variable.
+                // Construct the relevant de Bruijn index for this local.
                 let name = &qualified_name.segments[0];
                 match locals
                     .iter()

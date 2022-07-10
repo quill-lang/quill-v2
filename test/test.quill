@@ -14,3 +14,29 @@ fn (A : Sort u), fn (B : Sort v), fn (a : A), fn (b : B), a
 def I_combinator::{u} :
 forall (A : Sort u), forall (a : A), A =
 fn (A : Sort u), fn (a : A), test::test::K_combinator::{u u} A A a a
+
+inductive Punit::{u} 0 : Sort u
+| star : test::test::Punit::{u}
+
+inductive True 0 : Sort 0
+| True.true : test::test::True
+
+inductive Bool 0 : Sort 1
+| false : test::test::Bool
+| true : test::test::Bool
+
+inductive Eq::{u} 2 : forall (A : Sort u), forall (a : A), forall (b : A), Sort 0
+| refl : forall (A : Sort u), forall (a : A), test::test::Eq::{u} A a a
+
+inductive Nat 0 : Sort 1
+| zero : test::test::Nat
+| succ : forall (n : test::test::Nat), test::test::Nat
+
+def is_zero : forall (n : test::test::Nat), test::test::Bool =
+test::test::Nat.rec::{1}
+    (fn (n : test::test::Nat), test::test::Bool)
+    test::test::true
+    (fn (n : test::test::Nat), fn (previous : test::test::Bool), test::test::false)
+
+def zero_is_zero : test::test::Eq::{1} test::test::Bool (test::test::is_zero test::test::zero) test::test::true =
+test::test::refl::{1} test::test::Bool test::test::true

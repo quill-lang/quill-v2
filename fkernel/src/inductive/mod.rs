@@ -1,11 +1,12 @@
 use fcommon::{Dr, PathData};
 use fnodes::{
+    basic_nodes::Name,
     definition::{Definition, DefinitionContents},
     expr::MetavariableGenerator,
-    inductive::Inductive, basic_nodes::Name,
+    inductive::Inductive,
 };
 
-use crate::typeck::{self, CertifiedDefinition, Environment, DefinitionOrigin};
+use crate::typeck::{self, CertifiedDefinition, DefinitionOrigin, Environment};
 
 mod check;
 mod check_intro_rule;
@@ -16,12 +17,13 @@ mod recursor_info;
 use self::{
     check_intro_rule::check_intro_rule,
     comp_rule::{generate_computation_rules, ComputationRule},
-    recursor::generate_recursor, recursor_info::RecursorUniverse,
+    recursor::generate_recursor,
+    recursor_info::RecursorUniverse,
 };
 
 /// Verifies that an inductive type is valid and can be added to the environment.
 /// Takes ownership of the environment so we can add definitions to it while performing inference.
-pub(crate) fn check_inductive_type(
+pub fn check_inductive_type(
     env: Environment,
     ind: &Inductive,
 ) -> Dr<CertifiedInductiveInformation> {
@@ -39,16 +41,21 @@ pub(crate) fn check_inductive_type(
                 expr: None,
             },
         };
-        typeck::check(&env, &type_declaration, DefinitionOrigin::TypeDeclaration {
-            inductive: env.db.intern_path_data(PathData(
-                env.db
-                    .lookup_intern_path_data(env.source.path)
-                    .0
-                    .into_iter()
-                    .chain(std::iter::once(ind.contents.name.contents))
-                    .collect(),
-            )),
-        }).bind(move |type_declaration| {
+        typeck::check(
+            &env,
+            &type_declaration,
+            DefinitionOrigin::TypeDeclaration {
+                inductive: env.db.intern_path_data(PathData(
+                    env.db
+                        .lookup_intern_path_data(env.source.path)
+                        .0
+                        .into_iter()
+                        .chain(std::iter::once(ind.contents.name.contents))
+                        .collect(),
+                )),
+            },
+        )
+        .bind(move |type_declaration| {
             // Shorten the lifetime parameter on `env` to just this block.
             let mut env: Environment<'_> = env;
             {
@@ -133,7 +140,7 @@ pub(crate) fn check_inductive_type(
 }
 
 #[derive(Debug)]
-pub(crate) struct CertifiedInductiveInformation {
+pub struct CertifiedInductiveInformation {
     /// The certified inductive data type we are providing information for.
     pub inductive: CertifiedInductive,
     /// A definition with no body which constructs the type itself.

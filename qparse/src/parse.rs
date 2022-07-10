@@ -38,8 +38,12 @@ pub enum Token {
     Assign,
     /// `,`
     Comma,
+    /// `|`
+    Pipe,
     /// `def`
     Def,
+    /// `inductive`
+    Inductive,
     /// `fn`
     Fn,
     /// `forall`
@@ -78,7 +82,9 @@ impl Token {
             Token::Type => 1,
             Token::Assign => 1,
             Token::Comma => 1,
+            Token::Pipe => 1,
             Token::Def => "def".chars().count(),
+            Token::Inductive => "inductive".chars().count(),
             Token::Fn => "fn".chars().count(),
             Token::Forall => "forall".chars().count(),
             Token::Let => "let".chars().count(),
@@ -100,7 +106,9 @@ impl Display for Token {
             Token::Type => write!(f, "':'"),
             Token::Assign => write!(f, "'='"),
             Token::Comma => write!(f, "','"),
+            Token::Pipe => write!(f, "'|'"),
             Token::Def => write!(f, "'def'"),
+            Token::Inductive => write!(f, "'inductive'"),
             Token::Fn => write!(f, "'fn'"),
             Token::Forall => write!(f, "'forall'"),
             Token::Let => write!(f, "'let'"),
@@ -184,6 +192,8 @@ where
             self.split_pre_token_recursive(before, after, Token::Assign, span)
         } else if let Some((before, after)) = text.split_once(',') {
             self.split_pre_token_recursive(before, after, Token::Comma, span)
+        } else if let Some((before, after)) = text.split_once('|') {
+            self.split_pre_token_recursive(before, after, Token::Pipe, span)
         } else {
             // We didn't find any other tokens in this text.
             if text.is_empty() {
@@ -194,6 +204,7 @@ where
                 vec![(
                     match text {
                         "def" => Token::Def,
+                        "inductive" => Token::Inductive,
                         "fn" => Token::Fn,
                         "forall" => Token::Forall,
                         "let" => Token::Let,
@@ -261,6 +272,7 @@ where
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum PItem {
     Definition { def: PDefinition },
+    Inductive { ind: PInductive },
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -274,6 +286,21 @@ pub struct PDefinition {
 impl Debug for PDefinition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<pdef>")
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct PInductive {
+    pub name: Name,
+    pub ty: PExpr,
+    pub global_params: u32,
+    pub intro_rules: Vec<(Name, PExpr)>,
+    pub universe_params: Vec<Name>,
+}
+
+impl Debug for PInductive {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<pind>")
     }
 }
 
@@ -384,6 +411,7 @@ where
     fn parse_item(&mut self) -> Dr<Option<(PItem, Span)>> {
         match self.stream.next() {
             Some((Token::Def, _span)) => self.parse_definition().map(Some),
+            Some((Token::Inductive, _span)) => self.parse_inductive().map(Some),
             Some((token, span)) => Dr::fail(
                 Report::new(ReportKind::Error, self.source, span.start)
                     .with_message(format!("expected item, got {}", token))
@@ -416,8 +444,7 @@ where
                     self.parse_expr().bind(|ty| {
                         self.parse_exact(Token::Assign).bind(|_assign_span| {
                             self.parse_expr().map(|value| {
-                                let span =
-                                    name.provenance.span().start..value.provenance.span().end;
+                                let span = name.provenance.span();
                                 (
                                     PItem::Definition {
                                         def: PDefinition {
@@ -437,6 +464,101 @@ where
         })
     }
 
+    /// The keyword `inductive` has already been parsed.
+    fn parse_inductive(&mut self) -> Dr<(PItem, Span)> {
+        // Parse the name of the inductive.
+        self.parse_name().bind(|name| {
+            // We might have a sequence of universe parameters `::{...}` here.
+            let universe_parameters = match self.stream.next() {
+                Some((Token::Scope, _)) => self
+                    .parse_exact(Token::LBrace)
+                    .bind(|_| self.parse_universe_parameters()),
+                Some((token, span)) => {
+                    self.stream.push(token, span);
+                    Dr::ok(Vec::new())
+                }
+                None => Dr::ok(Vec::new()),
+            };
+            universe_parameters.bind(|universe_params| {
+                // TODO: Find a better way to get the number of global parameters.
+                self.parse_name().bind(|global_params| {
+                    let global_params = match self
+                        .db
+                        .lookup_intern_string_data(global_params.contents)
+                        .parse()
+                    {
+                        Ok(global_params) => Dr::ok(global_params),
+                        Err(_) => todo!(),
+                    };
+                    global_params.bind(|global_params| {
+                        self.parse_exact(Token::Type).bind(|_| {
+                            self.parse_expr().bind(|ty| {
+                                // Now parse the intro rules.
+                                let mut intro_rules = Dr::ok(Vec::new());
+                                loop {
+                                    match self.stream.next() {
+                                        Some((Token::Pipe, _)) => {
+                                            intro_rules = intro_rules.bind(|mut intro_rules| {
+                                                self.parse_intro_rule().map(|univ| {
+                                                    intro_rules.push(univ);
+                                                    intro_rules
+                                                })
+                                            });
+                                        }
+                                        Some((token, span)) => {
+                                            self.stream.push(token, span);
+                                            // This is the end of the list of intro rules.
+                                            break intro_rules.map(|intro_rules| {
+                                                let span = name.provenance.span();
+                                                (
+                                                    PItem::Inductive {
+                                                        ind: PInductive {
+                                                            name,
+                                                            ty,
+                                                            global_params,
+                                                            intro_rules,
+                                                            universe_params,
+                                                        },
+                                                    },
+                                                    span,
+                                                )
+                                            });
+                                        }
+                                        None => {
+                                            // This is the end of the list of intro rules.
+                                            break intro_rules.map(|intro_rules| {
+                                                let span = name.provenance.span();
+                                                (
+                                                    PItem::Inductive {
+                                                        ind: PInductive {
+                                                            name,
+                                                            ty,
+                                                            global_params,
+                                                            intro_rules,
+                                                            universe_params,
+                                                        },
+                                                    },
+                                                    span,
+                                                )
+                                            });
+                                        }
+                                    }
+                                }
+                            })
+                        })
+                    })
+                })
+            })
+        })
+    }
+
+    fn parse_intro_rule(&mut self) -> Dr<(Name, PExpr)> {
+        self.parse_name().bind(|name| {
+            self.parse_exact(Token::Type)
+                .bind(|_| self.parse_expr().map(|ty| (name, ty)))
+        })
+    }
+
     fn parse_expr(&mut self) -> Dr<PExpr> {
         // Run a Pratt-style parser to parse this expression.
         self.parse_expr_with_precedence(i32::MIN)
@@ -450,15 +572,12 @@ where
                 .parse_qualified_name(Name {
                     provenance: Provenance::Quill {
                         source: self.source,
-                        span: span.clone(),
+                        span,
                     },
                     contents: self.db.intern_string_data(text),
                 })
                 .map(|(qualified_name, universes)| PExpr {
-                    provenance: Provenance::Quill {
-                        source: self.source,
-                        span,
-                    },
+                    provenance: qualified_name.provenance.clone(),
                     contents: PExprContents::QualifiedName {
                         qualified_name,
                         universes,
@@ -588,15 +707,13 @@ where
                         .map(|(qualified_name, universes)| PExpr {
                             provenance: Provenance::Quill {
                                 source: self.source,
-                                span: lhs.provenance.span().start..span.end,
+                                span: lhs.provenance.span().start
+                                    ..qualified_name.provenance.span().end,
                             },
                             contents: PExprContents::Apply {
                                 left: Box::new(lhs),
                                 right: Box::new(PExpr {
-                                    provenance: Provenance::Quill {
-                                        source: self.source,
-                                        span,
-                                    },
+                                    provenance: qualified_name.provenance.clone(),
                                     contents: PExprContents::QualifiedName {
                                         qualified_name,
                                         universes,
@@ -779,10 +896,13 @@ where
                         }),
                     Some((Token::LBrace, span)) => {
                         // This is a sequence of universe parameters.
-                        self.parse_universes().map(|universes| {
+                        self.parse_universes().map(|(universes, rbrace_span)| {
                             (
                                 QualifiedName {
-                                    provenance: initial.provenance.clone(),
+                                    provenance: Provenance::Quill {
+                                        source: self.source,
+                                        span: initial.provenance.span().start..rbrace_span.end,
+                                    },
                                     segments: vec![initial],
                                 },
                                 universes,
@@ -813,13 +933,14 @@ where
     }
 
     /// The initial brace `{` is assumed to have been parsed.
-    fn parse_universes(&mut self) -> Dr<Vec<PUniverse>> {
+    /// The final brace is returned as a [`Span`].
+    fn parse_universes(&mut self) -> Dr<(Vec<PUniverse>, Span)> {
         let mut universes = Dr::ok(Vec::new());
         loop {
             match self.stream.next() {
                 Some((Token::RBrace, span)) => {
                     // This is the end of the list of universe parameters.
-                    break universes;
+                    break universes.map(|universes| (universes, span));
                 }
                 Some((token, span)) => {
                     self.stream.push(token, span);

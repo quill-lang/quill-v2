@@ -12,7 +12,7 @@ use upcast::Upcast;
 mod db;
 
 fn main() {
-    let log_level = tracing::Level::TRACE;
+    let log_level = tracing::Level::INFO;
     let subscriber = FmtSubscriber::builder()
         .with_writer(std::io::stderr)
         .with_max_level(log_level)

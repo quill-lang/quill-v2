@@ -1,4 +1,4 @@
-use fcommon::{Dr, Label, LabelType, Report, ReportKind, PathData};
+use fcommon::{Dr, Label, LabelType, PathData, Report, ReportKind};
 use fnodes::{
     definition::{Definition, DefinitionContents},
     expr::{Expr, ExprContents, MetavariableGenerator, Pi, Sort},
@@ -13,7 +13,7 @@ use crate::{
     },
     typeck::{
         self, as_sort, check_no_local_or_metavariable, definitionally_equal, infer_type,
-        to_weak_head_normal_form, CertifiedDefinition, Environment, DefinitionOrigin,
+        to_weak_head_normal_form, CertifiedDefinition, DefinitionOrigin, Environment,
     },
     universe::{is_zero, normalise_universe, universe_at_most},
 };
@@ -56,7 +56,7 @@ pub fn check_intro_rule(
                         .chain(std::iter::once(ind.contents.name.contents))
                         .collect(),
                 )),
-            }
+            },
         )
     })
 }
@@ -88,7 +88,25 @@ fn check_intro_rule_core(
                         );
                         match defeq_result.value() {
                             Some(true) => {}
-                            _ => break defeq_result.map(|_| todo!()),
+                            _ => {
+                                let mut print = ExprPrinter::new(env.db);
+                                break Dr::fail(
+                                    Report::new(
+                                        ReportKind::Error,
+                                        env.source,
+                                        pi.parameter_ty.provenance.span().start,
+                                    )
+                                    .with_message(format!(
+                                        "this type should be {}",
+                                        print.print(
+                                            &info.global_params[parameter_index as usize]
+                                                .metavariable
+                                                .ty
+                                        )
+                                    )).with_label(Label::new(env.source, pi.parameter_ty.provenance.span(), LabelType::Error)
+                                        .with_message("the type should match the corresponding global parameter for this inductive data type")),
+                                );
+                            }
                         }
                         ty = *pi.result;
                         instantiate(
