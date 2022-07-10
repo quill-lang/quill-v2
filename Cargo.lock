@@ -482,7 +482,6 @@ dependencies = [
 name = "qparse"
 version = "0.0.0"
 dependencies = [
- "chumsky",
  "fcommon",
  "salsa",
  "tracing",
