@@ -21,28 +21,28 @@ use salsa::Snapshot;
     TypeCheckerStorage,
     ElaboratorStorage
 )]
-pub struct FeatherDatabase {
+pub struct QuillDatabase {
     storage: salsa::Storage<Self>,
     watcher: Arc<Mutex<RecommendedWatcher>>,
 }
 
-impl Debug for FeatherDatabase {
+impl Debug for QuillDatabase {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<db>")
     }
 }
 
-impl salsa::Database for FeatherDatabase {}
-impl salsa::ParallelDatabase for FeatherDatabase {
+impl salsa::Database for QuillDatabase {}
+impl salsa::ParallelDatabase for QuillDatabase {
     fn snapshot(&self) -> Snapshot<Self> {
-        Snapshot::new(FeatherDatabase {
+        Snapshot::new(QuillDatabase {
             storage: self.storage.snapshot(),
             watcher: Arc::clone(&self.watcher),
         })
     }
 }
 
-impl FileWatcher for FeatherDatabase {
+impl FileWatcher for QuillDatabase {
     fn watch(&self, src: Source) {
         // Add a path to be watched. All files and directories at that path and
         // below will be monitored for changes.
@@ -63,7 +63,7 @@ impl FileWatcher for FeatherDatabase {
     }
 }
 
-impl FeatherDatabase {
+impl QuillDatabase {
     /// Returns the database, along with a receiver for file update events.
     /// If running as a language server, this channel should be watched,
     /// and any updated paths should be passed into [`FileWatcher::did_change_file`].

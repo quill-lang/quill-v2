@@ -10,6 +10,7 @@ fcommon = { path = "../fcommon", features = ["ariadne"] }
 fkernel = { path = "../fkernel" }
 fnodes = { path = "../fnodes" }
 notify = "4.0.17"
+qdb = { path = "../qdb" }
 qelab = { path = "../qelab" }
 qparse = { path = "../qparse" }
 salsa = "0.16.1"

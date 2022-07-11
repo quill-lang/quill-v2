@@ -548,6 +548,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "qdb"
+version = "0.0.0"
+dependencies = [
+ "fcommon",
+ "fkernel",
+ "fnodes",
+ "notify",
+ "qelab",
+ "qparse",
+ "salsa",
+]
+
+[[package]]
 name = "qelab"
 version = "0.0.0"
 dependencies = [
@@ -563,10 +576,18 @@ dependencies = [
 name = "qlsp"
 version = "0.0.0"
 dependencies = [
+ "fcommon",
+ "fnodes",
+ "lazy_static",
  "lsp-server",
  "lsp-types",
+ "qdb",
+ "qparse",
+ "salsa",
  "serde",
  "serde_json",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -588,6 +609,7 @@ dependencies = [
  "fkernel",
  "fnodes",
  "notify",
+ "qdb",
  "qelab",
  "qparse",
  "salsa",

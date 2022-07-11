@@ -1,0 +1,15 @@
+[package]
+name = "qdb"
+version = "0.0.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+fcommon = { version = "0.0.0", path = "../fcommon" }
+fkernel = { version = "0.0.0", path = "../fkernel" }
+fnodes = { version = "0.0.0", path = "../fnodes" }
+notify = "4.0.17"
+qelab = { version = "0.0.0", path = "../qelab" }
+qparse = { version = "0.0.0", path = "../qparse" }
+salsa = "0.16.1"

@@ -15,16 +15,16 @@ export function activate(context: ExtensionContext) {
         run: {
             command: "cargo",
             args: ["run", "-p", "qlsp"],
-			options: {
-				cwd: context.extensionPath
-			}
+            options: {
+                cwd: context.extensionPath
+            }
         },
         debug: {
             command: "cargo",
             args: ["run", "-p", "qlsp"],
-			options: {
-				cwd: context.extensionPath
-			}
+            options: {
+                cwd: context.extensionPath
+            }
         }
     };
 

@@ -3,13 +3,12 @@ use std::{path::PathBuf, sync::Arc};
 use fcommon::{FileReader, Intern, PathData, Source, SourceType};
 use fkernel::expr::ExprPrinter;
 use fnodes::expr::{Expr, ExprContents};
+use qdb::QuillDatabase;
 use qelab::Elaborator;
 use salsa::Durability;
 use tracing::info;
 use tracing_subscriber::{fmt::format::FmtSpan, FmtSubscriber};
 use upcast::Upcast;
-
-mod db;
 
 fn main() {
     let log_level = tracing::Level::INFO;
@@ -24,7 +23,7 @@ fn main() {
         .expect("could not set default tracing subscriber");
     info!("initialised logging with verbosity level {}", log_level);
 
-    let (mut db, _rx) = db::FeatherDatabase::new();
+    let (mut db, _rx) = QuillDatabase::new();
     db.set_project_root_with_durability(Arc::new(PathBuf::new()), Durability::HIGH);
     let path = db.intern_path_data(PathData(vec![
         db.intern_string_data("test".to_string()),

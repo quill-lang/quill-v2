@@ -277,6 +277,7 @@ pub enum PItem {
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct PDefinition {
+    pub def_token: Span,
     pub name: Name,
     pub ty: PExpr,
     pub value: PExpr,
@@ -291,6 +292,7 @@ impl Debug for PDefinition {
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct PInductive {
+    pub inductive_token: Span,
     pub name: Name,
     pub ty: PExpr,
     pub global_params: u32,
@@ -365,6 +367,7 @@ pub enum PUniverseContents {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PBinder {
+    pub keyword: Span,
     pub binder_annotation: BinderAnnotation,
     pub name: Name,
     pub ty: Box<PExpr>,
@@ -410,8 +413,8 @@ where
     /// If the stream was empty, return [`None`].
     fn parse_item(&mut self) -> Dr<Option<(PItem, Span)>> {
         match self.stream.next() {
-            Some((Token::Def, _span)) => self.parse_definition().map(Some),
-            Some((Token::Inductive, _span)) => self.parse_inductive().map(Some),
+            Some((Token::Def, span)) => self.parse_definition(span).map(Some),
+            Some((Token::Inductive, span)) => self.parse_inductive(span).map(Some),
             Some((token, span)) => Dr::fail(
                 Report::new(ReportKind::Error, self.source, span.start)
                     .with_message(format!("expected item, got {}", token))
@@ -425,7 +428,7 @@ where
     }
 
     /// The keyword `def` has already been parsed.
-    fn parse_definition(&mut self) -> Dr<(PItem, Span)> {
+    fn parse_definition(&mut self, def_token: Span) -> Dr<(PItem, Span)> {
         // Parse the name of the definition.
         self.parse_name().bind(|name| {
             // We might have a sequence of universe parameters `::{...}` here.
@@ -448,6 +451,7 @@ where
                                 (
                                     PItem::Definition {
                                         def: PDefinition {
+                                            def_token,
                                             name,
                                             ty,
                                             value,
@@ -465,7 +469,7 @@ where
     }
 
     /// The keyword `inductive` has already been parsed.
-    fn parse_inductive(&mut self) -> Dr<(PItem, Span)> {
+    fn parse_inductive(&mut self, inductive_token: Span) -> Dr<(PItem, Span)> {
         // Parse the name of the inductive.
         self.parse_name().bind(|name| {
             // We might have a sequence of universe parameters `::{...}` here.
@@ -513,6 +517,7 @@ where
                                                 (
                                                     PItem::Inductive {
                                                         ind: PInductive {
+                                                            inductive_token,
                                                             name,
                                                             ty,
                                                             global_params,
@@ -531,6 +536,7 @@ where
                                                 (
                                                     PItem::Inductive {
                                                         ind: PInductive {
+                                                            inductive_token,
                                                             name,
                                                             ty,
                                                             global_params,
@@ -592,15 +598,15 @@ where
                     contents: expr.contents,
                 })
             }),
-            Some((Token::Fn, forall_span)) => {
+            Some((Token::Fn, fn_span)) => {
                 // Parse a binder, then parse the resulting expression.
-                self.parse_binder().bind(|binder| {
+                self.parse_binder(fn_span.clone()).bind(|binder| {
                     self.parse_exact(Token::Comma).bind(|_comma_span| {
                         self.parse_expr_with_precedence(min_precedence)
                             .map(|inner_expr| PExpr {
                                 provenance: Provenance::Quill {
                                     source: self.source,
-                                    span: forall_span.start..inner_expr.provenance.span().end,
+                                    span: fn_span.start..inner_expr.provenance.span().end,
                                 },
                                 contents: PExprContents::Function {
                                     binder,
@@ -612,7 +618,7 @@ where
             }
             Some((Token::Forall, forall_span)) => {
                 // Parse a binder, then parse the resulting expression.
-                self.parse_binder().bind(|binder| {
+                self.parse_binder(forall_span.clone()).bind(|binder| {
                     self.parse_exact(Token::Comma).bind(|_comma_span| {
                         self.parse_expr_with_precedence(min_precedence)
                             .map(|inner_expr| PExpr {
@@ -826,12 +832,13 @@ where
         lhs
     }
 
-    fn parse_binder(&mut self) -> Dr<PBinder> {
+    fn parse_binder(&mut self, keyword: Span) -> Dr<PBinder> {
         self.parse_exact(Token::LParen).bind(|lparen_span| {
             self.parse_name().bind(|name| {
                 self.parse_exact(Token::Type).bind(|ty_span| {
                     self.parse_expr().bind(|ty| {
                         self.parse_exact(Token::RParen).map(|rparen_span| PBinder {
+                            keyword,
                             binder_annotation: BinderAnnotation::Explicit,
                             name,
                             ty: Box::new(ty),
