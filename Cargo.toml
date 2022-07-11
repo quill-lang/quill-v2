@@ -1,3 +1,3 @@
 [workspace]
-members = ["feather", "fkernel_tests", "quill"]
+members = ["feather", "fkernel_tests", "quill", "qlsp"]
 default-members = ["quill"]

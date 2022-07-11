@@ -1,0 +1,46 @@
+// A launch configuration that compiles the extension and then opens it inside a new window
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Quill",
+			"cargo": {
+				"args": [
+					"build",
+					"-p",
+					"quill"
+				]
+			},
+			"program": "${cargo:program}",
+			"args": []
+		},
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Feather",
+			"cargo": {
+				"args": [
+					"build",
+					"-p",
+					"feather"
+				]
+			},
+			"program": "${cargo:program}",
+			"args": []
+		},
+		{
+			"type": "extensionHost",
+			"request": "launch",
+			"name": "VSCode extension host",
+			"runtimeExecutable": "${execPath}",
+			"args": ["--extensionDevelopmentPath=${workspaceRoot}"],
+			"outFiles": ["${workspaceRoot}/quill_vscode/client/out/**/*.js"],
+			"preLaunchTask": {
+				"type": "npm",
+				"script": "watch"
+			}
+		}
+	]
+}
