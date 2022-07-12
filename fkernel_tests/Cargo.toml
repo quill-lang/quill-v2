@@ -10,3 +10,6 @@ fcommon = { path = "../fcommon", features = ["ariadne"] }
 fnodes = { path = "../fnodes" }
 fkernel = { path = "../fkernel" }
 salsa = "0.16.1"
+
+[dev-dependencies]
+qdb = { path = "../qdb" }

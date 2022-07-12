@@ -34,7 +34,9 @@ fn main() {
         ty: SourceType::Quill,
     };
 
-    let result = db.elaborate_and_certify(source);
+    let result = db
+        .source(source)
+        .bind(|file_contents| db.elaborate_and_certify(source, file_contents));
     // Use a locked version of `stderr`, so that reports are not interspersed
     // with other things such as tracing messages from other threads.
     let mut stderr = std::io::stderr().lock();

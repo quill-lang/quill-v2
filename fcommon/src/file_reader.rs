@@ -1,6 +1,39 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    path::PathBuf,
+    sync::{Arc, RwLock},
+};
 
 use crate::{Dr, InternExt, Report, ReportKind, Source};
+
+/// Contains the contents of files that we do not wish to read from disk.
+#[derive(Default)]
+pub struct OverwrittenFiles {
+    file_contents: HashMap<Source, String>,
+}
+
+impl Debug for OverwrittenFiles {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<owf>")
+    }
+}
+
+impl OverwrittenFiles {
+    /// Tell the database that we want to overwrite the contents of this file with the particular
+    /// file contents provided.
+    pub fn overwrite_file(&mut self, db: &mut dyn FileReader, source: Source, contents: String) {
+        self.file_contents.insert(source, contents);
+        SourceQuery.in_db_mut(db).invalidate(&source);
+    }
+
+    /// Tell the database that we no longer want to overwrite the contents of this file.
+    /// The next time we need the file's contents, they will be read from disk.
+    pub fn undo_overwrite_file(&mut self, db: &mut dyn FileReader, source: Source) {
+        self.file_contents.remove(&source);
+        SourceQuery.in_db_mut(db).invalidate(&source);
+    }
+}
 
 #[salsa::query_group(FileReaderStorage)]
 pub trait FileReader: InternExt + FileWatcher {
@@ -8,17 +41,9 @@ pub trait FileReader: InternExt + FileWatcher {
     #[salsa::input]
     fn project_root(&self) -> Arc<PathBuf>;
 
-    /// If this is true, the file reader will never read files from disk.
-    /// Instead, it will only return overwritten copies of files.
-    /// This means that the runtime will panic if we try to read a file that
-    /// has not been overwritten by `overwritten_file_contents`.
+    /// Call functions on this in order to overwrite contents of files as seen by the database.
     #[salsa::input]
-    fn no_read_from_disk(&self) -> bool;
-
-    /// Edit this input to overwrite the output provided by `source`.
-    /// The overwritten files are only read if `no_read_from_disk` is true.
-    #[salsa::input]
-    fn overwritten_file_contents(&self, file_name: Source) -> Arc<String>;
+    fn overwritten_files(&self) -> Arc<RwLock<OverwrittenFiles>>;
 
     /// Loads source code from a file.
     /// This is performed lazily when needed (see [`FileWatcher`]).
@@ -41,8 +66,14 @@ fn source(db: &dyn FileReader, source: Source) -> Dr<Arc<String>> {
     db.salsa_runtime()
         .report_synthetic_read(salsa::Durability::LOW);
 
-    if db.no_read_from_disk() {
-        Dr::ok(db.overwritten_file_contents(source))
+    if let Some(overwriten_contents) = &db
+        .overwritten_files()
+        .read()
+        .unwrap()
+        .file_contents
+        .get(&source)
+    {
+        Dr::ok(Arc::new((*overwriten_contents).to_owned()))
     } else {
         db.watch(source);
         let path_buf = db

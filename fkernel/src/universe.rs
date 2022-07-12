@@ -330,7 +330,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::test_db::*;
+    use qdb::*;
     use fcommon::Intern;
     use fcommon::SourceType;
     use fnodes::expr::ExprContents;

@@ -65,9 +65,13 @@ impl<'a> SemanticTokenGenerator<'a> {
     }
 
     fn gen(&mut self) {
-        let parsed = self.db.parse_quill(self.source);
+        let parsed = self
+            .db
+            .source(self.source)
+            .bind(|file_contents| self.db.parse_quill(self.source, file_contents));
         if let Some(parsed) = parsed.value() {
             for (item, span) in parsed.as_ref() {
+                tracing::info!("span {:?}", span);
                 match item {
                     PItem::Definition { def } => {
                         self.gen_definition(def);
@@ -190,6 +194,10 @@ pub fn create_semantic_tokens(db: &QuillDatabase, source: Source) -> Vec<Semanti
             return Vec::new();
         },
     };
+    tracing::trace!(
+        "creating semantic tokens for:\n{}",
+        file_contents.value().as_ref().unwrap()
+    );
     gen.gen();
     gen.finish()
 }

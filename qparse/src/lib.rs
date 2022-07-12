@@ -16,14 +16,23 @@ use upcast::Upcast;
 
 #[salsa::query_group(QuillParserStorage)]
 pub trait QuillParser: FileReader + Upcast<dyn Intern> {
-    fn parse_quill(&self, source: Source) -> Dr<Arc<Vec<(PItem, Span)>>>;
+    fn parse_quill(
+        &self,
+        source: Source,
+        file_contents: Arc<String>,
+    ) -> Dr<Arc<Vec<(PItem, Span)>>>;
 }
 
 #[tracing::instrument(level = "debug")]
-fn parse_quill(db: &dyn QuillParser, source: Source) -> Dr<Arc<Vec<(PItem, Span)>>> {
-    db.source(source)
-        .as_deref()
-        .map(|source_code| pre_lex(source_code.chars()))
-        .bind(|pre_tokens| parse_items(db.up(), source, TokenIterator::new(pre_tokens)))
-        .map(Arc::new)
+fn parse_quill(
+    db: &dyn QuillParser,
+    source: Source,
+    file_contents: Arc<String>,
+) -> Dr<Arc<Vec<(PItem, Span)>>> {
+    parse_items(
+        db.up(),
+        source,
+        TokenIterator::new(pre_lex(file_contents.chars())),
+    )
+    .map(Arc::new)
 }

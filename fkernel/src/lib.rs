@@ -14,10 +14,6 @@ use fnodes::{
 use inductive::CertifiedInductive;
 use typeck::{CertifiedDefinition, DefinitionOrigin, Environment};
 
-// Expose this either when we're running `cargo doc` or executing tests.
-#[cfg(any(test, doc))]
-mod test_db;
-
 pub mod expr;
 pub mod inductive;
 pub mod typeck;
@@ -26,7 +22,11 @@ pub mod universe;
 #[salsa::query_group(TypeCheckerStorage)]
 pub trait TypeChecker: fnodes::SexprParserExt {
     /// Attempts to load the feather module from the given source and certify it as type correct.
-    fn certify_feather(&self, source: Source) -> Dr<Arc<CertifiedModule>>;
+    fn certify_feather(
+        &self,
+        source: Source,
+        file_contents: Arc<String>,
+    ) -> Dr<Arc<CertifiedModule>>;
     /// Attempts to certify this module as type correct.
     fn certify_module(&self, source: Source, module: Arc<Module>) -> Dr<Arc<CertifiedModule>>;
 }
@@ -46,8 +46,12 @@ impl Debug for CertifiedModule {
     }
 }
 
-fn certify_feather(db: &dyn TypeChecker, source: Source) -> Dr<Arc<CertifiedModule>> {
-    db.module_from_feather_source(source)
+fn certify_feather(
+    db: &dyn TypeChecker,
+    source: Source,
+    file_contents: Arc<String>,
+) -> Dr<Arc<CertifiedModule>> {
+    db.module_from_feather_source(source, file_contents)
         .bind(|module| certify_module(db, source, module))
 }
 

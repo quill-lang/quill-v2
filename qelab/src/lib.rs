@@ -22,12 +22,20 @@ use qparse::{
 
 #[salsa::query_group(ElaboratorStorage)]
 pub trait Elaborator: QuillParser + TypeChecker {
-    fn elaborate_and_certify(&self, source: Source) -> Dr<Arc<CertifiedModule>>;
+    fn elaborate_and_certify(
+        &self,
+        source: Source,
+        file_contents: Arc<String>,
+    ) -> Dr<Arc<CertifiedModule>>;
 }
 
 #[tracing::instrument(level = "trace")]
-pub fn elaborate_and_certify(db: &dyn Elaborator, source: Source) -> Dr<Arc<CertifiedModule>> {
-    db.parse_quill(source).bind(|items| {
+pub fn elaborate_and_certify(
+    db: &dyn Elaborator,
+    source: Source,
+    file_contents: Arc<String>,
+) -> Dr<Arc<CertifiedModule>> {
+    db.parse_quill(source, file_contents).bind(|items| {
         let source_path = db.lookup_intern_path_data(source.path);
         let mut definitions = Vec::<CertifiedDefinition>::new();
         let mut inductives = Vec::<CertifiedInductive>::new();

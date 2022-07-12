@@ -10,26 +10,29 @@ use crate::{
 
 #[salsa::query_group(SexprParserStorage)]
 pub trait SexprParser: FileReader + Upcast<dyn Intern> {
-    fn parse_sexpr(&self, source: Source) -> Dr<Arc<SexprNode>>;
-    fn module_from_feather_source(&self, source: Source) -> Dr<Arc<Module>>;
+    fn parse_sexpr(&self, source: Source, file_contents: Arc<String>) -> Dr<Arc<SexprNode>>;
+    fn module_from_feather_source(&self, source: Source, file_contents: Arc<String>) -> Dr<Arc<Module>>;
 }
 
 #[tracing::instrument(level = "debug")]
-fn parse_sexpr(db: &dyn SexprParser, source: Source) -> Dr<Arc<SexprNode>> {
-    db.source(source)
+fn parse_sexpr(db: &dyn SexprParser, source: Source, file_contents: Arc<String>) -> Dr<Arc<SexprNode>> {
+    parse_sexpr_from_string(source, &file_contents).map(Arc::new)
+}
+
+#[tracing::instrument(level = "debug")]
+fn module_from_feather_source(
+    db: &dyn SexprParser,
+    source: Source,
+    file_contents: Arc<String>,
+) -> Dr<Arc<Module>> {
+    db.parse_sexpr(source, file_contents)
         .as_deref()
-        .bind(|source_code| parse_sexpr_from_string(source, source_code))
-        .map(Arc::new)
-}
-
-#[tracing::instrument(level = "debug")]
-fn module_from_feather_source(db: &dyn SexprParser, source: Source) -> Dr<Arc<Module>> {
-    db.parse_sexpr(source).as_deref().bind(|s_expr| {
-        ListSexprWrapper::<Module>::parse(db, source, s_expr.clone())
-            .map_err(|x| x.into_report(source))
-            .map(Arc::new)
-            .into()
-    })
+        .bind(|s_expr| {
+            ListSexprWrapper::<Module>::parse(db, source, s_expr.clone())
+                .map_err(|x| x.into_report(source))
+                .map(Arc::new)
+                .into()
+        })
 }
 
 pub trait SexprParserExt: SexprParser + Upcast<dyn SexprParser> {

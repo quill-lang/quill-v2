@@ -11,3 +11,6 @@ fnodes = { path = "../fnodes" }
 salsa = "0.16.1"
 tracing = "0.1.31"
 upcast = "0.1.0"
+
+[dev-dependencies]
+qdb = { path = "../qdb" }

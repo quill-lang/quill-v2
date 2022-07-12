@@ -1,6 +1,6 @@
 use std::{
     fmt::Debug,
-    sync::{mpsc, Arc, Mutex},
+    sync::{mpsc, Arc, Mutex, RwLock},
     time::Duration,
 };
 
@@ -77,7 +77,10 @@ impl QuillDatabase {
                 notify::watcher(tx, Duration::from_secs(1)).unwrap(),
             )),
         };
-        this.set_no_read_from_disk_with_durability(false, salsa::Durability::HIGH);
+        this.set_overwritten_files_with_durability(
+            Arc::new(RwLock::new(Default::default())),
+            salsa::Durability::HIGH,
+        );
         (this, rx)
     }
 }
