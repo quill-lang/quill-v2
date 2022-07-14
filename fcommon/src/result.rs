@@ -14,18 +14,18 @@ use crate::{Source, Span};
 pub struct Report {
     /// The severity of the report.
     /// Used to determine colouring of output if rendered using `ariadne`.
-    kind: ReportKind,
+    pub kind: ReportKind,
     /// The source file that the diagnostic comes from.
-    source: Source,
+    pub source: Source,
     /// The location in the source file at which the diagnostic originates.
     /// If the span is not specified, then the diagnostic refers to the entire file.
-    offset: Option<usize>,
+    pub offset: Option<usize>,
     /// The message to display to the user, if present.
-    message: Option<String>,
+    pub message: Option<String>,
     /// A final note to display to the user, if present.
-    note: Option<String>,
+    pub note: Option<String>,
     /// A list of labels with additional information to display to the user.
-    labels: Vec<Label>,
+    pub labels: Vec<Label>,
 }
 
 impl Report {
@@ -169,12 +169,12 @@ impl From<ReportKind> for ariadne::ReportKind {
 /// See the `ariadne` crate for more information.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Label {
-    source: Source,
-    span: Span,
-    ty: LabelType,
-    message: Option<String>,
-    order: i32,
-    priority: i32,
+    pub source: Source,
+    pub span: Span,
+    pub ty: LabelType,
+    pub message: Option<String>,
+    pub order: i32,
+    pub priority: i32,
 }
 
 #[cfg(feature = "ariadne")]

@@ -32,6 +32,20 @@ pub fn apply_args(e: &Expr) -> Vec<&Expr> {
     }
 }
 
+/// See [`apply_args`].
+pub fn apply_args_mut(mut e: &mut Expr) -> Vec<&mut Expr> {
+    let mut result = Vec::new();
+    loop {
+        if let ExprContents::Apply(apply) = &mut e.contents {
+            e = &mut *apply.function;
+            result.push(&mut *apply.argument);
+        } else {
+            result.reverse();
+            return result;
+        }
+    }
+}
+
 /// Suppose that this expression is an n-ary function application, where n is zero or a positive integer.
 /// Then, this function returns the [`leftmost_function`] of this expression, and the list of [`apply_args`]
 /// that were applied to it.

@@ -749,6 +749,7 @@ dependencies = [
  "lazy_static",
  "lsp-types",
  "qdb",
+ "qelab",
  "qparse",
  "salsa",
  "serde",

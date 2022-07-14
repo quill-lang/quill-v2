@@ -7,7 +7,10 @@ use fnodes::{
     universe::{Universe, UniverseContents},
 };
 
-use crate::{expr::instantiate, universe::normalise_universe};
+use crate::{
+    expr::{instantiate, ExprPrinter},
+    universe::normalise_universe,
+};
 
 use super::{
     env::Environment,
@@ -24,7 +27,7 @@ pub fn definitionally_equal<'a>(
     left: &Expr,
     right: &Expr,
 ) -> Dr<bool> {
-    match definitionally_equal_core(env, meta_gen, left, right) {
+    let result = match definitionally_equal_core(env, meta_gen, left, right) {
         Ok(result) => Dr::ok(result),
         Err(err) => Dr::fail(err(Report::new(
             ReportKind::Error,
@@ -40,7 +43,15 @@ pub fn definitionally_equal<'a>(
                 "...this other expression",
             ).with_priority(-101),
         ))),
-    }
+    };
+    let mut print = ExprPrinter::new(env.db);
+    tracing::info!(
+        "{} =?= {} /// {:?}",
+        print.print(left),
+        print.print(right),
+        result.value()
+    );
+    result
 }
 
 /// Returns true if the two expressions are definitionally equal.
@@ -57,6 +68,9 @@ pub(in crate::typeck) fn definitionally_equal_core<'a>(
     to_weak_head_normal_form(env, &mut left);
     to_weak_head_normal_form(env, &mut right);
 
+    let mut print = ExprPrinter::new(env.db);
+    tracing::info!("{} =?= {}", print.print(&left), print.print(&right),);
+
     // Test for simple cases first.
     if let Some(result) = quick_definitionally_equal(env, meta_gen, &left, &right) {
         return result;
@@ -67,17 +81,30 @@ pub(in crate::typeck) fn definitionally_equal_core<'a>(
         return Ok(true);
     }
 
+    // tracing::info!(
+    //     "doing delta reduction: {} =?= {}",
+    //     print.print(&left),
+    //     print.print(&right),
+    // );
+
     // Test for equality by performing delta reduction on `left` and `right`.
     // After invoking this, `left` and `right` should be in weak head normal form.
     if let Some(result) = lazy_delta_reduction(env, meta_gen, &mut left, &mut right) {
         return result;
     }
 
+    // tracing::info!(
+    //     "passed delta reduction: {} =?= {}",
+    //     print.print(&left),
+    //     print.print(&right),
+    // );
+
     // Now test all the other cases.
     match (&left.contents, &right.contents) {
         (ExprContents::Inst(left), ExprContents::Inst(right)) => {
             // Test if the two expressions are equal constants.
-            if left.universes.len() == right.universes.len()
+            if left.name.eq_ignoring_provenance(&right.name)
+                && left.universes.len() == right.universes.len()
                 && left.universes.iter().zip(&right.universes).all(
                     |(left_universe, right_universe)| {
                         universe_definitionally_equal(left_universe, right_universe)

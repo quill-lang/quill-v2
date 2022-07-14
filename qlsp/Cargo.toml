@@ -11,6 +11,7 @@ fnodes = { version = "0.0.0", path = "../fnodes" }
 lazy_static = "1.4.0"
 lsp-types = "0.93.0"
 qdb = { path = "../qdb" }
+qelab = { version = "0.0.0", path = "../qelab" }
 qparse = { path = "../qparse" }
 salsa = "0.16.1"
 serde = "1.0.138"

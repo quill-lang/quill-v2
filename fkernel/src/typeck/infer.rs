@@ -251,7 +251,7 @@ fn infer_type_apply<'a>(
             let mut printer = ExprPrinter::new(env.db);
             report
                 .with_message(format!(
-                    "function of type\n\t{}\ncannot be applied to value of type\n\t{}\nthe function expets a parameter of type\n\t{}",
+                    "function of type\n\t{}\ncannot be applied to value of type\n\t{}\nthe function expects a parameter of type\n\t{}",
                     printer.print(&Expr::new_synthetic(ExprContents::Pi(
                         function_type.clone()
                     ))),

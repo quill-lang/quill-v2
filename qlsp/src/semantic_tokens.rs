@@ -7,6 +7,8 @@ use lsp_types::{SemanticToken, SemanticTokenModifier, SemanticTokenType, Semanti
 use qdb::QuillDatabase;
 use qparse::*;
 
+use crate::range::RangeData;
+
 #[derive(Debug)]
 struct RawSemanticToken {
     pub span: Span,
@@ -17,8 +19,7 @@ struct RawSemanticToken {
 struct SemanticTokenGenerator<'a> {
     db: &'a QuillDatabase,
     source: Source,
-    /// The char indices at which '\n' characters appear in the source.
-    line_breaks: Vec<usize>,
+    range_data: RangeData,
     tokens: Vec<RawSemanticToken>,
 }
 
@@ -30,28 +31,20 @@ impl<'a> SemanticTokenGenerator<'a> {
         let mut line = 0;
         let mut col = 0;
         for token in self.tokens {
-            let token_line = self
-                .line_breaks
-                .partition_point(|&index| index < token.span.start);
-            let token_col = token.span.start
-                - if token_line == 0 {
-                    0
-                } else {
-                    self.line_breaks[token_line - 1] + 1
-                };
+            let pos = self.range_data.span_position_to_position(token.span.start);
             result.push(SemanticToken {
-                delta_line: (token_line - line) as u32,
-                delta_start: if line == token_line {
-                    (token_col - col) as u32
+                delta_line: (pos.line - line) as u32,
+                delta_start: if line == pos.line {
+                    (pos.character - col) as u32
                 } else {
-                    token_col as u32
+                    pos.character as u32
                 },
                 length: (token.span.end - token.span.start) as u32,
                 token_type: token.token_type,
                 token_modifiers_bitset: token.token_modifiers_bitset,
             });
-            line = token_line;
-            col = token_col;
+            line = pos.line;
+            col = pos.character;
         }
         result
     }
@@ -183,13 +176,8 @@ pub fn create_semantic_tokens(db: &QuillDatabase, source: Source) -> Vec<Semanti
         db,
         source,
         tokens: Vec::new(),
-        line_breaks: if let Some(file_contents) = file_contents.value() {
-            file_contents
-                .chars()
-                .enumerate()
-                .filter(|(_, c)| *c == '\n')
-                .map(|(i, _)| i)
-                .collect()
+        range_data: if let Some(file_contents) = file_contents.value() {
+            RangeData::new(file_contents)
         } else {
             return Vec::new();
         },

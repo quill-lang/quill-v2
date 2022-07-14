@@ -135,6 +135,9 @@ where
     /// first, which deals with situations like favouring `++` over `+`. The structure [`BTreeMap`]
     /// is used for determinism.
     operators: BTreeMap<usize, BTreeMap<String, OperatorInfo>>,
+    /// Used for emitting diagnostics at the end of the file.
+    /// When a token is emitted using `next`, its span is stored here.
+    last_token: Span,
 }
 
 impl<I> TokenIterator<I>
@@ -146,6 +149,7 @@ where
             pre_tokens: pre_tokens.into_iter(),
             parsed_tokens_rev: Vec::new(),
             operators: BTreeMap::new(),
+            last_token: 0..1,
         }
     }
 
@@ -247,6 +251,7 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(token) = self.parsed_tokens_rev.pop() {
+            self.last_token = token.1.clone();
             Some(token)
         } else {
             // Consume and parse the next pre-token.
@@ -696,7 +701,18 @@ where
                             .with_message("unexpected token found here"),
                     ),
             ),
-            None => todo!(),
+            None => Dr::fail(
+                Report::new(ReportKind::Error, self.source, self.stream.last_token.start)
+                    .with_message("end of file reached, but expected an expression")
+                    .with_label(
+                        Label::new(
+                            self.source,
+                            self.stream.last_token.clone(),
+                            LabelType::Error,
+                        )
+                        .with_message("end of file reached here"),
+                    ),
+            ),
         };
 
         loop {
@@ -916,7 +932,35 @@ where
                             )
                         })
                     }
-                    _ => todo!(),
+                    Some((token, span)) => Dr::fail(
+                        Report::new(ReportKind::Error, self.source, self.stream.last_token.start)
+                            .with_message(format!(
+                                "expected a name segment or '{{' for this qualified name, got {}",
+                                token
+                            ))
+                            .with_label(
+                                Label::new(
+                                    self.source,
+                                    self.stream.last_token.clone(),
+                                    LabelType::Error,
+                                )
+                                .with_message("unexpected token found here"),
+                            ),
+                    ),
+                    None => Dr::fail(
+                        Report::new(ReportKind::Error, self.source, self.stream.last_token.start)
+                            .with_message(
+                                "end of file reached, but this qualified name was not complete",
+                            )
+                            .with_label(
+                                Label::new(
+                                    self.source,
+                                    self.stream.last_token.clone(),
+                                    LabelType::Error,
+                                )
+                                .with_message("end of file reached here"),
+                            ),
+                    ),
                 }
             }
             Some((token, span)) => {
@@ -958,7 +1002,20 @@ where
                         })
                     });
                 }
-                None => todo!(),
+                None => {
+                    break Dr::fail(
+                        Report::new(ReportKind::Error, self.source, self.stream.last_token.start)
+                            .with_message("end of file reached, but expected a universe")
+                            .with_label(
+                                Label::new(
+                                    self.source,
+                                    self.stream.last_token.clone(),
+                                    LabelType::Error,
+                                )
+                                .with_message("end of file reached here"),
+                            ),
+                    )
+                }
             }
         }
     }
@@ -981,7 +1038,20 @@ where
                         })
                     });
                 }
-                None => todo!(),
+                None => {
+                    break Dr::fail(
+                        Report::new(ReportKind::Error, self.source, self.stream.last_token.start)
+                            .with_message("end of file reached, but expected a universe")
+                            .with_label(
+                                Label::new(
+                                    self.source,
+                                    self.stream.last_token.clone(),
+                                    LabelType::Error,
+                                )
+                                .with_message("end of file reached here"),
+                            ),
+                    )
+                }
             }
         }
     }
@@ -995,7 +1065,26 @@ where
                 },
                 contents: self.db.intern_string_data(text),
             }),
-            _ => todo!(),
+            Some((token, span)) => Dr::fail(
+                Report::new(ReportKind::Error, self.source, self.stream.last_token.start)
+                    .with_message(format!("expected a name, got {}", token))
+                    .with_label(
+                        Label::new(self.source, span, LabelType::Error)
+                            .with_message("unexpected token found here"),
+                    ),
+            ),
+            None => Dr::fail(
+                Report::new(ReportKind::Error, self.source, self.stream.last_token.start)
+                    .with_message("end of file reached, but expected a name")
+                    .with_label(
+                        Label::new(
+                            self.source,
+                            self.stream.last_token.clone(),
+                            LabelType::Error,
+                        )
+                        .with_message("end of file reached here"),
+                    ),
+            ),
         }
     }
 
@@ -1016,7 +1105,18 @@ where
                     )
                 }
             }
-            _ => todo!(),
+            _ => Dr::fail(
+                Report::new(ReportKind::Error, self.source, self.stream.last_token.start)
+                    .with_message(format!("end of file reached, but expected {}", token))
+                    .with_label(
+                        Label::new(
+                            self.source,
+                            self.stream.last_token.clone(),
+                            LabelType::Error,
+                        )
+                        .with_message("end of file reached here"),
+                    ),
+            ),
         }
     }
 }

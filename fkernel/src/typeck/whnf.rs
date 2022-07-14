@@ -4,7 +4,7 @@
 
 use fnodes::expr::{Expr, ExprContents};
 
-use crate::expr::{instantiate, leftmost_function};
+use crate::expr::{apply_args, apply_args_mut, instantiate, leftmost_function};
 
 use super::{env::Environment, unfold::unfold_definition, DefinitionOrigin};
 
@@ -58,6 +58,23 @@ fn normalise_recursor(env: &Environment, e: &mut Expr) -> bool {
         && let DefinitionOrigin::Recursor { inductive } = def.origin()
         && let Some(inductive) = env.inductives.get(inductive) {
         // This is a recursor. Depending on the form of the major premise, we may be able to expand this recursor.
+
+        // First of all, reduce the major premise to weak head normal form.
+        // The major premise is the last argument.
+        let num_args = if let Some(first_rule) = inductive.computation_rules().first() {
+            apply_args(first_rule.eliminator_application()).len()
+        } else {
+            // There are no computation rules.
+            return false;
+        };
+
+        if let Some(major_premise) = apply_args_mut(e).get_mut(num_args - 1) {
+            to_weak_head_normal_form(env, major_premise);
+        } else {
+            // We supplied insufficiently many arguments to the recursor.
+            return false;
+        }
+
         // Try to match the list of arguments against each computation rule.
         for computation_rule in inductive.computation_rules() {
             if let Some(replacement) = computation_rule.evaluate(e) {

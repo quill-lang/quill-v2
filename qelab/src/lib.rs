@@ -29,7 +29,7 @@ pub trait Elaborator: QuillParser + TypeChecker {
     ) -> Dr<Arc<CertifiedModule>>;
 }
 
-#[tracing::instrument(level = "trace")]
+#[tracing::instrument(level = "trace", skip(file_contents))]
 pub fn elaborate_and_certify(
     db: &dyn Elaborator,
     source: Source,

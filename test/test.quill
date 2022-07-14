@@ -43,3 +43,14 @@ refl::{1} Bool true
 
 def one_is_not_zero : Eq::{1} Bool (is_zero (succ zero)) false =
 refl::{1} Bool false
+
+def add : forall (n : Nat), forall (m : Nat), Nat =
+fn (n : Nat), Nat.rec::{1} (fn (k : Nat), Nat) n (fn (k : Nat), succ)
+
+def one : Nat = succ zero
+def two : Nat = succ (succ zero)
+def four : Nat = succ (succ (succ (succ zero)))
+
+def one_plus_zero : Eq::{1} Nat (add zero one) one = refl::{1} Nat one
+
+def two_plus_two_is_four : Eq::{1} Nat (add two two) four = refl::{1} Nat four

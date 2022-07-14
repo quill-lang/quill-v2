@@ -1,37 +1,44 @@
+mod diagnostic;
+mod range;
 mod semantic_tokens;
 
-use std::error::Error;
 use std::fmt::Debug;
 use std::path::Component;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use lsp_types::notification::{DidChangeTextDocument, DidOpenTextDocument};
-use lsp_types::request::SemanticTokensFullRequest;
+use diagnostic::into_diagnostics;
 use lsp_types::{
-    InitializeParams, ServerCapabilities, TextDocumentItem, TextDocumentSyncCapability,
-    TextDocumentSyncKind, Url,
+    InitializeParams, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
 };
 use lsp_types::{
-    OneOf, SemanticTokens, SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensResult,
+    SemanticTokens, SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensResult,
     SemanticTokensServerCapabilities, WorkDoneProgressOptions,
 };
 
-use fcommon::{FileReader, Path, PathData};
+use fcommon::{Dr, FileReader, Path, PathData};
 use fcommon::{Intern, Source, SourceType};
 use qdb::QuillDatabase;
+use qelab::Elaborator;
 use salsa::{Durability, ParallelDatabase, Snapshot};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::RwLock;
-use tracing::Level;
-
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
+use tracing::Level;
+
+/// An operation we can perform on a database.
+/// Since the database is not `Send` or `Sync`, the only way to control it through threads is
+/// by sending requests to the thread that holds the database. This is that type of request.
+type DatabaseOperation = Box<dyn Send + Sync + FnOnce(&mut QuillDatabase)>;
 
 struct Backend {
     client: Client,
-    tx: Sender<Box<dyn Send + Sync + FnOnce(&mut QuillDatabase)>>,
+    /// Sending things through this channel will put them in a queue to be performed by the
+    /// database managing thread.
+    tx: Sender<DatabaseOperation>,
+    /// Should be set to the root URI of the workspace.
     root_uri: RwLock<Url>,
 }
 
@@ -42,7 +49,7 @@ impl Debug for Backend {
 }
 
 impl Backend {
-    async fn with_db(&self, f: Box<dyn Send + Sync + FnOnce(&mut QuillDatabase)>) {
+    async fn with_db(&self, f: DatabaseOperation) {
         let request = self.tx.send(f);
         if request.await.is_err() {
             panic!("could not send database request");
@@ -56,6 +63,38 @@ impl Backend {
         }))
         .await;
         rx.await.unwrap()
+    }
+
+    async fn change_file_contents(&self, uri: Url, contents: String) {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let uri2 = uri.clone();
+        let root_uri = self.root_uri.read().await.clone();
+        self.with_db(Box::new(move |db| {
+            let source = source_from_uri(db, &root_uri, &uri2);
+            db.overwritten_files()
+                .write()
+                .unwrap()
+                .overwrite_file(db, source, contents);
+            tx.send((source, db.snapshot())).unwrap();
+        }))
+        .await;
+        let client = self.client.clone();
+        tokio::spawn(async move {
+            let (source, db) = rx.await.unwrap();
+            let db2 = db.snapshot();
+            let dr: Dr<_> = tokio::task::spawn_blocking(move || {
+                db2.source(source)
+                    .bind(|file_contents| db2.elaborate_and_certify(source, file_contents))
+            })
+            .await
+            .unwrap();
+
+            let (_, reports) = dr.destructure();
+            let diagnostics = into_diagnostics(&db, &uri, reports);
+            // This is a slight simplification - not all diagnostics come a priori from this file,
+            // but for now let's just publish them all to this file.
+            client.publish_diagnostics(uri, diagnostics, None).await;
+        });
     }
 }
 
@@ -110,31 +149,22 @@ impl LanguageServer for Backend {
         tracing::info!("server initialised")
     }
 
+    async fn shutdown(&self) -> Result<()> {
+        Ok(())
+    }
+
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        let root_uri = self.root_uri.read().await.clone();
-        self.with_db(Box::new(move |db| {
-            let source = source_from_text_document(db, &root_uri, &params.text_document.uri);
-            db.overwritten_files().write().unwrap().overwrite_file(
-                db,
-                source,
-                params.text_document.text,
-            );
-        }))
-        .await;
+        self.change_file_contents(params.text_document.uri, params.text_document.text)
+            .await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         // Since we only support `TextDocumentSyncKind::FULL`, there must only be one content change,
         // and this is the entire contents of the file.
-        let root_uri = self.root_uri.read().await.clone();
-        self.with_db(Box::new(move |db| {
-            let source = source_from_text_document(db, &root_uri, &params.text_document.uri);
-            db.overwritten_files().write().unwrap().overwrite_file(
-                db,
-                source,
-                params.content_changes[0].text.clone(),
-            );
-        }))
+        self.change_file_contents(
+            params.text_document.uri,
+            params.content_changes[0].text.clone(),
+        )
         .await;
     }
 
@@ -148,13 +178,9 @@ impl LanguageServer for Backend {
             result_id: None,
             data: semantic_tokens::create_semantic_tokens(
                 &db,
-                source_from_text_document(&db, &root_uri, &params.text_document.uri),
+                source_from_uri(&db, &root_uri, &params.text_document.uri),
             ),
         })))
-    }
-
-    async fn shutdown(&self) -> Result<()> {
-        Ok(())
     }
 }
 
@@ -171,27 +197,16 @@ async fn main() {
 
     // Create a channel to talk to the Quill database.
     // This is required because the database can't move between threads as it uses RefCells.
-    let (tx, mut rx) =
-        tokio::sync::mpsc::channel::<Box<dyn Send + Sync + FnOnce(&mut QuillDatabase)>>(16);
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<DatabaseOperation>(16);
 
     tokio::task::spawn_blocking(move || {
+        // The main loop for the database thread.
+        // This thread accepts operations to be performed on the underlying `salsa` database.
         let (mut db, file_rx) = QuillDatabase::new();
         while let Some(value) = rx.blocking_recv() {
             value(&mut db);
         }
     });
-
-    // db.set_project_root_with_durability(
-    //     Arc::new(
-    //         params
-    //             .root_uri
-    //             .as_ref()
-    //             .expect("language server was not opened in a folder")
-    //             .to_file_path()
-    //             .expect("could not convert URL to file path"),
-    //     ),
-    //     Durability::HIGH,
-    // );
 
     let (service, socket) = LspService::new(|client| Backend {
         client,
@@ -204,114 +219,7 @@ async fn main() {
     tracing::debug!("shutting down server");
 }
 
-/*
-fn main_loop(
-    connection: Connection,
-    params: serde_json::Value,
-) -> Result<(), Box<dyn Error + Sync + Send>> {
-    let params: InitializeParams = serde_json::from_value(params).unwrap();
-    tracing::debug!("starting example main loop");
-
-    for msg in &connection.receiver {
-        match msg {
-            Message::Request(req) => {
-                if connection.handle_shutdown(&req)? {
-                    return Ok(());
-                }
-                tracing::debug!("got request: {:?}", req);
-                match cast::<SemanticTokensFullRequest>(req) {
-                    Ok((id, inner_params)) => {
-                        let result = Some(SemanticTokensResult::Tokens(SemanticTokens {
-                            result_id: None,
-                            data: semantic_tokens::create_semantic_tokens(
-                                &db,
-                                source_from_text_document(
-                                    &db,
-                                    &params,
-                                    &inner_params.text_document.uri,
-                                ),
-                            ),
-                        }));
-                        let result = serde_json::to_value(&result).unwrap();
-                        let resp = Response {
-                            id,
-                            result: Some(result),
-                            error: None,
-                        };
-                        connection.sender.send(Message::Response(resp))?;
-                        continue;
-                    }
-                    Err(err @ ExtractError::JsonError { .. }) => panic!("{:?}", err),
-                    Err(ExtractError::MethodMismatch(req)) => req,
-                };
-                // ...
-            }
-            Message::Response(resp) => {
-                tracing::debug!("got response: {:?}", resp);
-            }
-            Message::Notification(mut not) => {
-                tracing::debug!("got notification: {:?}", not);
-                not = match cast_not::<DidOpenTextDocument>(not) {
-                    Ok((_id, inner_params)) => {
-                        let source = source_from_text_document(
-                            &db,
-                            &params,
-                            &inner_params.text_document.uri,
-                        );
-                        db.overwritten_files().write().unwrap().overwrite_file(
-                            &mut db,
-                            source,
-                            inner_params.text_document.text,
-                        );
-                        continue;
-                    }
-                    Err(err @ ExtractError::JsonError { .. }) => panic!("{:?}", err),
-                    Err(ExtractError::MethodMismatch(not)) => not,
-                };
-                match cast_not::<DidChangeTextDocument>(not) {
-                    Ok((_id, inner_params)) => {
-                        // Since we only support `TextDocumentSyncKind::FULL`, there must only be one content change,
-                        // and this is the entire contents of the file.
-                        let source = source_from_text_document(
-                            &db,
-                            &params,
-                            &inner_params.text_document.uri,
-                        );
-                        db.overwritten_files().write().unwrap().overwrite_file(
-                            &mut db,
-                            source,
-                            inner_params.content_changes[0].text.clone(),
-                        );
-                        continue;
-                    }
-                    Err(err @ ExtractError::JsonError { .. }) => panic!("{:?}", err),
-                    Err(ExtractError::MethodMismatch(not)) => not,
-                };
-                // ...
-            }
-        }
-    }
-    Ok(())
-}
-
-fn cast<R>(req: Request) -> Result<(RequestId, R::Params), ExtractError<Request>>
-where
-    R: lsp_types::request::Request,
-    R::Params: serde::de::DeserializeOwned,
-{
-    req.extract(R::METHOD)
-}
-
-fn cast_not<R>(not: Notification) -> Result<(RequestId, R::Params), ExtractError<Notification>>
-where
-    R: lsp_types::notification::Notification,
-    R::Params: serde::de::DeserializeOwned,
-{
-    not.extract(R::METHOD)
-}
- */
-
-fn source_from_text_document(db: &QuillDatabase, root_uri: &Url, uri: &Url) -> Source {
+fn source_from_uri(db: &QuillDatabase, root_uri: &Url, uri: &Url) -> Source {
     Source {
         path: relativise(db, root_uri, uri),
         ty: SourceType::Quill,

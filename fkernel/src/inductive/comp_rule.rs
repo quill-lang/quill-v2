@@ -93,6 +93,10 @@ impl ComputationRule {
             application
         })
     }
+
+    pub fn eliminator_application(&self) -> &Expr {
+        &self.eliminator_application
+    }
 }
 
 #[derive(Default)]
