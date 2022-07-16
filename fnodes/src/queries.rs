@@ -11,11 +11,19 @@ use crate::{
 #[salsa::query_group(SexprParserStorage)]
 pub trait SexprParser: FileReader + Upcast<dyn Intern> {
     fn parse_sexpr(&self, source: Source, file_contents: Arc<String>) -> Dr<Arc<SexprNode>>;
-    fn module_from_feather_source(&self, source: Source, file_contents: Arc<String>) -> Dr<Arc<Module>>;
+    fn module_from_feather_source(
+        &self,
+        source: Source,
+        file_contents: Arc<String>,
+    ) -> Dr<Arc<Module>>;
 }
 
 #[tracing::instrument(level = "debug")]
-fn parse_sexpr(db: &dyn SexprParser, source: Source, file_contents: Arc<String>) -> Dr<Arc<SexprNode>> {
+fn parse_sexpr(
+    db: &dyn SexprParser,
+    source: Source,
+    file_contents: Arc<String>,
+) -> Dr<Arc<SexprNode>> {
     parse_sexpr_from_string(source, &file_contents).map(Arc::new)
 }
 

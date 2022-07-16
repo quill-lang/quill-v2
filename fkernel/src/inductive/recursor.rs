@@ -8,7 +8,7 @@ use fnodes::{
 
 use crate::{
     expr::{abstract_nary_pi, abstract_pi, create_nary_application, ExprPrinter},
-    typeck::{self, CertifiedDefinition, Environment, DefinitionOrigin},
+    typeck::{self, CertifiedDefinition, DefinitionOrigin, Environment},
 };
 
 use super::{

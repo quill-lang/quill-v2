@@ -54,3 +54,6 @@ def four : Nat = succ (succ (succ (succ zero)))
 def one_plus_zero : Eq::{1} Nat (add zero one) one = refl::{1} Nat one
 
 def two_plus_two_is_four : Eq::{1} Nat (add two two) four = refl::{1} Nat four
+
+def borrowed_one : forall (r : Region), borrowed r, Nat =
+fn (r : Region), &r, one

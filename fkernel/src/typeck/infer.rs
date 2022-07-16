@@ -49,12 +49,12 @@ pub(crate) fn infer_type_core<'a>(
         ExprContents::Bound(_) => unreachable!(
             "expression should not have free variables, but a bound variable was found"
         ),
-        ExprContents::BorrowedBound(_) => unreachable!(
-            "expression should not have free variables, but a borrowed bound variable was found"
-        ),
         ExprContents::Inst(inst) => infer_type_inst(env, e.provenance.span(), check, inst),
         ExprContents::Let(inner) => {
             infer_type_let(env, meta_gen, e.provenance.span(), check, inner)
+        }
+        ExprContents::Borrow(borrow) => {
+            infer_type_borrow(env, meta_gen, &e.provenance, check, borrow)
         }
         ExprContents::Lambda(lambda) => infer_type_lambda(env, meta_gen, check, lambda),
         ExprContents::Pi(pi) => infer_type_pi(env, meta_gen, e.provenance.span(), check, pi),
@@ -63,9 +63,9 @@ pub(crate) fn infer_type_core<'a>(
             infer_type_apply(env, meta_gen, e.provenance.span(), check, apply)
         }
         ExprContents::Sort(sort) => infer_type_sort(env, &e.provenance, check, sort),
-        // For now, we set the type of the sort of lifetimes to be `Type`.
+        // For now, we set the type of the sort of regions to be `Type`.
         // This might end up being the wrong choice - we will have to wait and see how the language progresses.
-        ExprContents::Lifetime(_) => Ok(Expr::new_with_provenance(
+        ExprContents::Region(_) => Ok(Expr::new_with_provenance(
             &e.provenance,
             ExprContents::Sort(Sort(Universe::new_with_provenance(
                 &e.provenance,
@@ -76,13 +76,6 @@ pub(crate) fn infer_type_core<'a>(
         )),
         ExprContents::Metavariable(var) => Ok(*var.ty.clone()),
         ExprContents::LocalConstant(local) => Ok(*local.metavariable.ty.clone()),
-        ExprContents::BorrowedLocalConstant(local) => Ok(Expr::new_with_provenance(
-            &e.provenance,
-            ExprContents::Delta(Delta {
-                ty: local.local_constant.metavariable.ty.clone(),
-                region: local.region.clone(),
-            }),
-        )),
     }
 }
 
@@ -187,6 +180,23 @@ fn infer_type_let<'a>(
     let mut body = *inner.body.clone();
     instantiate(&mut body, &inner.to_assign);
     infer_type_core(env, meta_gen, &body, check)
+}
+
+fn infer_type_borrow<'a>(
+    env: &'a Environment,
+    meta_gen: &mut MetavariableGenerator,
+    provenance: &Provenance,
+    check: bool,
+    borrow: &Borrow,
+) -> Result<Expr, Box<dyn FnOnce(Report) -> Report + 'a>> {
+    let ty = infer_type_core(env, meta_gen, &borrow.value, check)?;
+    Ok(Expr::new_with_provenance(
+        provenance,
+        ExprContents::Delta(Delta {
+            region: borrow.region.clone(),
+            ty: Box::new(ty),
+        }),
+    ))
 }
 
 fn infer_type_lambda<'a>(

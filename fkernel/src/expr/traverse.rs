@@ -42,19 +42,12 @@ fn replace_in_expr_offset(
         ReplaceResult::Skip => {
             // Traverse the sub-expressions of `e`.
             match &mut e.contents {
-                ExprContents::BorrowedBound(bound) => {
-                    replace_in_expr_offset(&mut bound.region, replace_fn, offset);
+                ExprContents::Borrow(borrow) => {
+                    replace_in_expr_offset(&mut borrow.region, replace_fn.clone(), offset);
+                    replace_in_expr_offset(&mut borrow.value, replace_fn, offset);
                 }
                 ExprContents::LocalConstant(local) => {
                     replace_in_expr_offset(&mut local.metavariable.ty, replace_fn, offset);
-                }
-                ExprContents::BorrowedLocalConstant(local) => {
-                    replace_in_expr_offset(
-                        &mut local.local_constant.metavariable.ty,
-                        replace_fn.clone(),
-                        offset,
-                    );
-                    replace_in_expr_offset(&mut local.region, replace_fn, offset);
                 }
                 ExprContents::Metavariable(var) => {
                     replace_in_expr_offset(&mut var.ty, replace_fn, offset);
@@ -73,6 +66,7 @@ fn replace_in_expr_offset(
                     replace_in_expr_offset(&mut pi.result, replace_fn, offset.succ());
                 }
                 ExprContents::Delta(delta) => {
+                    replace_in_expr_offset(&mut delta.region, replace_fn.clone(), offset);
                     replace_in_expr_offset(&mut delta.ty, replace_fn, offset);
                 }
                 ExprContents::Apply(apply) => {
@@ -110,18 +104,13 @@ fn find_in_expr_offset(
         Some(e)
     } else {
         match &e.contents {
-            ExprContents::BorrowedBound(bound) => {
-                find_in_expr_offset(&bound.region, predicate, offset)
+            ExprContents::Borrow(borrow) => {
+                find_in_expr_offset(&borrow.region, predicate.clone(), offset)
+                    .or_else(|| find_in_expr_offset(&borrow.value, predicate, offset))
             }
             ExprContents::LocalConstant(local) => {
                 find_in_expr_offset(&local.metavariable.ty, predicate, offset)
             }
-            ExprContents::BorrowedLocalConstant(local) => find_in_expr_offset(
-                &local.local_constant.metavariable.ty,
-                predicate.clone(),
-                offset,
-            )
-            .or_else(|| find_in_expr_offset(&local.region, predicate, offset)),
             ExprContents::Metavariable(var) => find_in_expr_offset(&var.ty, predicate, offset),
             ExprContents::Let(let_expr) => {
                 find_in_expr_offset(&let_expr.to_assign, predicate.clone(), offset).or_else(|| {
@@ -147,14 +136,12 @@ fn find_in_expr_offset(
     }
 }
 
-/// Returns the first (possibly borrowed) local constant or metavariable in the given expression.
+/// Returns the first local constant or metavariable in the given expression.
 pub fn first_local_or_metavariable(e: &Expr) -> Option<&Expr> {
     find_in_expr(e, |inner, _offset| {
         matches!(
             &inner.contents,
-            ExprContents::LocalConstant(_)
-                | ExprContents::BorrowedLocalConstant(_)
-                | ExprContents::Metavariable(_)
+            ExprContents::LocalConstant(_) | ExprContents::Metavariable(_)
         )
     })
 }
@@ -228,34 +215,6 @@ pub fn instantiate(e: &mut Expr, substitution: &Expr) {
                     }
                 }
             }
-            ExprContents::BorrowedBound(BorrowedBound { index, .. }) => {
-                match index.cmp(&(DeBruijnIndex::zero() + offset)) {
-                    std::cmp::Ordering::Less => {
-                        // The variable is bound and has index lower than the offset, so we don't change it.
-                        ReplaceResult::Skip
-                    }
-                    std::cmp::Ordering::Equal => {
-                        // The variable is the smallest free de Bruijn index.
-                        // It is exactly the one we need to substitute.
-                        let mut substitution = substitution.clone();
-                        lift_free_vars(&mut substitution, offset);
-                        ReplaceResult::ReplaceWith(substitution)
-                    }
-                    std::cmp::Ordering::Greater => {
-                        // This de Bruijn index must be decremented, since we just
-                        // instantiated a variable below it.
-                        let mut e = e.clone();
-                        if let ExprContents::BorrowedBound(BorrowedBound { index, .. }) =
-                            &mut e.contents
-                        {
-                            *index = index.pred();
-                        } else {
-                            unreachable!()
-                        }
-                        ReplaceResult::ReplaceWith(e)
-                    }
-                }
-            }
             _ => ReplaceResult::Skip,
         }
     })
@@ -317,22 +276,6 @@ pub fn lift_free_vars(e: &mut Expr, shift: DeBruijnOffset) {
                     ReplaceResult::Skip
                 }
             }
-            ExprContents::BorrowedBound(BorrowedBound { index, .. }) => {
-                if *index >= DeBruijnIndex::zero() + offset {
-                    // The variable is free.
-                    let mut e = e.clone();
-                    if let ExprContents::BorrowedBound(BorrowedBound { index, .. }) =
-                        &mut e.contents
-                    {
-                        *index = *index + shift;
-                    } else {
-                        unreachable!()
-                    }
-                    ReplaceResult::ReplaceWith(e)
-                } else {
-                    ReplaceResult::Skip
-                }
-            }
             _ => ReplaceResult::Skip,
         }
     })
@@ -347,20 +290,6 @@ pub fn abstract_lambda(local: LocalConstant, mut return_type: Expr) -> Lambda {
                     &e.provenance,
                     ExprContents::Bound(Bound {
                         index: DeBruijnIndex::zero() + offset,
-                    }),
-                ))
-            } else {
-                ReplaceResult::Skip
-            }
-        }
-        ExprContents::BorrowedLocalConstant(inner_local) => {
-            if inner_local.local_constant == local {
-                ReplaceResult::ReplaceWith(Expr::new_with_provenance(
-                    &e.provenance,
-                    ExprContents::BorrowedBound(BorrowedBound {
-                        index: DeBruijnIndex::zero() + offset,
-                        // TODO: Does this region expression also need a kind of abstraction?
-                        region: inner_local.region.clone(),
                     }),
                 ))
             } else {
@@ -392,20 +321,6 @@ pub fn abstract_pi(local: LocalConstant, mut return_type: Expr) -> Pi {
                 ReplaceResult::Skip
             }
         }
-        ExprContents::BorrowedLocalConstant(inner_local) => {
-            if inner_local.local_constant == local {
-                ReplaceResult::ReplaceWith(Expr::new_with_provenance(
-                    &e.provenance,
-                    ExprContents::BorrowedBound(BorrowedBound {
-                        index: DeBruijnIndex::zero() + offset,
-                        // TODO: Does this region expression also need a kind of abstraction?
-                        region: inner_local.region.clone(),
-                    }),
-                ))
-            } else {
-                ReplaceResult::Skip
-            }
-        }
         _ => ReplaceResult::Skip,
     });
     Pi {
@@ -421,12 +336,6 @@ pub fn replace_local(e: &mut Expr, local: &LocalConstant, replacement: &Expr) {
     replace_in_expr(e, |e, offset| {
         if let ExprContents::LocalConstant(inner) = &e.contents
             && inner.metavariable.index == local.metavariable.index {
-            // We should replace this local variable.
-            let mut replacement = replacement.clone();
-            lift_free_vars(&mut replacement, offset);
-            ReplaceResult::ReplaceWith(replacement)
-        } else if let ExprContents::BorrowedLocalConstant(inner) = &e.contents
-            && inner.local_constant.metavariable.index == local.metavariable.index {
             // We should replace this local variable.
             let mut replacement = replacement.clone();
             lift_free_vars(&mut replacement, offset);
@@ -476,23 +385,6 @@ pub fn replace_universe_variable(e: &mut Expr, var: &UniverseVariable, replaceme
                         ..local.metavariable
                     },
                     ..local.clone()
-                }),
-            ))
-        }
-        ExprContents::BorrowedLocalConstant(local) => {
-            let mut ty = local.local_constant.metavariable.ty.clone();
-            replace_universe_variable(&mut ty, var, replacement);
-            ReplaceResult::ReplaceWith(Expr::new_with_provenance(
-                &e.provenance,
-                ExprContents::BorrowedLocalConstant(BorrowedLocalConstant {
-                    local_constant: LocalConstant {
-                        metavariable: Metavariable {
-                            ty,
-                            ..local.local_constant.metavariable
-                        },
-                        ..local.local_constant.clone()
-                    },
-                    region: local.region.clone(),
                 }),
             ))
         }

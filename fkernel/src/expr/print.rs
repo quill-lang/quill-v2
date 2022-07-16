@@ -58,11 +58,15 @@ impl<'a> ExprPrinter<'a> {
     pub fn print(&mut self, val: &Expr) -> String {
         match &val.contents {
             ExprContents::Bound(bound) => bound.index.to_string(),
-            ExprContents::BorrowedBound(borrow) => {
-                format!("& {}, {}", self.print(&borrow.region), borrow.index)
-            }
             ExprContents::Inst(inst) => inst.name.display(self.db.up()),
             ExprContents::Let(_) => todo!(),
+            ExprContents::Borrow(borrow) => {
+                format!(
+                    "& {}, {}",
+                    self.print(&borrow.region),
+                    self.print(&borrow.value)
+                )
+            }
             ExprContents::Lambda(lambda) => {
                 let contents = format!(
                     "{} : {}",
@@ -129,18 +133,10 @@ impl<'a> ExprPrinter<'a> {
                     format!("Sort ({})", self.print_universe(universe))
                 }
             }
-            ExprContents::Lifetime(_) => "Λ".to_string(),
+            ExprContents::Region(_) => "Region".to_string(),
             ExprContents::Metavariable(_) => todo!(),
             ExprContents::LocalConstant(local) => {
                 self.db.lookup_intern_string_data(local.name.contents)
-            }
-            ExprContents::BorrowedLocalConstant(local) => {
-                format!(
-                    "& {}, {}",
-                    self.print(&local.region),
-                    self.db
-                        .lookup_intern_string_data(local.local_constant.name.contents)
-                )
             }
         }
     }

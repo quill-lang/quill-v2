@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use fcommon::{Dr, Label, LabelType, Path, PathData, Report, ReportKind, Source, Span};
 use fkernel::{
@@ -12,7 +9,7 @@ use fkernel::{
 use fnodes::{
     basic_nodes::{DeBruijnIndex, Name, Provenance, QualifiedName},
     definition::{Definition, DefinitionContents},
-    expr::{Apply, Bound, Expr, ExprContents, Inst, Lambda, Pi, Sort},
+    expr::{Apply, Borrow, Bound, Delta, Expr, ExprContents, Inst, Lambda, Let, Pi, Region, Sort},
     inductive::{Inductive, InductiveContents, IntroRule},
     universe::{Universe, UniverseContents, UniverseSucc, UniverseVariable},
 };
@@ -294,9 +291,40 @@ fn elaborate_expr(env: &ElabEnv, locals: &[Name], e: &PExpr) -> Dr<Expr> {
             to_assign,
             to_assign_ty,
             body,
-        } => todo!(),
+        } => elaborate_expr(env, locals, to_assign_ty).bind(|to_assign_ty| {
+            elaborate_expr(env, locals, to_assign).bind(|to_assign| {
+                let new_locals = std::iter::once(name_to_assign)
+                    .chain(locals)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                elaborate_expr(env, &new_locals, body).map(|body| {
+                    Expr::new_with_provenance(
+                        &e.provenance,
+                        ExprContents::Let(Let {
+                            name_to_assign: name_to_assign.clone(),
+                            to_assign: Box::new(to_assign),
+                            to_assign_ty: Box::new(to_assign_ty),
+                            body: Box::new(body),
+                        }),
+                    )
+                })
+            })
+        }),
+        PExprContents::Borrow { region, value } =>
+        elaborate_expr(env, locals, region).bind(|region|
+            elaborate_expr(env, locals, value).map(|value| Expr::new_with_provenance(&e.provenance, ExprContents::Borrow(Borrow {
+                region: Box::new(region),
+                value: Box::new(value),
+            })))),
+        PExprContents::Borrowed { region, ty } =>
+        elaborate_expr(env, locals, region).bind(|region|
+            elaborate_expr(env, locals, ty).map(|ty| Expr::new_with_provenance(&e.provenance, ExprContents::Delta(Delta {
+                region: Box::new(region),
+                ty: Box::new(ty),
+            })))),
         PExprContents::Sort { universe } => elaborate_universe(env, universe)
             .map(|u| Expr::new_with_provenance(&e.provenance, ExprContents::Sort(Sort(u)))),
+        PExprContents::Region => Dr::ok(Expr::new_with_provenance(&e.provenance, ExprContents::Region(Region))),
     }
 }
 

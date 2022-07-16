@@ -44,13 +44,13 @@ pub fn definitionally_equal<'a>(
             ).with_priority(-101),
         ))),
     };
-    let mut print = ExprPrinter::new(env.db);
-    tracing::info!(
-        "{} =?= {} /// {:?}",
-        print.print(left),
-        print.print(right),
-        result.value()
-    );
+    // let mut print = ExprPrinter::new(env.db);
+    // tracing::info!(
+    //     "{} =?= {} /// {:?}",
+    //     print.print(left),
+    //     print.print(right),
+    //     result.value()
+    // );
     result
 }
 
@@ -68,8 +68,8 @@ pub(in crate::typeck) fn definitionally_equal_core<'a>(
     to_weak_head_normal_form(env, &mut left);
     to_weak_head_normal_form(env, &mut right);
 
-    let mut print = ExprPrinter::new(env.db);
-    tracing::info!("{} =?= {}", print.print(&left), print.print(&right),);
+    // let mut print = ExprPrinter::new(env.db);
+    // tracing::info!("{} =?= {}", print.print(&left), print.print(&right),);
 
     // Test for simple cases first.
     if let Some(result) = quick_definitionally_equal(env, meta_gen, &left, &right) {
@@ -167,17 +167,38 @@ fn quick_definitionally_equal<'a>(
     right: &Expr,
 ) -> Option<Result<bool, Box<dyn FnOnce(Report) -> Report + 'a>>> {
     match (&left.contents, &right.contents) {
+        (fnodes::expr::ExprContents::Borrow(left), fnodes::expr::ExprContents::Borrow(right)) => {
+            Some(borrow_definitionally_equal(env, meta_gen, left, right))
+        }
         (fnodes::expr::ExprContents::Lambda(left), fnodes::expr::ExprContents::Lambda(right)) => {
             Some(lambda_definitionally_equal(env, meta_gen, left, right))
         }
         (fnodes::expr::ExprContents::Pi(left), fnodes::expr::ExprContents::Pi(right)) => {
             Some(pi_definitionally_equal(env, meta_gen, left, right))
         }
+        (fnodes::expr::ExprContents::Delta(left), fnodes::expr::ExprContents::Delta(right)) => {
+            Some(delta_definitionally_equal(env, meta_gen, left, right))
+        }
         (fnodes::expr::ExprContents::Sort(left), fnodes::expr::ExprContents::Sort(right)) => {
             Some(Ok(universe_definitionally_equal(&left.0, &right.0)))
         }
+        (fnodes::expr::ExprContents::Region(_), fnodes::expr::ExprContents::Region(_)) => {
+            Some(Ok(true))
+        }
         _ => None,
     }
+}
+
+/// Borrows are definitionally equal if their values are equal.
+/// All regions are checked in a future step.
+/// In some sense, this definitial equality checker is "modulo regions".
+fn borrow_definitionally_equal<'a>(
+    env: &'a Environment,
+    meta_gen: &mut MetavariableGenerator,
+    left: &Borrow,
+    right: &Borrow,
+) -> Result<bool, Box<dyn FnOnce(Report) -> Report + 'a>> {
+    definitionally_equal_core(env, meta_gen, &left.value, &right.value)
 }
 
 /// Lambdas are definitionally equal if their parameter types are equal and their bodies are equal.
@@ -244,6 +265,18 @@ fn pi_definitionally_equal<'a>(
         ),
     );
     definitionally_equal_core(env, meta_gen, &left_body, &right_body)
+}
+
+/// Delta types are definitionally equal if their types are definitionally equal.
+/// All regions are checked in a future step.
+/// In some sense, this definitial equality checker is "modulo regions".
+fn delta_definitionally_equal<'a>(
+    env: &'a Environment,
+    meta_gen: &mut MetavariableGenerator,
+    left: &Delta,
+    right: &Delta,
+) -> Result<bool, Box<dyn FnOnce(Report) -> Report + 'a>> {
+    definitionally_equal_core(env, meta_gen, &left.ty, &right.ty)
 }
 
 fn universe_definitionally_equal(left: &Universe, right: &Universe) -> bool {

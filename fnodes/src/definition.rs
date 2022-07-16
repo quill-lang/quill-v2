@@ -43,10 +43,7 @@ impl ListSexpr for Definition {
     ) -> Result<Self, ParseError> {
         let def = match <Vec<_> as TryInto<[_; 3]>>::try_into(args) {
             Ok([name, universe_params, ty]) => Definition {
-                provenance: Provenance::Sexpr {
-                    source,
-                    span,
-                },
+                provenance: Provenance::Sexpr { source, span },
                 contents: DefinitionContents {
                     name: Name::parse(db, source, name)?,
                     universe_params: ListSexprWrapper::parse(db, source, universe_params)?,
@@ -58,10 +55,7 @@ impl ListSexpr for Definition {
                 let [name, /* infos, */ universe_params, ty, expr] = force_arity(span.clone(), args)?;
 
                 Definition {
-                    provenance: Provenance::Sexpr {
-                        source,
-                        span,
-                    },
+                    provenance: Provenance::Sexpr { source, span },
                     contents: DefinitionContents {
                         name: Name::parse(db, source, name)?,
                         universe_params: ListSexprWrapper::parse(db, source, universe_params)?,

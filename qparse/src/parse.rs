@@ -40,6 +40,10 @@ pub enum Token {
     Comma,
     /// `|`
     Pipe,
+    /// `&`
+    Borrow,
+    /// `borrowed`. Represents the type of borrowed values, not the borrowed values themselves.
+    Borrowed,
     /// `def`
     Def,
     /// `inductive`
@@ -52,6 +56,8 @@ pub enum Token {
     Let,
     /// `Sort`
     Sort,
+    /// `Region`
+    Region,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -83,12 +89,15 @@ impl Token {
             Token::Assign => 1,
             Token::Comma => 1,
             Token::Pipe => 1,
+            Token::Borrow => 1,
+            Token::Borrowed => "borrowed".chars().count(),
             Token::Def => "def".chars().count(),
             Token::Inductive => "inductive".chars().count(),
             Token::Fn => "fn".chars().count(),
             Token::Forall => "forall".chars().count(),
             Token::Let => "let".chars().count(),
             Token::Sort => "sort".chars().count(),
+            Token::Region => "region".chars().count(),
         }
     }
 }
@@ -107,12 +116,15 @@ impl Display for Token {
             Token::Assign => write!(f, "'='"),
             Token::Comma => write!(f, "','"),
             Token::Pipe => write!(f, "'|'"),
+            Token::Borrow => write!(f, "'&'"),
+            Token::Borrowed => write!(f, "'borrowed'"),
             Token::Def => write!(f, "'def'"),
             Token::Inductive => write!(f, "'inductive'"),
             Token::Fn => write!(f, "'fn'"),
             Token::Forall => write!(f, "'forall'"),
             Token::Let => write!(f, "'let'"),
             Token::Sort => write!(f, "'Sort'"),
+            Token::Region => write!(f, "'Region'"),
         }
     }
 }
@@ -198,6 +210,8 @@ where
             self.split_pre_token_recursive(before, after, Token::Comma, span)
         } else if let Some((before, after)) = text.split_once('|') {
             self.split_pre_token_recursive(before, after, Token::Pipe, span)
+        } else if let Some((before, after)) = text.split_once('&') {
+            self.split_pre_token_recursive(before, after, Token::Borrow, span)
         } else {
             // We didn't find any other tokens in this text.
             if text.is_empty() {
@@ -207,12 +221,14 @@ where
                 // TODO: Warn the user if this doesn't look like a single token.
                 vec![(
                     match text {
+                        "borrowed" => Token::Borrowed,
                         "def" => Token::Def,
                         "inductive" => Token::Inductive,
                         "fn" => Token::Fn,
                         "forall" => Token::Forall,
                         "let" => Token::Let,
                         "Sort" => Token::Sort,
+                        "Region" => Token::Region,
                         _ => Token::Lexical {
                             text: text.to_owned(),
                         },
@@ -353,9 +369,18 @@ pub enum PExprContents {
         to_assign_ty: Box<PExpr>,
         body: Box<PExpr>,
     },
+    Borrow {
+        region: Box<PExpr>,
+        value: Box<PExpr>,
+    },
+    Borrowed {
+        region: Box<PExpr>,
+        ty: Box<PExpr>,
+    },
     Sort {
         universe: PUniverse,
     },
+    Region,
 }
 
 /// A parsed universe from the input stream.
@@ -667,12 +692,55 @@ where
                     })
                 })
             }
+            Some((Token::Borrow, borrow_span)) => {
+                // Parse a region, then parse the value to borrow.
+                self.parse_expr().bind(|region| {
+                    self.parse_exact(Token::Comma).bind(|_comma_span| {
+                        self.parse_expr_with_precedence(min_precedence)
+                            .map(|value| PExpr {
+                                provenance: Provenance::Quill {
+                                    source: self.source,
+                                    span: borrow_span.start..value.provenance.span().end,
+                                },
+                                contents: PExprContents::Borrow {
+                                    region: Box::new(region),
+                                    value: Box::new(value),
+                                },
+                            })
+                    })
+                })
+            }
+            Some((Token::Borrowed, borrow_span)) => {
+                // Parse a region, then parse the type that is to be borrowed.
+                self.parse_expr().bind(|region| {
+                    self.parse_exact(Token::Comma).bind(|_comma_span| {
+                        self.parse_expr_with_precedence(min_precedence)
+                            .map(|ty| PExpr {
+                                provenance: Provenance::Quill {
+                                    source: self.source,
+                                    span: borrow_span.start..ty.provenance.span().end,
+                                },
+                                contents: PExprContents::Borrowed {
+                                    region: Box::new(region),
+                                    ty: Box::new(ty),
+                                },
+                            })
+                    })
+                })
+            }
             Some((Token::Sort, span)) => self.parse_universe(false).map(|universe| PExpr {
                 provenance: Provenance::Quill {
                     source: self.source,
                     span: span.start..universe.provenance.span().end,
                 },
                 contents: PExprContents::Sort { universe },
+            }),
+            Some((Token::Region, span)) => Dr::ok(PExpr {
+                provenance: Provenance::Quill {
+                    source: self.source,
+                    span,
+                },
+                contents: PExprContents::Region,
             }),
             Some((
                 Token::Operator {
