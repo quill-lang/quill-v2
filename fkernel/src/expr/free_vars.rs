@@ -9,7 +9,8 @@ use fnodes::{basic_nodes::DeBruijnIndex, expr::*};
 /// refers to what we would call `#0` from outside the expression.
 fn first_free_variable_index(e: &Expr) -> DeBruijnIndex {
     match &e.contents {
-        ExprContents::Bound(Bound { index, .. }) => index.succ(),
+        ExprContents::Bound(Bound { index }) => index.succ(),
+        ExprContents::BorrowedBound(BorrowedBound { index }) => index.succ(),
         ExprContents::Inst(_) => DeBruijnIndex::zero(),
         ExprContents::Let(let_expr) => std::cmp::max(
             first_free_variable_index(&let_expr.to_assign),
@@ -23,6 +24,7 @@ fn first_free_variable_index(e: &Expr) -> DeBruijnIndex {
             first_free_variable_index(&pi.parameter_ty),
             first_free_variable_index(&pi.result).pred(),
         ),
+        ExprContents::Delta(delta) => first_free_variable_index(&delta.ty),
         ExprContents::Apply(apply) => std::cmp::max(
             first_free_variable_index(&apply.function),
             first_free_variable_index(&apply.argument),
@@ -30,6 +32,7 @@ fn first_free_variable_index(e: &Expr) -> DeBruijnIndex {
         ExprContents::Sort(_) => DeBruijnIndex::zero(),
         ExprContents::Metavariable(_) => DeBruijnIndex::zero(),
         ExprContents::LocalConstant(_) => DeBruijnIndex::zero(),
+        ExprContents::BorrowedLocalConstant(_) => DeBruijnIndex::zero(),
     }
 }
 

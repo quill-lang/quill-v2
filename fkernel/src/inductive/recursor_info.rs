@@ -34,22 +34,11 @@ pub fn recursor_info(
             Dr::sequence(ind.contents.intro_rules.iter().map(|intro_rule| {
                 minor_premise_info(env, meta_gen, ind, intro_rule, info, type_former.clone())
             }))
-            .map(|minor_premises| {
-                let mut is_k_target = is_zero(&info.sort.0) && ind.contents.intro_rules.len() == 1;
-                let minor_premises = minor_premises
-                    .into_iter()
-                    .map(|(premise, is_k_target_inner)| {
-                        is_k_target &= is_k_target_inner;
-                        premise
-                    })
-                    .collect::<Vec<_>>();
-                RecursorInfo {
-                    major_premise,
-                    recursor_universe,
-                    type_former,
-                    minor_premises,
-                    is_k_target,
-                }
+            .map(|minor_premises| RecursorInfo {
+                major_premise,
+                recursor_universe,
+                type_former,
+                minor_premises,
             })
         },
     )
@@ -61,7 +50,6 @@ pub struct RecursorInfo {
     pub recursor_universe: RecursorUniverse,
     pub type_former: LocalConstant,
     pub minor_premises: Vec<LocalConstant>,
-    pub is_k_target: bool,
 }
 
 /// Returns the major premise `n` and the type former `C`, stored as local constants.
@@ -124,7 +112,6 @@ fn partial_recursor_info(
 }
 
 /// Creates the minor premise associated to a given introduction rule.
-/// Also returns `false` if this introduction rule forbids a K-style eliminator.
 pub fn minor_premise_info(
     env: &Environment,
     meta_gen: &mut MetavariableGenerator,
@@ -132,7 +119,7 @@ pub fn minor_premise_info(
     intro_rule: &IntroRule,
     info: &PartialInductiveInformation,
     type_former: LocalConstant,
-) -> Dr<(LocalConstant, bool)> {
+) -> Dr<LocalConstant> {
     split_intro_rule_type(env, meta_gen, ind, info, intro_rule.ty.clone()).bind(|split_result| {
         get_indices(env, meta_gen, &split_result.result_ty, info).bind(|indices| {
             let mut type_former_application = indices.iter().fold(
@@ -263,17 +250,14 @@ pub fn minor_premise_info(
                     type_former_application,
                     &Provenance::Synthetic,
                 );
-                (
-                    LocalConstant {
-                        name: Name {
-                            provenance: Provenance::Synthetic,
-                            contents: str_gen.generate(),
-                        },
-                        metavariable: meta_gen.gen(minor_premise_type),
-                        binder_annotation: BinderAnnotation::Explicit,
+                LocalConstant {
+                    name: Name {
+                        provenance: Provenance::Synthetic,
+                        contents: str_gen.generate(),
                     },
-                    split_result.is_k_target,
-                )
+                    metavariable: meta_gen.gen(minor_premise_type),
+                    binder_annotation: BinderAnnotation::Explicit,
+                }
             })
         })
     })
@@ -292,7 +276,6 @@ pub fn split_intro_rule_type(
     let mut nonrecursive_and_recursive = Vec::new();
     let mut recursive = Vec::new();
     let mut parameter_index = 0;
-    let mut is_k_target = true;
     while let ExprContents::Pi(pi) = e.contents {
         if parameter_index < ind.contents.global_params {
             // This is a global parameter.
@@ -305,7 +288,6 @@ pub fn split_intro_rule_type(
             );
         } else {
             // This is an index parameter.
-            is_k_target = false;
             let local = pi.generate_local(meta_gen);
             let is_recursive = is_recursive_argument(env, meta_gen, *pi.parameter_ty.clone(), info);
             if let Some(result) = is_recursive.value() {
@@ -328,7 +310,6 @@ pub fn split_intro_rule_type(
         nonrecursive_and_recursive,
         recursive,
         result_ty: e,
-        is_k_target,
     })
 }
 
@@ -336,10 +317,6 @@ pub struct SplitIntroRuleResult {
     pub nonrecursive_and_recursive: Vec<LocalConstant>,
     pub recursive: Vec<LocalConstant>,
     pub result_ty: Expr,
-    /// If this is true, this intro rule does not prevent a K-style eliminator.
-    /// A declaration is a target for K-like reduction when it has one intro, the intro has zero
-    /// (index) arguments, and it is a proposition.
-    pub is_k_target: bool,
 }
 
 /// Given an expression of the form `(I As is)` where `I` is the inductive datatype being defined, `As` are the

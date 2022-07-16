@@ -166,6 +166,14 @@ pub struct Bound {
     pub index: DeBruijnIndex,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, ExprVariant)]
+#[list_sexpr_keyword = "borrow"]
+pub struct BorrowedBound {
+    /// The local variable that is to be borrowed.
+    #[atomic]
+    pub index: DeBruijnIndex,
+}
+
 /// Either a definition or an inductive data type.
 /// Parametrised by a list of universe parameters.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
@@ -310,14 +318,32 @@ impl Pi {
     }
 }
 
+/// A Delta-type (Δ-type) is the type of borrowed values of another type.
+/// For instance, if `x : T`, `&x : ΔT`.
+/// Note that `&T` is a value which is borrowed, and the value behind the borrow is a type;
+/// `ΔT` is a type in its own right.
+///
+/// Note: the name `Δ` was chosen for the initial letter of the Greek words "δάνειο" and
+/// "δανείζομαι" (roughly, "loan" and "borrow"). A capital beta for "borrow" was an option,
+/// but this would look identical to a Latin letter B.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
+#[list_sexpr_keyword = "delta"]
+pub struct Delta {
+    #[list]
+    #[sub_expr]
+    pub ty: Box<Expr>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
 #[list_sexpr_keyword = "ap"]
 pub struct Apply {
     /// The function to be invoked.
     #[list]
+    #[sub_expr]
     pub function: Box<Expr>,
     /// The argument to apply to the function.
     #[list]
+    #[sub_expr]
     pub argument: Box<Expr>,
 }
 
@@ -355,6 +381,15 @@ pub struct LocalConstant {
     pub binder_annotation: BinderAnnotation,
 }
 
+/// The borrowed form of a local constant.
+/// This is to [`LocalConstant`] what [`BorrowedBound`] is to [`Bound`].
+#[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
+#[list_sexpr_keyword = "blocalconst"]
+pub struct BorrowedLocalConstant {
+    #[list]
+    pub local_constant: LocalConstant,
+}
+
 /// Generates unique inference variable names.
 #[derive(Default)]
 pub struct MetavariableGenerator {
@@ -384,28 +419,34 @@ impl MetavariableGenerator {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ExprContents {
     Bound(Bound),
+    BorrowedBound(BorrowedBound),
     Inst(Inst),
     Let(Let),
     Lambda(Lambda),
     Pi(Pi),
+    Delta(Delta),
     Apply(Apply),
     Sort(Sort),
     Metavariable(Metavariable),
     LocalConstant(LocalConstant),
+    BorrowedLocalConstant(BorrowedLocalConstant),
 }
 
 impl ExprContents {
     fn variant_keyword(&self) -> &'static str {
         match self {
             Self::Bound(_) => Bound::KEYWORD.unwrap(),
+            Self::BorrowedBound(_) => BorrowedBound::KEYWORD.unwrap(),
             Self::Inst(_) => Inst::KEYWORD.unwrap(),
             Self::Let(_) => Let::KEYWORD.unwrap(),
             Self::Lambda(_) => Lambda::KEYWORD.unwrap(),
             Self::Pi(_) => Pi::KEYWORD.unwrap(),
+            Self::Delta(_) => Delta::KEYWORD.unwrap(),
             Self::Apply(_) => Apply::KEYWORD.unwrap(),
             Self::Sort(_) => Sort::KEYWORD.unwrap(),
             Self::Metavariable(_) => Metavariable::KEYWORD.unwrap(),
             Self::LocalConstant(_) => LocalConstant::KEYWORD.unwrap(),
+            Self::BorrowedLocalConstant(_) => BorrowedLocalConstant::KEYWORD.unwrap(),
         }
     }
 }
@@ -445,10 +486,14 @@ impl ListSexpr for ExprContents {
 
         Ok(match Some(keyword) {
             Bound::KEYWORD => Self::Bound(Bound::parse_list(db, source, span, args)?),
+            BorrowedBound::KEYWORD => {
+                Self::BorrowedBound(BorrowedBound::parse_list(db, source, span, args)?)
+            }
             Inst::KEYWORD => Self::Inst(Inst::parse_list(db, source, span, args)?),
             Let::KEYWORD => Self::Let(Let::parse_list(db, source, span, args)?),
             Lambda::KEYWORD => Self::Lambda(Lambda::parse_list(db, source, span, args)?),
             Pi::KEYWORD => Self::Pi(Pi::parse_list(db, source, span, args)?),
+            Delta::KEYWORD => Self::Delta(Delta::parse_list(db, source, span, args)?),
             Apply::KEYWORD => Self::Apply(Apply::parse_list(db, source, span, args)?),
             Sort::KEYWORD => Self::Sort(Sort::parse_list(db, source, span, args)?),
             Metavariable::KEYWORD => {
@@ -457,6 +502,9 @@ impl ListSexpr for ExprContents {
             LocalConstant::KEYWORD => {
                 Self::LocalConstant(LocalConstant::parse_list(db, source, span, args)?)
             }
+            BorrowedLocalConstant::KEYWORD => Self::BorrowedLocalConstant(
+                BorrowedLocalConstant::parse_list(db, source, span, args)?,
+            ),
             _ => {
                 return Err(ParseError {
                     span: first.span.clone(),
@@ -473,14 +521,17 @@ impl ListSexpr for ExprContents {
         // TODO: expr infos
         let mut result = match self {
             Self::Bound(val) => val.serialise(db),
+            Self::BorrowedBound(val) => val.serialise(db),
             Self::Inst(val) => val.serialise(db),
             Self::Let(val) => val.serialise(db),
             Self::Lambda(val) => val.serialise(db),
             Self::Pi(val) => val.serialise(db),
+            Self::Delta(val) => val.serialise(db),
             Self::Apply(val) => val.serialise(db),
             Self::Sort(val) => val.serialise(db),
             Self::Metavariable(val) => val.serialise(db),
             Self::LocalConstant(val) => val.serialise(db),
+            Self::BorrowedLocalConstant(val) => val.serialise(db),
         };
         result.insert(
             0,
@@ -497,28 +548,34 @@ impl ExprContents {
     pub fn sub_expressions(&self) -> Vec<&Expr> {
         match self {
             Self::Bound(val) => val.sub_expressions(),
+            Self::BorrowedBound(val) => val.sub_expressions(),
             Self::Inst(val) => val.sub_expressions(),
             Self::Let(val) => val.sub_expressions(),
             Self::Lambda(val) => val.sub_expressions(),
             Self::Pi(val) => val.sub_expressions(),
+            Self::Delta(val) => val.sub_expressions(),
             Self::Apply(val) => val.sub_expressions(),
             Self::Sort(val) => val.sub_expressions(),
             Self::Metavariable(val) => val.sub_expressions(),
             Self::LocalConstant(val) => val.sub_expressions(),
+            Self::BorrowedLocalConstant(val) => val.sub_expressions(),
         }
     }
 
     pub fn sub_expressions_mut(&mut self) -> Vec<&mut Expr> {
         match self {
             Self::Bound(val) => val.sub_expressions_mut(),
+            Self::BorrowedBound(val) => val.sub_expressions_mut(),
             Self::Inst(val) => val.sub_expressions_mut(),
             Self::Let(val) => val.sub_expressions_mut(),
             Self::Lambda(val) => val.sub_expressions_mut(),
             Self::Pi(val) => val.sub_expressions_mut(),
+            Self::Delta(val) => val.sub_expressions_mut(),
             Self::Apply(val) => val.sub_expressions_mut(),
             Self::Sort(val) => val.sub_expressions_mut(),
             Self::Metavariable(val) => val.sub_expressions_mut(),
             Self::LocalConstant(val) => val.sub_expressions_mut(),
+            Self::BorrowedLocalConstant(val) => val.sub_expressions_mut(),
         }
     }
 }
@@ -573,6 +630,9 @@ impl Expr {
     pub fn eq_ignoring_provenance(&self, other: &Expr) -> bool {
         match (&self.contents, &other.contents) {
             (ExprContents::Bound(left), ExprContents::Bound(right)) => left.index == right.index,
+            (ExprContents::BorrowedBound(left), ExprContents::BorrowedBound(right)) => {
+                left.index == right.index
+            }
             (ExprContents::Inst(left), ExprContents::Inst(right)) => todo!(),
             (ExprContents::Let(left), ExprContents::Let(right)) => todo!(),
             (ExprContents::Lambda(left), ExprContents::Lambda(right)) => {
@@ -585,6 +645,9 @@ impl Expr {
                     && left.result.eq_ignoring_provenance(&right.result)
             }
             (ExprContents::Pi(left), ExprContents::Pi(right)) => todo!(),
+            (ExprContents::Delta(left), ExprContents::Delta(right)) => {
+                left.ty.eq_ignoring_provenance(&right.ty)
+            }
             (ExprContents::Apply(left), ExprContents::Apply(right)) => {
                 left.argument.eq_ignoring_provenance(&right.argument)
                     && left.function.eq_ignoring_provenance(&right.function)
@@ -598,6 +661,10 @@ impl Expr {
             (ExprContents::LocalConstant(left), ExprContents::LocalConstant(right)) => {
                 left.metavariable.index == right.metavariable.index
             }
+            (
+                ExprContents::BorrowedLocalConstant(left),
+                ExprContents::BorrowedLocalConstant(right),
+            ) => left.local_constant.metavariable.index == right.local_constant.metavariable.index,
             _ => false,
         }
     }

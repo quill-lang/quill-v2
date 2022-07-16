@@ -46,19 +46,31 @@ pub(crate) fn infer_type_core<'a>(
     check: bool,
 ) -> Result<Expr, Box<dyn FnOnce(Report) -> Report + 'a>> {
     match &e.contents {
-        ExprContents::Bound(_) => unreachable!("expression should not have free variables"),
+        ExprContents::Bound(_) => unreachable!(
+            "expression should not have free variables, but a bound variable was found"
+        ),
+        ExprContents::BorrowedBound(_) => unreachable!(
+            "expression should not have free variables, but a borrowed bound variable was found"
+        ),
         ExprContents::Inst(inst) => infer_type_inst(env, e.provenance.span(), check, inst),
         ExprContents::Let(inner) => {
             infer_type_let(env, meta_gen, e.provenance.span(), check, inner)
         }
         ExprContents::Lambda(lambda) => infer_type_lambda(env, meta_gen, check, lambda),
         ExprContents::Pi(pi) => infer_type_pi(env, meta_gen, e.provenance.span(), check, pi),
+        ExprContents::Delta(delta) => infer_type_delta(env, meta_gen, &e.provenance, check, delta),
         ExprContents::Apply(apply) => {
             infer_type_apply(env, meta_gen, e.provenance.span(), check, apply)
         }
         ExprContents::Sort(sort) => infer_type_sort(env, &e.provenance, check, sort),
         ExprContents::Metavariable(var) => Ok(*var.ty.clone()),
         ExprContents::LocalConstant(local) => Ok(*local.metavariable.ty.clone()),
+        ExprContents::BorrowedLocalConstant(local) => Ok(Expr::new_with_provenance(
+            &e.provenance,
+            ExprContents::Delta(Delta {
+                ty: local.local_constant.metavariable.ty.clone(),
+            }),
+        )),
     }
 }
 
@@ -226,6 +238,20 @@ fn infer_type_pi<'a>(
                 right: Box::new(return_type.0),
             }),
         ))),
+    ))
+}
+
+fn infer_type_delta<'a>(
+    env: &'a Environment,
+    meta_gen: &mut MetavariableGenerator,
+    provenance: &Provenance,
+    check: bool,
+    delta: &Delta,
+) -> Result<Expr, Box<dyn FnOnce(Report) -> Report + 'a>> {
+    let ty_type = infer_type_core(env, meta_gen, &delta.ty, check)?;
+    Ok(Expr::new_with_provenance(
+        &provenance,
+        ExprContents::Sort(as_sort_core(env, provenance.span(), ty_type)?),
     ))
 }
 
