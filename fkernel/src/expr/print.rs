@@ -58,7 +58,9 @@ impl<'a> ExprPrinter<'a> {
     pub fn print(&mut self, val: &Expr) -> String {
         match &val.contents {
             ExprContents::Bound(bound) => bound.index.to_string(),
-            ExprContents::BorrowedBound(borrow) => format!("&{}", borrow.index),
+            ExprContents::BorrowedBound(borrow) => {
+                format!("& {}, {}", self.print(&borrow.region), borrow.index)
+            }
             ExprContents::Inst(inst) => inst.name.display(self.db.up()),
             ExprContents::Let(_) => todo!(),
             ExprContents::Lambda(lambda) => {
@@ -88,7 +90,7 @@ impl<'a> ExprPrinter<'a> {
                     "{} : {}",
                     self.db
                         .lookup_intern_string_data(pi.parameter_name.contents),
-                    self.print(&*pi.parameter_ty)
+                    self.print(&pi.parameter_ty)
                 );
                 let binder = match pi.binder_annotation {
                     BinderAnnotation::Explicit => format!("({})", contents),
@@ -106,7 +108,7 @@ impl<'a> ExprPrinter<'a> {
                 format!("Π {}, {}", binder, self.print(&body))
             }
             ExprContents::Delta(delta) => {
-                format!("Δ {}", self.print(&delta.ty))
+                format!("Δ {}, {}", self.print(&delta.region), self.print(&delta.ty))
             }
             ExprContents::Apply(apply) => {
                 format!(
@@ -127,14 +129,15 @@ impl<'a> ExprPrinter<'a> {
                     format!("Sort ({})", self.print_universe(universe))
                 }
             }
-
+            ExprContents::Lifetime(_) => "Λ".to_string(),
             ExprContents::Metavariable(_) => todo!(),
             ExprContents::LocalConstant(local) => {
                 self.db.lookup_intern_string_data(local.name.contents)
             }
             ExprContents::BorrowedLocalConstant(local) => {
                 format!(
-                    "&{}",
+                    "& {}, {}",
+                    self.print(&local.region),
                     self.db
                         .lookup_intern_string_data(local.local_constant.name.contents)
                 )

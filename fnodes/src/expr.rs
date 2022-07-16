@@ -67,95 +67,6 @@ pub trait ExpressionVariant {
 
 // TODO: Check for duplicates in each component-related thing.
 
-/*#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct ComponentContents<N, E> {
-    pub name: N,
-    pub ty: E,
-}
-
-pub type Component<N, E> = Node<ComponentContents<N, E>>;
-
-impl ListSexpr for Component<Name, Expr> {
-    const KEYWORD: Option<&'static str> = None;
-
-    fn parse_list(
-        db: &dyn SexprParser,
-        span: Span,
-        mut args: Vec<SexprNode>,
-    ) -> Result<Self, ParseError> {
-        if args.len() < 2 {
-            return Err(ParseError {
-                span,
-                reason: ParseErrorReason::WrongArity {
-                    expected_arity: 2,
-                    found_arity: args.len(),
-                },
-            });
-        }
-        let name = Name::parse(db, args.remove(0))?;
-        let ty = ListSexprWrapper::parse(db, args.remove(0))?;
-        let component =
-            Node::new_in_sexpr(ctx.node_id_gen.gen(), span, ComponentContents { name, ty });
-        for info in args {
-            ctx.process_component_info(db, &component, info)?;
-        }
-        Ok(component)
-    }
-
-    fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
-        let mut infos = ctx.process_component_info(db, self, ctx);
-        infos.insert(
-            0,
-            ListSexprWrapper::serialise_into_node(db, &self.contents.ty),
-        );
-        infos.insert(0, self.contents.name.serialise(db));
-        infos
-    }
-}
-
-impl<E> ListSexpr for ComponentContents<Str, E>
-where
-    E: ListSexpr,
-{
-    const KEYWORD: Option<&'static str> = None;
-
-    fn parse_list(
-        db: &dyn SexprParser,
-        span: Span,
-        mut args: Vec<SexprNode>,
-    ) -> Result<Self, ParseError> {
-        if args.len() < 2 {
-            return Err(ParseError {
-                span,
-                reason: ParseErrorReason::WrongArity {
-                    expected_arity: 2,
-                    found_arity: args.len(),
-                },
-            });
-        }
-        let name = AtomicSexprWrapper::parse(db, args.remove(0))?;
-        let ty = ListSexprWrapper::parse(db, args.remove(0))?;
-        Ok(ComponentContents { name, ty })
-    }
-
-    fn serialise(&self, db: &dyn SexprParser) -> Vec<SexprNode> {
-        vec![
-            AtomicSexprWrapper::serialise_into_node(db, &self.name),
-            ListSexprWrapper::serialise_into_node(db, &self.ty),
-        ]
-    }
-}
-
-impl ExpressionVariant for Component<Name, Expr> {
-    fn sub_expressions(&self) -> Vec<&Expr> {
-        vec![&self.contents.ty]
-    }
-
-    fn sub_expressions_mut(&mut self) -> Vec<&mut Expr> {
-        vec![&mut self.contents.ty]
-    }
-}*/
-
 // Begin describing the expressions in Feather.
 
 /// A bound local variable inside an abstraction.
@@ -166,12 +77,16 @@ pub struct Bound {
     pub index: DeBruijnIndex,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, ExprVariant)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
 #[list_sexpr_keyword = "borrow"]
 pub struct BorrowedBound {
     /// The local variable that is to be borrowed.
     #[atomic]
     pub index: DeBruijnIndex,
+    /// The lifetime for which it is borrowed.
+    #[list]
+    #[sub_expr]
+    pub region: Box<Expr>,
 }
 
 /// Either a definition or an inductive data type.
@@ -332,6 +247,10 @@ pub struct Delta {
     #[list]
     #[sub_expr]
     pub ty: Box<Expr>,
+    // The region for which a value is borrowed.
+    #[list]
+    #[sub_expr]
+    pub region: Box<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
@@ -352,6 +271,11 @@ pub struct Apply {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, ExprVariant)]
 #[list_sexpr_keyword = "sort"]
 pub struct Sort(#[list] pub Universe);
+
+/// The sort of lifetimes. All lifetimes have this sort as their type.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, ExprVariant)]
+#[list_sexpr_keyword = "lifetime"]
+pub struct Lifetime;
 
 /// An inference variable.
 /// May have theoretically any type.
@@ -388,6 +312,10 @@ pub struct LocalConstant {
 pub struct BorrowedLocalConstant {
     #[list]
     pub local_constant: LocalConstant,
+    /// The lifetime for which it is borrowed.
+    #[list]
+    #[sub_expr]
+    pub region: Box<Expr>,
 }
 
 /// Generates unique inference variable names.
@@ -427,6 +355,7 @@ pub enum ExprContents {
     Delta(Delta),
     Apply(Apply),
     Sort(Sort),
+    Lifetime(Lifetime),
     Metavariable(Metavariable),
     LocalConstant(LocalConstant),
     BorrowedLocalConstant(BorrowedLocalConstant),
@@ -444,6 +373,7 @@ impl ExprContents {
             Self::Delta(_) => Delta::KEYWORD.unwrap(),
             Self::Apply(_) => Apply::KEYWORD.unwrap(),
             Self::Sort(_) => Sort::KEYWORD.unwrap(),
+            Self::Lifetime(_) => Lifetime::KEYWORD.unwrap(),
             Self::Metavariable(_) => Metavariable::KEYWORD.unwrap(),
             Self::LocalConstant(_) => LocalConstant::KEYWORD.unwrap(),
             Self::BorrowedLocalConstant(_) => BorrowedLocalConstant::KEYWORD.unwrap(),
@@ -496,6 +426,7 @@ impl ListSexpr for ExprContents {
             Delta::KEYWORD => Self::Delta(Delta::parse_list(db, source, span, args)?),
             Apply::KEYWORD => Self::Apply(Apply::parse_list(db, source, span, args)?),
             Sort::KEYWORD => Self::Sort(Sort::parse_list(db, source, span, args)?),
+            Lifetime::KEYWORD => Self::Lifetime(Lifetime::parse_list(db, source, span, args)?),
             Metavariable::KEYWORD => {
                 Self::Metavariable(Metavariable::parse_list(db, source, span, args)?)
             }
@@ -529,6 +460,7 @@ impl ListSexpr for ExprContents {
             Self::Delta(val) => val.serialise(db),
             Self::Apply(val) => val.serialise(db),
             Self::Sort(val) => val.serialise(db),
+            Self::Lifetime(val) => val.serialise(db),
             Self::Metavariable(val) => val.serialise(db),
             Self::LocalConstant(val) => val.serialise(db),
             Self::BorrowedLocalConstant(val) => val.serialise(db),
@@ -556,6 +488,7 @@ impl ExprContents {
             Self::Delta(val) => val.sub_expressions(),
             Self::Apply(val) => val.sub_expressions(),
             Self::Sort(val) => val.sub_expressions(),
+            Self::Lifetime(val) => val.sub_expressions(),
             Self::Metavariable(val) => val.sub_expressions(),
             Self::LocalConstant(val) => val.sub_expressions(),
             Self::BorrowedLocalConstant(val) => val.sub_expressions(),
@@ -573,6 +506,7 @@ impl ExprContents {
             Self::Delta(val) => val.sub_expressions_mut(),
             Self::Apply(val) => val.sub_expressions_mut(),
             Self::Sort(val) => val.sub_expressions_mut(),
+            Self::Lifetime(val) => val.sub_expressions_mut(),
             Self::Metavariable(val) => val.sub_expressions_mut(),
             Self::LocalConstant(val) => val.sub_expressions_mut(),
             Self::BorrowedLocalConstant(val) => val.sub_expressions_mut(),
@@ -655,6 +589,7 @@ impl Expr {
             (ExprContents::Sort(left), ExprContents::Sort(right)) => {
                 left.0.eq_ignoring_provenance(&right.0)
             }
+            (ExprContents::Lifetime(_), ExprContents::Lifetime(right)) => true,
             (ExprContents::Metavariable(left), ExprContents::Metavariable(right)) => {
                 left.index == right.index
             }

@@ -10,7 +10,9 @@ use fnodes::{basic_nodes::DeBruijnIndex, expr::*};
 fn first_free_variable_index(e: &Expr) -> DeBruijnIndex {
     match &e.contents {
         ExprContents::Bound(Bound { index }) => index.succ(),
-        ExprContents::BorrowedBound(BorrowedBound { index }) => index.succ(),
+        ExprContents::BorrowedBound(BorrowedBound { index, region }) => {
+            std::cmp::max(index.succ(), first_free_variable_index(region))
+        }
         ExprContents::Inst(_) => DeBruijnIndex::zero(),
         ExprContents::Let(let_expr) => std::cmp::max(
             first_free_variable_index(&let_expr.to_assign),
@@ -30,9 +32,12 @@ fn first_free_variable_index(e: &Expr) -> DeBruijnIndex {
             first_free_variable_index(&apply.argument),
         ),
         ExprContents::Sort(_) => DeBruijnIndex::zero(),
+        ExprContents::Lifetime(_) => DeBruijnIndex::zero(),
         ExprContents::Metavariable(_) => DeBruijnIndex::zero(),
         ExprContents::LocalConstant(_) => DeBruijnIndex::zero(),
-        ExprContents::BorrowedLocalConstant(_) => DeBruijnIndex::zero(),
+        ExprContents::BorrowedLocalConstant(BorrowedLocalConstant { region, .. }) => {
+            first_free_variable_index(region)
+        }
     }
 }
 

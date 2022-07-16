@@ -42,15 +42,19 @@ fn replace_in_expr_offset(
         ReplaceResult::Skip => {
             // Traverse the sub-expressions of `e`.
             match &mut e.contents {
+                ExprContents::BorrowedBound(bound) => {
+                    replace_in_expr_offset(&mut bound.region, replace_fn, offset);
+                }
                 ExprContents::LocalConstant(local) => {
                     replace_in_expr_offset(&mut local.metavariable.ty, replace_fn, offset);
                 }
                 ExprContents::BorrowedLocalConstant(local) => {
                     replace_in_expr_offset(
                         &mut local.local_constant.metavariable.ty,
-                        replace_fn,
+                        replace_fn.clone(),
                         offset,
                     );
+                    replace_in_expr_offset(&mut local.region, replace_fn, offset);
                 }
                 ExprContents::Metavariable(var) => {
                     replace_in_expr_offset(&mut var.ty, replace_fn, offset);
@@ -106,12 +110,18 @@ fn find_in_expr_offset(
         Some(e)
     } else {
         match &e.contents {
+            ExprContents::BorrowedBound(bound) => {
+                find_in_expr_offset(&bound.region, predicate, offset)
+            }
             ExprContents::LocalConstant(local) => {
                 find_in_expr_offset(&local.metavariable.ty, predicate, offset)
             }
-            ExprContents::BorrowedLocalConstant(local) => {
-                find_in_expr_offset(&local.local_constant.metavariable.ty, predicate, offset)
-            }
+            ExprContents::BorrowedLocalConstant(local) => find_in_expr_offset(
+                &local.local_constant.metavariable.ty,
+                predicate.clone(),
+                offset,
+            )
+            .or_else(|| find_in_expr_offset(&local.region, predicate, offset)),
             ExprContents::Metavariable(var) => find_in_expr_offset(&var.ty, predicate, offset),
             ExprContents::Let(let_expr) => {
                 find_in_expr_offset(&let_expr.to_assign, predicate.clone(), offset).or_else(|| {
@@ -192,7 +202,7 @@ pub fn find_constant<'e>(e: &'e Expr, segments: &[Str]) -> Option<&'e Inst> {
 pub fn instantiate(e: &mut Expr, substitution: &Expr) {
     replace_in_expr(e, |e, offset| {
         match &e.contents {
-            ExprContents::Bound(Bound { index, .. }) => {
+            ExprContents::Bound(Bound { index }) => {
                 match index.cmp(&(DeBruijnIndex::zero() + offset)) {
                     std::cmp::Ordering::Less => {
                         // The variable is bound and has index lower than the offset, so we don't change it.
@@ -209,7 +219,7 @@ pub fn instantiate(e: &mut Expr, substitution: &Expr) {
                         // This de Bruijn index must be decremented, since we just
                         // instantiated a variable below it.
                         let mut e = e.clone();
-                        if let ExprContents::Bound(Bound { index, .. }) = &mut e.contents {
+                        if let ExprContents::Bound(Bound { index }) = &mut e.contents {
                             *index = index.pred();
                         } else {
                             unreachable!()
@@ -218,7 +228,7 @@ pub fn instantiate(e: &mut Expr, substitution: &Expr) {
                     }
                 }
             }
-            ExprContents::BorrowedBound(BorrowedBound { index }) => {
+            ExprContents::BorrowedBound(BorrowedBound { index, .. }) => {
                 match index.cmp(&(DeBruijnIndex::zero() + offset)) {
                     std::cmp::Ordering::Less => {
                         // The variable is bound and has index lower than the offset, so we don't change it.
@@ -307,11 +317,13 @@ pub fn lift_free_vars(e: &mut Expr, shift: DeBruijnOffset) {
                     ReplaceResult::Skip
                 }
             }
-            ExprContents::BorrowedBound(BorrowedBound { index }) => {
+            ExprContents::BorrowedBound(BorrowedBound { index, .. }) => {
                 if *index >= DeBruijnIndex::zero() + offset {
                     // The variable is free.
                     let mut e = e.clone();
-                    if let ExprContents::BorrowedBound(BorrowedBound { index }) = &mut e.contents {
+                    if let ExprContents::BorrowedBound(BorrowedBound { index, .. }) =
+                        &mut e.contents
+                    {
                         *index = *index + shift;
                     } else {
                         unreachable!()
@@ -347,6 +359,8 @@ pub fn abstract_lambda(local: LocalConstant, mut return_type: Expr) -> Lambda {
                     &e.provenance,
                     ExprContents::BorrowedBound(BorrowedBound {
                         index: DeBruijnIndex::zero() + offset,
+                        // TODO: Does this region expression also need a kind of abstraction?
+                        region: inner_local.region.clone(),
                     }),
                 ))
             } else {
@@ -384,6 +398,8 @@ pub fn abstract_pi(local: LocalConstant, mut return_type: Expr) -> Pi {
                     &e.provenance,
                     ExprContents::BorrowedBound(BorrowedBound {
                         index: DeBruijnIndex::zero() + offset,
+                        // TODO: Does this region expression also need a kind of abstraction?
+                        region: inner_local.region.clone(),
                     }),
                 ))
             } else {
@@ -476,6 +492,7 @@ pub fn replace_universe_variable(e: &mut Expr, var: &UniverseVariable, replaceme
                         },
                         ..local.local_constant.clone()
                     },
+                    region: local.region.clone(),
                 }),
             ))
         }

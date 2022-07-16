@@ -63,12 +63,24 @@ pub(crate) fn infer_type_core<'a>(
             infer_type_apply(env, meta_gen, e.provenance.span(), check, apply)
         }
         ExprContents::Sort(sort) => infer_type_sort(env, &e.provenance, check, sort),
+        // For now, we set the type of the sort of lifetimes to be `Type`.
+        // This might end up being the wrong choice - we will have to wait and see how the language progresses.
+        ExprContents::Lifetime(_) => Ok(Expr::new_with_provenance(
+            &e.provenance,
+            ExprContents::Sort(Sort(Universe::new_with_provenance(
+                &e.provenance,
+                UniverseContents::UniverseSucc(UniverseSucc(Box::new(
+                    Universe::new_with_provenance(&e.provenance, UniverseContents::UniverseZero),
+                ))),
+            ))),
+        )),
         ExprContents::Metavariable(var) => Ok(*var.ty.clone()),
         ExprContents::LocalConstant(local) => Ok(*local.metavariable.ty.clone()),
         ExprContents::BorrowedLocalConstant(local) => Ok(Expr::new_with_provenance(
             &e.provenance,
             ExprContents::Delta(Delta {
                 ty: local.local_constant.metavariable.ty.clone(),
+                region: local.region.clone(),
             }),
         )),
     }
@@ -250,7 +262,7 @@ fn infer_type_delta<'a>(
 ) -> Result<Expr, Box<dyn FnOnce(Report) -> Report + 'a>> {
     let ty_type = infer_type_core(env, meta_gen, &delta.ty, check)?;
     Ok(Expr::new_with_provenance(
-        &provenance,
+        provenance,
         ExprContents::Sort(as_sort_core(env, provenance.span(), ty_type)?),
     ))
 }
