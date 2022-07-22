@@ -47,6 +47,8 @@ pub enum DefinitionOrigin {
     IntroRule { inductive: Path },
     /// This definition is the recursor for an inductive type.
     Recursor { inductive: Path },
+    /// This definition is the squash function for an inductive type.
+    Squash { inductive: Path },
 }
 
 impl CertifiedDefinition {

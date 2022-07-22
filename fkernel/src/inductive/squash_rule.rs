@@ -1,16 +1,187 @@
+use fcommon::{Dr, PathData};
 use fnodes::{
     basic_nodes::{Name, Provenance, QualifiedName},
+    definition::{Definition, DefinitionContents},
     expr::{
-        Apply, BinderAnnotation, Borrow, Expr, ExprContents, Inst, LocalConstant,
-        MetavariableGenerator, Region,
+        Apply, BinderAnnotation, Borrow, Delta, Expr, ExprContents, Inst, LocalConstant,
+        MetavariableGenerator, Pi, Region,
     },
     inductive::Inductive,
     universe::{Universe, UniverseContents, UniverseVariable},
 };
 
-use crate::typeck::Environment;
+use crate::{
+    expr::{abstract_nary_pi, ExprPrinter},
+    typeck::{self, CertifiedDefinition, DefinitionOrigin, Environment},
+};
 
 use super::{comp_rule::ComputationRule, squash_type::as_delta};
+
+/// Generates the squash function for the given inductives.
+pub fn generate_squash_function(
+    env: &Environment,
+    meta_gen: &mut MetavariableGenerator,
+    ind: &Inductive,
+    squashed: &Inductive,
+) -> Dr<CertifiedDefinition> {
+    let squashed_args = pi_args(&squashed.contents.ty, meta_gen);
+    // We need `squashed_args` and `args` to have the same metavariable names.
+	// So we just duplicate the names used in `squashed_args`.
+    let temp_args = pi_args(&ind.contents.ty, meta_gen);
+    let args = if temp_args.len() == squashed_args.len() {
+        squashed_args.clone()
+    } else {
+        assert_eq!(temp_args.len() + 1, squashed_args.len());
+        let mut result = squashed_args.clone();
+        result.remove(0);
+        result
+    };
+
+	let region = squashed_args.get(0).cloned().unwrap_or_else(|| {
+        // If there was no region parameter (e.g. if there are no fields that need to be squashed), we need to make our own region parameter.
+        LocalConstant {
+            name: Name {
+                provenance: Provenance::Synthetic,
+                contents: env.db.intern_string_data("r".to_string()),
+            },
+            metavariable: meta_gen.gen(Expr::new_synthetic(ExprContents::Region(Region))),
+            binder_annotation: BinderAnnotation::Explicit,
+        }
+    });
+
+    let mut squash_type = Expr::new_synthetic(ExprContents::Pi(Pi {
+        parameter_name: Name {
+            provenance: Provenance::Synthetic,
+            contents: env.db.intern_string_data("n".to_string()),
+        },
+        binder_annotation: BinderAnnotation::Explicit,
+        parameter_ty: Box::new(Expr::new_synthetic(ExprContents::Delta(Delta {
+            region: Box::new(Expr::new_synthetic(ExprContents::LocalConstant(region))),
+            ty: Box::new({
+                args.iter().fold(
+                    Expr::new_synthetic(ExprContents::Inst(Inst {
+                        name: QualifiedName {
+                            provenance: Provenance::Synthetic,
+                            segments: env
+                                .db
+                                .lookup_intern_path_data(env.source.path)
+                                .0
+                                .into_iter()
+                                .chain(std::iter::once(ind.contents.name.contents))
+                                .map(|s| Name {
+                                    provenance: Provenance::Synthetic,
+                                    contents: s,
+                                })
+                                .collect(),
+                        },
+                        universes: ind
+                            .contents
+                            .universe_params
+                            .iter()
+                            .map(|name| {
+                                Universe::new_synthetic(UniverseContents::UniverseVariable(
+                                    UniverseVariable(name.contents),
+                                ))
+                            })
+                            .collect(),
+                    })),
+                    |func, arg| {
+                        Expr::new_synthetic(ExprContents::Apply(Apply {
+                            function: Box::new(func),
+                            argument: Box::new(Expr::new_synthetic(ExprContents::LocalConstant(
+                                arg.clone(),
+                            ))),
+                        }))
+                    },
+                )
+            }),
+        }))),
+        result: Box::new(
+            squashed_args.iter().fold(
+                Expr::new_synthetic(ExprContents::Inst(Inst {
+                    name: QualifiedName {
+                        provenance: Provenance::Synthetic,
+                        segments: env
+                            .db
+                            .lookup_intern_path_data(env.source.path)
+                            .0
+                            .into_iter()
+                            .chain(std::iter::once(squashed.contents.name.contents))
+                            .map(|s| Name {
+                                provenance: Provenance::Synthetic,
+                                contents: s,
+                            })
+                            .collect(),
+                    },
+                    universes: squashed
+                        .contents
+                        .universe_params
+                        .iter()
+                        .map(|name| {
+                            Universe::new_synthetic(UniverseContents::UniverseVariable(
+                                UniverseVariable(name.contents),
+                            ))
+                        })
+                        .collect(),
+                })),
+                |func, arg| {
+                    Expr::new_synthetic(ExprContents::Apply(Apply {
+                        function: Box::new(func),
+                        argument: Box::new(Expr::new_synthetic(ExprContents::LocalConstant(
+                            arg.clone(),
+                        ))),
+                    }))
+                },
+            ),
+        ),
+    }));
+
+    squash_type = abstract_nary_pi(
+        squashed_args.into_iter(),
+        squash_type,
+        &Provenance::Synthetic,
+    );
+
+    let mut printer = ExprPrinter::new(env.db);
+    tracing::info!("{}", printer.print(&squash_type));
+
+    let def = Definition {
+        provenance: ind.provenance.clone(),
+        contents: DefinitionContents {
+            name: Name {
+                contents: env.db.intern_string_data(format!(
+                    "{}.squash",
+                    env.db.lookup_intern_string_data(ind.contents.name.contents)
+                )),
+                provenance: ind.contents.name.provenance.clone(),
+            },
+            universe_params: ind.contents.universe_params.clone(),
+            ty: squash_type,
+            expr: None,
+        },
+    };
+
+    typeck::check(
+        env,
+        &def,
+        DefinitionOrigin::Squash {
+            inductive: env.db.intern_path_data(PathData(
+                env.db
+                    .lookup_intern_path_data(env.source.path)
+                    .0
+                    .into_iter()
+                    .chain(std::iter::once(ind.contents.name.contents))
+                    .collect(),
+            )),
+        },
+    )
+    .map_reports(|report| {
+        report.with_note(format!(
+            "error raised while creating the squash function for type {}",
+            env.db.lookup_intern_string_data(ind.contents.name.contents)
+        ))
+    })
+}
 
 /// Creates the computation rules for computing outputs of the squash function.
 pub fn generate_squash_rules(

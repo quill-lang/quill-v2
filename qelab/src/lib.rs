@@ -91,6 +91,7 @@ pub fn elaborate_and_certify(
                             definitions.push(intro_rule);
                         }
                         definitions.push(result.recursor);
+                        definitions.push(result.squash);
                         inductives.push(result.inductive);
                         if let Some(result) = result.squashed_type {
                             definitions.push(result.type_declaration);
@@ -98,6 +99,7 @@ pub fn elaborate_and_certify(
                                 definitions.push(intro_rule);
                             }
                             definitions.push(result.recursor);
+                            definitions.push(result.squash);
                             inductives.push(result.inductive);
                         }
                     }
@@ -392,7 +394,7 @@ fn resolve_name(
         return Some(result);
     }
 
-    tracing::debug!(
+    /* tracing::debug!(
         "couldn't find {}: {:#?} {:#?}",
         qualified_name.display(env.env.db.up()),
         env.env
@@ -418,7 +420,7 @@ fn resolve_name(
                 .map(|s| env.env.db.lookup_intern_string_data(*s))
                 .collect::<Vec<_>>())
             .collect::<Vec<_>>()
-    );
+    ); */
 
     None
 }

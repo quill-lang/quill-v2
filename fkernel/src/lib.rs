@@ -117,6 +117,7 @@ fn certify_module(
                         definitions.push(intro_rule);
                     }
                     definitions.push(result.recursor);
+                    definitions.push(result.squash);
                     inductives.push(result.inductive);
                     if let Some(result) = result.squashed_type {
                         definitions.push(result.type_declaration);
@@ -124,6 +125,7 @@ fn certify_module(
                             definitions.push(intro_rule);
                         }
                         definitions.push(result.recursor);
+                        definitions.push(result.squash);
                         inductives.push(result.inductive);
                     }
                 }

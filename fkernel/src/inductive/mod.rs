@@ -24,7 +24,7 @@ use self::{
     comp_rule::{generate_computation_rules, ComputationRule},
     recursor::generate_recursor,
     recursor_info::RecursorUniverse,
-    squash_rule::generate_squash_rules,
+    squash_rule::{generate_squash_function, generate_squash_rules},
     squash_type::squashed_type,
 };
 
@@ -126,11 +126,28 @@ pub fn check_inductive_type(
                     // Generate the squashed type.
                     let squashed = if let Some(squashed) = squashed_type(&env, &mut meta_gen, ind) {
                         // Recursion: taking the squashed type is idempotent, so this recurses only at most once.
-                        let rules = generate_squash_rules(&env, &mut meta_gen, ind, &squashed);
-                        check_inductive_type(env, &squashed)
-                            .map(|squashed_type| (Some(squashed_type), rules))
+                        check_inductive_type(env.clone(), &squashed).bind(move |squashed_type| {
+                            // Add the squashed type into the environment.
+                            let mut env: Environment<'_> = env;
+                            env.definitions.insert(
+                                env.db.intern_path_data({
+                                    let mut path = env.db.lookup_intern_path_data(env.source.path);
+                                    path.0.push(
+                                        squashed_type.inductive.inductive.contents.name.contents,
+                                    );
+                                    path
+                                }),
+                                &squashed_type.type_declaration,
+                            );
+                            let func =
+                                generate_squash_function(&env, &mut meta_gen, ind, &squashed);
+                            let rules = generate_squash_rules(&env, &mut meta_gen, ind, &squashed);
+                            func.map(|func| (Some(squashed_type), func, rules))
+                        })
                     } else {
-                        Dr::ok((None, generate_squash_rules(&env, &mut meta_gen, ind, ind)))
+                        let func = generate_squash_function(&env, &mut meta_gen, ind, ind);
+                        let rules = generate_squash_rules(&env, &mut meta_gen, ind, ind);
+                        func.map(|func| (None, func, rules))
                     };
 
                     squashed.bind(move |squashed| {
@@ -145,7 +162,12 @@ pub fn check_inductive_type(
                 }
             })
             .map(
-                move |(intro_rules, recursor, computation_rules, (squashed_type, squash_rules))| {
+                move |(
+                    intro_rules,
+                    recursor,
+                    computation_rules,
+                    (squashed_type, squash, squash_rules),
+                )| {
                     CertifiedInductiveInformation {
                         inductive: CertifiedInductive {
                             inductive: ind.clone(),
@@ -156,6 +178,7 @@ pub fn check_inductive_type(
                         intro_rules,
                         recursor,
                         squashed_type: squashed_type.map(Box::new),
+                        squash,
                     }
                 },
             )
@@ -175,6 +198,8 @@ pub struct CertifiedInductiveInformation {
     pub recursor: CertifiedDefinition,
     /// If this has a squashed type, it is stored here.
     pub squashed_type: Option<Box<CertifiedInductiveInformation>>,
+    /// The squash function for this inductive data type.
+    pub squash: CertifiedDefinition,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]

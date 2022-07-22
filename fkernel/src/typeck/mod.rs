@@ -104,8 +104,8 @@ pub fn check_no_local_or_metavariable(env: &Environment, e: &Expr) -> Dr<()> {
                 LabelType::Note,
             )
             .with_message(match &inner.contents {
-                ExprContents::Metavariable(_) => "metavariable found here",
-                ExprContents::LocalConstant(_) => "local constant found here",
+                ExprContents::Metavariable(_) => "metavariable found here".to_string(),
+                ExprContents::LocalConstant(local) => format!("local constant {} found here", env.db.lookup_intern_string_data(local.name.contents)),
                 _ => unreachable!()
             }),),
         )
