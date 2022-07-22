@@ -26,7 +26,7 @@ pub fn generate_squash_function(
 ) -> Dr<CertifiedDefinition> {
     let squashed_args = pi_args(&squashed.contents.ty, meta_gen);
     // We need `squashed_args` and `args` to have the same metavariable names.
-	// So we just duplicate the names used in `squashed_args`.
+    // So we just duplicate the names used in `squashed_args`.
     let temp_args = pi_args(&ind.contents.ty, meta_gen);
     let args = if temp_args.len() == squashed_args.len() {
         squashed_args.clone()
@@ -37,7 +37,7 @@ pub fn generate_squash_function(
         result
     };
 
-	let region = squashed_args.get(0).cloned().unwrap_or_else(|| {
+    let region = squashed_args.get(0).cloned().unwrap_or_else(|| {
         // If there was no region parameter (e.g. if there are no fields that need to be squashed), we need to make our own region parameter.
         LocalConstant {
             name: Name {
@@ -190,6 +190,24 @@ pub fn generate_squash_rules(
     ind: &Inductive,
     squashed: &Inductive,
 ) -> Vec<ComputationRule> {
+    let squash_function_name = QualifiedName {
+        provenance: Provenance::Synthetic,
+        segments: env
+            .db
+            .lookup_intern_path_data(env.source.path)
+            .0
+            .into_iter()
+            .chain(std::iter::once(env.db.intern_string_data(format!(
+                "{}.squash",
+                env.db.lookup_intern_string_data(ind.contents.name.contents)
+            ))))
+            .map(|s| Name {
+                provenance: Provenance::Synthetic,
+                contents: s,
+            })
+            .collect(),
+    };
+
     ind.contents
         .intro_rules
         .iter()
@@ -238,7 +256,7 @@ pub fn generate_squash_rules(
                     .collect(),
             };
 
-            let pattern = Expr::new_synthetic(ExprContents::Borrow(Borrow {
+            let squash_arg = Expr::new_synthetic(ExprContents::Borrow(Borrow {
                 region: Box::new(Expr::new_synthetic(ExprContents::LocalConstant(
                     region.clone(),
                 ))),
@@ -268,6 +286,33 @@ pub fn generate_squash_rules(
                     ),
                 ),
             }));
+
+            let pattern = squash_args
+                .iter()
+                .take(squashed.contents.global_params as usize)
+                .map(|local| Expr::new_synthetic(ExprContents::LocalConstant(local.clone())))
+                .chain(std::iter::once(squash_arg))
+                .fold(
+                    Expr::new_synthetic(ExprContents::Inst(Inst {
+                        name: squash_function_name.clone(),
+                        universes: ind
+                            .contents
+                            .universe_params
+                            .iter()
+                            .map(|name| {
+                                Universe::new_synthetic(UniverseContents::UniverseVariable(
+                                    UniverseVariable(name.contents),
+                                ))
+                            })
+                            .collect(),
+                    })),
+                    |func, arg| {
+                        Expr::new_synthetic(ExprContents::Apply(Apply {
+                            function: Box::new(func),
+                            argument: Box::new(arg),
+                        }))
+                    },
+                );
 
             let args = if args.len() == squash_args.len() {
                 Box::new(args.into_iter()) as Box<dyn Iterator<Item = _>>
