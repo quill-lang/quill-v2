@@ -66,6 +66,24 @@ fn main() {
                 "certified inductive {}",
                 db.lookup_intern_string_data(ind.inductive().contents.name.contents),
             );
+            let mut print = ExprPrinter::new(&db);
+            for rule in &ind.inductive().contents.intro_rules {
+                tracing::trace!("intro rule: {}", print.print(&rule.ty),);
+            }
+            for rule in ind.computation_rules() {
+                tracing::trace!(
+                    "computation rule: {} => {}",
+                    print.print(rule.pattern()),
+                    print.print(rule.replacement())
+                );
+            }
+            for rule in ind.squash_rules() {
+                tracing::trace!(
+                    "squash rule: {} => {}",
+                    print.print(rule.pattern()),
+                    print.print(rule.replacement())
+                );
+            }
         }
 
         // let node = ListSexprWrapper::serialise_into_node(&db, &**result);

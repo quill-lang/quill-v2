@@ -62,7 +62,7 @@ fn normalise_recursor(env: &Environment, e: &mut Expr) -> bool {
         // First of all, reduce the major premise to weak head normal form.
         // The major premise is the last argument.
         let num_args = if let Some(first_rule) = inductive.computation_rules().first() {
-            apply_args(first_rule.eliminator_application()).len()
+            apply_args(first_rule.pattern()).len()
         } else {
             // There are no computation rules.
             return false;

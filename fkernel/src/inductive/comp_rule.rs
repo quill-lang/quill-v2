@@ -59,8 +59,8 @@ pub fn generate_computation_rules(
         for rule in &rules {
             tracing::debug!(
                 "computation rule has value {} => {}",
-                print.print(&rule.eliminator_application),
-                print.print(&rule.minor_premise_application),
+                print.print(&rule.pattern),
+                print.print(&rule.replacement),
             );
         }
         rules
@@ -73,13 +73,22 @@ pub fn generate_computation_rules(
 /// and `(I.intro_i q)` is the major premise, formed of an intro rule `I.intro_i` and a list of parameters `q`.
 /// The computation rule for this intro rule is a rewrite rule for converting expressions of this form into their evaluated forms,
 /// where the recursor is not at the head of the expression.
+///
+/// This infrastructure is also used for squash rules.
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct ComputationRule {
-    eliminator_application: Expr,
-    minor_premise_application: Expr,
+    pattern: Expr,
+    replacement: Expr,
 }
 
 impl ComputationRule {
+    pub(crate) fn new(pattern: Expr, replacement: Expr) -> Self {
+        Self {
+            pattern,
+            replacement,
+        }
+    }
+
     /// See [`ComputationRule`] for more information.
     ///
     /// To evaluate an expression of the form `I.rec p (I.intro_i q)` using a computation rule, we return a copy of `minor_premise_application`,
@@ -87,15 +96,19 @@ impl ComputationRule {
     ///
     /// Returns [`None`] if this was not a valid instance of the computation rule.
     pub fn evaluate(&self, eliminator_application: &Expr) -> Option<Expr> {
-        pattern_match(self.eliminator_application.clone(), eliminator_application).map(|result| {
-            let mut application = self.minor_premise_application.clone();
+        pattern_match(self.pattern.clone(), eliminator_application).map(|result| {
+            let mut application = self.replacement.clone();
             result.replace(&mut application);
             application
         })
     }
 
-    pub fn eliminator_application(&self) -> &Expr {
-        &self.eliminator_application
+    pub fn pattern(&self) -> &Expr {
+        &self.pattern
+    }
+
+    pub fn replacement(&self) -> &Expr {
+        &self.replacement
     }
 }
 
@@ -465,8 +478,8 @@ fn generate_computation_rule(
                         if defeq {
                             // The computation rule is valid.
                             Dr::ok(ComputationRule {
-                                eliminator_application,
-                                minor_premise_application,
+                                pattern: eliminator_application,
+                                replacement: minor_premise_application,
                             })
                         } else {
                             Dr::fail(todo!())

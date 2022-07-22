@@ -200,7 +200,7 @@ fn wrap_delta(env: &Environment, region: &LocalConstant, e: Expr) -> (Delta, boo
 
 /// Expands the given expression until it is a [`Delta`].
 /// If the expression was not a delta, returns [`None`].
-fn as_delta(env: &Environment, mut e: Expr) -> Option<Delta> {
+pub fn as_delta(env: &Environment, mut e: Expr) -> Option<Delta> {
     if let ExprContents::Delta(delta) = e.contents {
         Some(delta)
     } else {

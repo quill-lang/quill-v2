@@ -57,3 +57,10 @@ def two_plus_two_is_four : Eq::{1} Nat (add two two) four = refl::{1} Nat four
 
 def borrowed_one : forall (r : Region), borrowed r, Nat =
 fn (r : Region), &r, one
+
+inductive Prod 2 : forall (A : Sort 1), forall (B : Sort 1), Sort 1
+| mk : forall (A : Sort 1), forall (B : Sort 1), forall (a : A), forall (b : B), Prod A B
+
+inductive Sum 2 : forall (A : Sort 1), forall (B : Sort 1), Sort 1
+| inl : forall (A : Sort 1), forall (B : Sort 1), forall (a : A), Sum A B
+| inr : forall (A : Sort 1), forall (B : Sort 1), forall (b : B), Sum A B

@@ -6,6 +6,7 @@
 
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
+use expr::ExprPrinter;
 use fcommon::{Dr, Source};
 use fnodes::{
     basic_nodes::Provenance,

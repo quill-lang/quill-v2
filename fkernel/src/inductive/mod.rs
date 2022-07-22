@@ -6,7 +6,10 @@ use fnodes::{
     inductive::Inductive,
 };
 
-use crate::typeck::{self, CertifiedDefinition, DefinitionOrigin, Environment};
+use crate::{
+    expr::ExprPrinter,
+    typeck::{self, CertifiedDefinition, DefinitionOrigin, Environment},
+};
 
 mod check;
 mod check_intro_rule;
@@ -21,6 +24,7 @@ use self::{
     comp_rule::{generate_computation_rules, ComputationRule},
     recursor::generate_recursor,
     recursor_info::RecursorUniverse,
+    squash_rule::generate_squash_rules,
     squash_type::squashed_type,
 };
 
@@ -122,11 +126,12 @@ pub fn check_inductive_type(
                     // Generate the squashed type.
                     let squashed = if let Some(squashed) = squashed_type(&env, &mut meta_gen, ind) {
                         // Recursion: taking the squashed type is idempotent, so this recurses only at most once.
-                        check_inductive_type(env, &squashed).map(Some)
+                        let rules = generate_squash_rules(&env, &mut meta_gen, ind, &squashed);
+                        check_inductive_type(env, &squashed)
+                            .map(|squashed_type| (Some(squashed_type), rules))
                     } else {
-                        Dr::ok(None)
+                        Dr::ok((None, generate_squash_rules(&env, &mut meta_gen, ind, ind)))
                     };
-                    // tracing::info!("squashed type: {:#?}", squashed);
 
                     squashed.bind(move |squashed| {
                         recursor.bind(move |(rec_info, recursor)| {
@@ -140,16 +145,17 @@ pub fn check_inductive_type(
                 }
             })
             .map(
-                move |(intro_rules, recursor, computation_rules, squashed)| {
+                move |(intro_rules, recursor, computation_rules, (squashed_type, squash_rules))| {
                     CertifiedInductiveInformation {
                         inductive: CertifiedInductive {
                             inductive: ind.clone(),
                             computation_rules,
+                            squash_rules,
                         },
                         type_declaration,
                         intro_rules,
                         recursor,
-                        squashed_type: squashed.map(Box::new),
+                        squashed_type: squashed_type.map(Box::new),
                     }
                 },
             )
@@ -177,6 +183,8 @@ pub struct CertifiedInductive {
     inductive: Inductive,
     /// The reduction rules used for computing applications of the recursor.
     computation_rules: Vec<ComputationRule>,
+    /// The reduction rules used for computing applications of the squash function.
+    squash_rules: Vec<ComputationRule>,
 }
 
 impl CertifiedInductive {
@@ -186,5 +194,9 @@ impl CertifiedInductive {
 
     pub fn computation_rules(&self) -> &[ComputationRule] {
         self.computation_rules.as_ref()
+    }
+
+    pub fn squash_rules(&self) -> &[ComputationRule] {
+        self.squash_rules.as_ref()
     }
 }
