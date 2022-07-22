@@ -11,7 +11,7 @@ use fnodes::{
 };
 
 use crate::{
-    expr::{abstract_nary_pi, ExprPrinter},
+    expr::abstract_nary_pi,
     typeck::{self, CertifiedDefinition, DefinitionOrigin, Environment},
 };
 
@@ -141,9 +141,6 @@ pub fn generate_squash_function(
         squash_type,
         &Provenance::Synthetic,
     );
-
-    let mut printer = ExprPrinter::new(env.db);
-    tracing::info!("{}", printer.print(&squash_type));
 
     let def = Definition {
         provenance: ind.provenance.clone(),

@@ -12,7 +12,7 @@ use super::{env::Environment, unfold::unfold_definition, DefinitionOrigin};
 pub fn to_weak_head_normal_form(env: &Environment, e: &mut Expr) {
     loop {
         whnf_core(e);
-        while normalise_recursor(env, e) {
+        while normalise_recursor(env, e) || normalise_squash(env, e) {
             whnf_core(e);
         }
         if !unfold_definition(env, e) {
@@ -77,6 +77,49 @@ fn normalise_recursor(env: &Environment, e: &mut Expr) -> bool {
 
         // Try to match the list of arguments against each computation rule.
         for computation_rule in inductive.computation_rules() {
+            if let Some(replacement) = computation_rule.evaluate(e) {
+                *e = replacement;
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// If this expression is an application of a squash rule that we can compute using a computation rule from the environment,
+/// evaluate it and return true. Else, return false.
+fn normalise_squash(env: &Environment, e: &mut Expr) -> bool {
+    let function = leftmost_function(e);
+    // Check if `function` is a squash rule.
+    if let ExprContents::Inst(inst) = &function.contents
+        && let Some(def) = env.definitions.get(&inst.name.to_path(env.db.up()))
+        && let DefinitionOrigin::Squash { inductive } = def.origin()
+        && let Some(inductive) = env.inductives.get(inductive) {
+        // This is a squash function. Depending on the form of the last argument, we may be able to expand this.
+
+        // First of all, reduce the last argument to a borrow of something in weak head normal form.
+        let num_args = if let Some(first_rule) = inductive.squash_rules().first() {
+            apply_args(first_rule.pattern()).len()
+        } else {
+            // There are no computation rules for the squash function.
+            return false;
+        };
+
+        if let Some(squash_argument) = apply_args_mut(e).get_mut(num_args - 1) {
+            to_weak_head_normal_form(env, squash_argument);
+            if let ExprContents::Borrow(borrow) = &mut squash_argument.contents {
+                to_weak_head_normal_form(env, &mut borrow.value);
+            } else {
+                // This wasn't a borrow of a variable we know of, so we can't compute anything with it.
+                return false;
+            }
+        } else {
+            // We supplied insufficiently many arguments to the squash function.
+            return false;
+        }
+
+        // Try to match the list of arguments against each computation rule.
+        for computation_rule in inductive.squash_rules() {
             if let Some(replacement) = computation_rule.evaluate(e) {
                 *e = replacement;
                 return true;

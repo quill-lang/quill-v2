@@ -64,3 +64,6 @@ inductive Prod 2 : forall (A : Sort 1), forall (B : Sort 1), Sort 1
 inductive Sum 2 : forall (A : Sort 1), forall (B : Sort 1), Sort 1
 | inl : forall (A : Sort 1), forall (B : Sort 1), forall (a : A), Sum A B
 | inr : forall (A : Sort 1), forall (B : Sort 1), forall (b : B), Sum A B
+
+def borrow_zero : forall (r : Region), Eq::{1} (Nat.squashed r) (zero.squashed r) (Nat.squash r (&r, zero)) =
+fn (r : Region), refl::{1} (Nat.squashed r) (zero.squashed r)

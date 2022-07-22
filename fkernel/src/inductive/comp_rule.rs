@@ -177,7 +177,14 @@ fn pattern_match(pattern: Expr, target: &Expr) -> Option<PatternMatchResult> {
         (ExprContents::Let(mut pattern_let), ExprContents::Let(target_let)) => {
             pattern_match(*pattern_let.to_assign, &target_let.to_assign).and_then(|map| {
                 map.replace(&mut pattern_let.body);
-                pattern_match(*pattern_let.body, &target_let.to_assign)
+                pattern_match(*pattern_let.body, &target_let.body)
+                    .map(|inner_map| map.with(inner_map))
+            })
+        }
+        (ExprContents::Borrow(mut pattern_borrow), ExprContents::Borrow(target_borrow)) => {
+            pattern_match(*pattern_borrow.region, &target_borrow.region).and_then(|map| {
+                map.replace(&mut pattern_borrow.value);
+                pattern_match(*pattern_borrow.value, &target_borrow.value)
                     .map(|inner_map| map.with(inner_map))
             })
         }
@@ -197,6 +204,13 @@ fn pattern_match(pattern: Expr, target: &Expr) -> Option<PatternMatchResult> {
                     .map(|inner_map| map.with(inner_map))
             })
         }
+        (ExprContents::Delta(mut pattern_delta), ExprContents::Delta(target_delta)) => {
+            pattern_match(*pattern_delta.region, &target_delta.region).and_then(|map| {
+                map.replace(&mut pattern_delta.ty);
+                pattern_match(*pattern_delta.ty, &target_delta.ty)
+                    .map(|inner_map| map.with(inner_map))
+            })
+        }
         (ExprContents::Apply(mut pattern_apply), ExprContents::Apply(target_apply)) => {
             pattern_match(*pattern_apply.function, &target_apply.function).and_then(|map| {
                 map.replace(&mut pattern_apply.argument);
@@ -207,6 +221,7 @@ fn pattern_match(pattern: Expr, target: &Expr) -> Option<PatternMatchResult> {
         (ExprContents::Sort(pattern_sort), ExprContents::Sort(target_sort)) => {
             pattern_match_universe(pattern_sort.0, &target_sort.0)
         }
+        (ExprContents::Region(_), ExprContents::Region(_)) => Some(PatternMatchResult::default()),
         (ExprContents::LocalConstant(pattern_local), _) => {
             // Replace the given local constant with the replacement.
             let mut map = PatternMatchResult::default();
