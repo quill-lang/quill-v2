@@ -97,12 +97,13 @@ fn check_intro_rule_core(
                                         pi.parameter_ty.provenance.span().start,
                                     )
                                     .with_message(format!(
-                                        "this type should be {}",
+                                        "this type should be {}, but was {}",
                                         print.print(
                                             &info.global_params[parameter_index as usize]
                                                 .metavariable
                                                 .ty
-                                        )
+                                        ),
+                                        print.print(&pi.parameter_ty),
                                     )).with_label(Label::new(env.source, pi.parameter_ty.provenance.span(), LabelType::Error)
                                         .with_message("the type should match the corresponding global parameter for this inductive data type")),
                                 );
@@ -148,8 +149,9 @@ fn check_intro_rule_core(
                         Dr::fail(
                             Report::new(ReportKind::Error, env.source, ty.provenance.span().start)
                                 .with_message(format!(
-                                    "invalid return type for introduction rule {}",
-                                    env.db.lookup_intern_string_data(intro_rule.name.contents)
+                                    "invalid return type for introduction rule {} in inductive type {}",
+                                    env.db.lookup_intern_string_data(intro_rule.name.contents),
+                                    env.db.lookup_intern_string_data(ind.contents.name.contents),
                                 ))
                                 .with_label(
                                     Label::new(env.source, ty.provenance.span(), LabelType::Error)

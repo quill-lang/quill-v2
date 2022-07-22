@@ -13,12 +13,15 @@ mod check_intro_rule;
 mod comp_rule;
 mod recursor;
 mod recursor_info;
+mod squash_rule;
+mod squash_type;
 
 use self::{
     check_intro_rule::check_intro_rule,
     comp_rule::{generate_computation_rules, ComputationRule},
     recursor::generate_recursor,
     recursor_info::RecursorUniverse,
+    squash_type::squashed_type,
 };
 
 /// Verifies that an inductive type is valid and can be added to the environment.
@@ -115,9 +118,21 @@ pub fn check_inductive_type(
                     // Generate the computation rules for the recursor.
                     let comp_rules =
                         generate_computation_rules(&env, &mut meta_gen, ind, &info, rec_info);
-                    recursor.bind(move |(rec_info, recursor)| {
-                        comp_rules.map(move |computation_rules| {
-                            (intro_rules, recursor, computation_rules)
+
+                    // Generate the squashed type.
+                    let squashed = if let Some(squashed) = squashed_type(&env, &mut meta_gen, ind) {
+                        // Recursion: taking the squashed type is idempotent, so this recurses only at most once.
+                        check_inductive_type(env, &squashed).map(Some)
+                    } else {
+                        Dr::ok(None)
+                    };
+                    // tracing::info!("squashed type: {:#?}", squashed);
+
+                    squashed.bind(move |squashed| {
+                        recursor.bind(move |(rec_info, recursor)| {
+                            comp_rules.map(move |computation_rules| {
+                                (intro_rules, recursor, computation_rules, squashed)
+                            })
                         })
                     })
                 } else {
@@ -125,14 +140,17 @@ pub fn check_inductive_type(
                 }
             })
             .map(
-                move |(intro_rules, recursor, computation_rules)| CertifiedInductiveInformation {
-                    inductive: CertifiedInductive {
-                        inductive: ind.clone(),
-                        computation_rules,
-                    },
-                    type_declaration,
-                    intro_rules,
-                    recursor,
+                move |(intro_rules, recursor, computation_rules, squashed)| {
+                    CertifiedInductiveInformation {
+                        inductive: CertifiedInductive {
+                            inductive: ind.clone(),
+                            computation_rules,
+                        },
+                        type_declaration,
+                        intro_rules,
+                        recursor,
+                        squashed_type: squashed.map(Box::new),
+                    }
                 },
             )
         })
@@ -149,6 +167,8 @@ pub struct CertifiedInductiveInformation {
     pub intro_rules: Vec<CertifiedDefinition>,
     /// The recursor for this inductive data type.
     pub recursor: CertifiedDefinition,
+    /// If this has a squashed type, it is stored here.
+    pub squashed_type: Option<Box<CertifiedInductiveInformation>>,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]

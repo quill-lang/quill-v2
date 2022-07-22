@@ -92,6 +92,14 @@ pub fn elaborate_and_certify(
                         }
                         definitions.push(result.recursor);
                         inductives.push(result.inductive);
+                        if let Some(result) = result.squashed_type {
+                            definitions.push(result.type_declaration);
+                            for intro_rule in result.intro_rules {
+                                definitions.push(intro_rule);
+                            }
+                            definitions.push(result.recursor);
+                            inductives.push(result.inductive);
+                        }
                     }
                 }
             }
