@@ -46,6 +46,18 @@ pub fn apply_args_mut(mut e: &mut Expr) -> Vec<&mut Expr> {
     }
 }
 
+/// Returns the arguments, in order, to a [`Pi`].
+/// Discards the return value.
+pub fn pi_args(mut e: &Expr, meta_gen: &mut MetavariableGenerator) -> Vec<LocalConstant> {
+    let mut result = Vec::new();
+    while let ExprContents::Pi(pi) = &e.contents {
+        e = &pi.result;
+        result.push(pi.generate_local(meta_gen));
+    }
+    result
+}
+
+
 /// Suppose that this expression is an n-ary function application, where n is zero or a positive integer.
 /// Then, this function returns the [`leftmost_function`] of this expression, and the list of [`apply_args`]
 /// that were applied to it.

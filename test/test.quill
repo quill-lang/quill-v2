@@ -67,3 +67,11 @@ inductive Sum 2 : forall (A : Sort 1), forall (B : Sort 1), Sort 1
 
 def borrow_zero : forall (r : Region), Eq::{1} (Nat.squashed r) (zero.squashed r) (Nat.squash r (&r, zero)) =
 fn (r : Region), refl::{1} (Nat.squashed r) (zero.squashed r)
+
+def Bool.squash_eq : forall (r : Region), forall (b : Bool), Eq::{1} Bool (Bool.squash (&r, b)) b =
+fn (r : Region), Bool.rec::{0} (fn (b : Bool), Eq::{1} Bool (Bool.squash (&r, b)) b) (refl::{1} Bool false) (refl::{1} Bool true)
+
+// In order to construct things like the clone function on naturals, we need some way to prove that the only values of type `borrowed r, Nat`
+// were constructed using `&r, n` for some `n : Nat`. At the moment, this is false a priori.
+// Inductive data types use the principle of no confusion to do things like this, which is proven using a recursor.
+// However, the `borrowed` keyword has no associated recursor.

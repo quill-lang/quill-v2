@@ -2,8 +2,8 @@ use fcommon::{Dr, Label, LabelType, Report, ReportKind, Str, StrGenerator};
 use fnodes::{
     basic_nodes::{Name, Provenance, QualifiedName},
     expr::{
-        Apply, BinderAnnotation, Expr, ExprContents, Inst, LocalConstant, MetavariableGenerator,
-        Sort,
+        Apply, BinderAnnotation, Delta, Expr, ExprContents, Inst, LocalConstant,
+        MetavariableGenerator, Sort,
     },
     inductive::{Inductive, IntroRule},
     universe::{Universe, UniverseContents, UniverseVariable},
@@ -14,7 +14,7 @@ use crate::{
         abstract_nary_pi, abstract_pi, apply_args, create_nary_application, instantiate,
         ExprPrinter,
     },
-    typeck::{as_sort, infer_type, to_weak_head_normal_form, Environment},
+    typeck::{as_sort, infer_type, to_weak_head_normal_form, CertifiedDefinition, Environment},
     universe::is_zero,
 };
 
@@ -23,16 +23,39 @@ use super::{
     check_intro_rule::{is_recursive_argument, is_valid_inductive_application},
 };
 
+/// Which form of the recursor are we generating?
+#[derive(Clone, Copy)]
+pub enum RecursorForm<'a> {
+    Owned,
+    Borrowed {
+        /// The region parameter.
+        region: &'a LocalConstant,
+        /// The name of the squashed type.
+        squashed_type: &'a QualifiedName,
+        /// The name of the squash function.
+        squash: &'a QualifiedName,
+    },
+}
+
 pub fn recursor_info(
     env: &Environment,
     meta_gen: &mut MetavariableGenerator,
     ind: &Inductive,
     info: &PartialInductiveInformation,
+    form: RecursorForm,
 ) -> Dr<RecursorInfo> {
-    partial_recursor_info(env, meta_gen, ind, info).bind(
+    partial_recursor_info(env, meta_gen, ind, info, form).bind(
         |(major_premise, recursor_universe, type_former)| {
             Dr::sequence(ind.contents.intro_rules.iter().map(|intro_rule| {
-                minor_premise_info(env, meta_gen, ind, intro_rule, info, type_former.clone())
+                minor_premise_info(
+                    env,
+                    meta_gen,
+                    ind,
+                    intro_rule,
+                    info,
+                    form,
+                    type_former.clone(),
+                )
             }))
             .map(|minor_premises| RecursorInfo {
                 major_premise,
@@ -58,20 +81,35 @@ fn partial_recursor_info(
     meta_gen: &mut MetavariableGenerator,
     ind: &Inductive,
     info: &PartialInductiveInformation,
+    form: RecursorForm,
 ) -> Dr<(LocalConstant, RecursorUniverse, LocalConstant)> {
     let major_premise = LocalConstant {
         name: Name {
             provenance: Provenance::Synthetic,
             contents: env.db.intern_string_data("n".to_string()),
         },
-        metavariable: meta_gen.gen(create_nary_application(
-            Expr::new_synthetic(ExprContents::Inst(info.inst.clone())),
-            info.global_params
-                .iter()
-                .chain(&info.index_params)
-                .map(|local| Expr::new_synthetic(ExprContents::LocalConstant(local.clone()))),
-            &Provenance::Synthetic,
-        )),
+        metavariable: meta_gen.gen({
+            let ty = create_nary_application(
+                Expr::new_synthetic(ExprContents::Inst(info.inst.clone())),
+                info.global_params
+                    .iter()
+                    .chain(&info.index_params)
+                    .map(|local| Expr::new_synthetic(ExprContents::LocalConstant(local.clone()))),
+                &Provenance::Synthetic,
+            );
+            // If we're making the borrowed form of the recursor, add the region parameter here.
+            match form {
+                RecursorForm::Owned => ty,
+                RecursorForm::Borrowed { region, .. } => {
+                    Expr::new_synthetic(ExprContents::Delta(Delta {
+                        region: Box::new(Expr::new_synthetic(ExprContents::LocalConstant(
+                            region.clone(),
+                        ))),
+                        ty: Box::new(ty),
+                    }))
+                }
+            }
+        }),
         binder_annotation: BinderAnnotation::Explicit,
     };
 
@@ -87,7 +125,49 @@ fn partial_recursor_info(
         // If we are performing dependent elimination, add the major premise as a parameter to the type former.
         if info.dependent_elimination {
             type_former_ty = Expr::new_synthetic(ExprContents::Pi(abstract_pi(
-                major_premise.clone(),
+                // If we're making the borrowed form of the recursor, the parameter is in squashed form.
+                match form {
+                    RecursorForm::Owned => major_premise.clone(),
+                    RecursorForm::Borrowed {
+                        region,
+                        squashed_type,
+                        squash,
+                    } => {
+                        // This block mirrors the construction of the major premise, but we generate it in squashed form.
+                        let squashed_inst = Expr::new_synthetic(ExprContents::Inst(Inst {
+                            name: squashed_type.clone(),
+                            universes: ind
+                                .contents
+                                .universe_params
+                                .iter()
+                                .map(|name| {
+                                    Universe::new_synthetic(UniverseContents::UniverseVariable(
+                                        UniverseVariable(name.contents),
+                                    ))
+                                })
+                                .collect(),
+                        }));
+                        LocalConstant {
+                            name: Name {
+                                provenance: Provenance::Synthetic,
+                                contents: env.db.intern_string_data("n".to_string()),
+                            },
+                            metavariable: meta_gen.gen(create_nary_application(
+                                squashed_inst.clone(),
+                                info.global_params
+                                    .iter()
+                                    .chain(&info.index_params)
+                                    .map(|local| {
+                                        Expr::new_synthetic(ExprContents::LocalConstant(
+                                            local.clone(),
+                                        ))
+                                    }),
+                                &Provenance::Synthetic,
+                            )),
+                            binder_annotation: BinderAnnotation::Explicit,
+                        }
+                    }
+                },
                 type_former_ty,
             )));
         }
@@ -118,6 +198,7 @@ pub fn minor_premise_info(
     ind: &Inductive,
     intro_rule: &IntroRule,
     info: &PartialInductiveInformation,
+    form: RecursorForm,
     type_former: LocalConstant,
 ) -> Dr<LocalConstant> {
     split_intro_rule_type(env, meta_gen, ind, info, intro_rule.ty.clone()).bind(|split_result| {

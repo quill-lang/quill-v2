@@ -1,19 +1,22 @@
 use fcommon::{Dr, PathData};
 use fnodes::{
-    basic_nodes::{Name, Provenance},
+    basic_nodes::{Name, Provenance, QualifiedName},
     definition::{Definition, DefinitionContents},
-    expr::{Apply, Expr, ExprContents, MetavariableGenerator},
+    expr::{
+        Apply, BinderAnnotation, Delta, Expr, ExprContents, LocalConstant, MetavariableGenerator,
+        Region,
+    },
     inductive::Inductive,
 };
 
 use crate::{
-    expr::{abstract_nary_pi, abstract_pi, create_nary_application, ExprPrinter},
+    expr::{abstract_nary_pi, abstract_pi, create_nary_application, pi_args, ExprPrinter},
     typeck::{self, CertifiedDefinition, DefinitionOrigin, Environment},
 };
 
 use super::{
     check::PartialInductiveInformation,
-    recursor_info::{recursor_info, RecursorInfo, RecursorUniverse},
+    recursor_info::{recursor_info, RecursorForm, RecursorInfo, RecursorUniverse},
 };
 
 pub fn generate_recursor(
@@ -22,7 +25,7 @@ pub fn generate_recursor(
     ind: &Inductive,
     info: &PartialInductiveInformation,
 ) -> Dr<(RecursorInfo, CertifiedDefinition)> {
-    recursor_info(env, meta_gen, ind, info)
+    recursor_info(env, meta_gen, ind, info, RecursorForm::Owned)
         .bind(|rec_info| {
             let def = generate_recursor_core(env, ind, info, &rec_info);
             let mut print = ExprPrinter::new(env.db);
@@ -146,4 +149,113 @@ fn generate_recursor_core(
             expr: None,
         },
     }
+}
+
+pub fn generate_borrowed_recursor(
+    env: &Environment,
+    meta_gen: &mut MetavariableGenerator,
+    ind: &Inductive,
+    squashed: &Inductive,
+    squash_function: &CertifiedDefinition,
+    info: &PartialInductiveInformation,
+) -> Dr<(RecursorInfo, CertifiedDefinition)> {
+    let region = pi_args(&squashed.contents.ty, meta_gen)
+        .get(0)
+        .cloned()
+        .unwrap_or_else(|| {
+            // If there was no region parameter (e.g. if there are no fields that need to be squashed), we need to make our own region parameter.
+            // TODO: There are cases where the squashed type does not need a region parameter, but has other parameters, so this is not correct.
+            LocalConstant {
+                name: Name {
+                    provenance: Provenance::Synthetic,
+                    contents: env.db.intern_string_data("r".to_string()),
+                },
+                metavariable: meta_gen.gen(Expr::new_synthetic(ExprContents::Region(Region))),
+                binder_annotation: BinderAnnotation::Explicit,
+            }
+        });
+
+    recursor_info(
+        env,
+        meta_gen,
+        ind,
+        info,
+        RecursorForm::Borrowed {
+            region: &region,
+            squashed_type: &QualifiedName {
+                provenance: ind.contents.name.provenance.clone(),
+                segments: env
+                    .db
+                    .lookup_intern_path_data(env.source.path)
+                    .0
+                    .into_iter()
+                    .map(|s| Name {
+                        provenance: ind.contents.name.provenance.clone(),
+                        contents: s,
+                    })
+                    .chain(std::iter::once(squashed.contents.name.clone()))
+                    .collect(),
+            },
+            squash: &QualifiedName {
+                provenance: ind.contents.name.provenance.clone(),
+                segments: env
+                    .db
+                    .lookup_intern_path_data(env.source.path)
+                    .0
+                    .into_iter()
+                    .map(|s| Name {
+                        provenance: ind.contents.name.provenance.clone(),
+                        contents: s,
+                    })
+                    .chain(std::iter::once(squash_function.def().contents.name.clone()))
+                    .collect(),
+            },
+        },
+    )
+    .bind(|rec_info| {
+        let def = generate_recursor_core(env, ind, info, &rec_info);
+        let mut print = ExprPrinter::new(env.db);
+        tracing::debug!(
+            "borrowed eliminator has type {}",
+            print.print(&def.contents.ty)
+        );
+
+        let mut env = env.clone();
+
+        // Add the universe parameter created for the type former if applicable.
+        let mut universe_variables = env.universe_variables.to_owned();
+        match rec_info.recursor_universe {
+            RecursorUniverse::Prop => {}
+            RecursorUniverse::Parameter(param) => {
+                let new_universe_parameter = Name {
+                    provenance: ind.provenance.clone(),
+                    contents: param,
+                };
+                universe_variables.insert(0, new_universe_parameter);
+            }
+        };
+        env.universe_variables = &universe_variables;
+
+        typeck::check(
+            &env,
+            &def,
+            DefinitionOrigin::Recursor {
+                inductive: env.db.intern_path_data(PathData(
+                    env.db
+                        .lookup_intern_path_data(env.source.path)
+                        .0
+                        .into_iter()
+                        .chain(std::iter::once(ind.contents.name.contents))
+                        .collect(),
+                )),
+            },
+        )
+        .map(|def| (rec_info, def))
+    })
+    .map_reports(|report| {
+        report.with_note(format!(
+            "error raised while creating the borrowed form of the recursor for type {}",
+            env.db.lookup_intern_string_data(ind.contents.name.contents)
+        ))
+    })
 }

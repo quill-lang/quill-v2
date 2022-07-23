@@ -11,7 +11,7 @@ use fnodes::{
 };
 
 use crate::{
-    expr::abstract_nary_pi,
+    expr::{abstract_nary_pi, pi_args},
     typeck::{self, CertifiedDefinition, DefinitionOrigin, Environment},
 };
 
@@ -365,15 +365,4 @@ pub fn generate_squash_rules(
             ComputationRule::new(pattern, replacement)
         })
         .collect()
-}
-
-/// Returns the arguments, in order, to a [`Pi`].
-/// Discards the return value.
-fn pi_args(mut e: &Expr, meta_gen: &mut MetavariableGenerator) -> Vec<LocalConstant> {
-    let mut result = Vec::new();
-    while let ExprContents::Pi(pi) = &e.contents {
-        e = &pi.result;
-        result.push(pi.generate_local(meta_gen));
-    }
-    result
 }

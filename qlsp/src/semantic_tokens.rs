@@ -157,7 +157,10 @@ impl<'a> SemanticTokenGenerator<'a> {
                 to_assign_ty,
                 body,
             } => {}
+            PExprContents::Borrow { region, value } => {}
+            PExprContents::Borrowed { region, ty } => {}
             PExprContents::Sort { universe } => {}
+            PExprContents::Region => {}
         }
     }
 

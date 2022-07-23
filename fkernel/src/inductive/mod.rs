@@ -1,8 +1,8 @@
 use fcommon::{Dr, PathData};
 use fnodes::{
-    basic_nodes::Name,
+    basic_nodes::{Name, Provenance},
     definition::{Definition, DefinitionContents},
-    expr::MetavariableGenerator,
+    expr::{BinderAnnotation, Expr, ExprContents, LocalConstant, MetavariableGenerator, Region},
     inductive::Inductive,
 };
 
@@ -22,7 +22,7 @@ mod squash_type;
 use self::{
     check_intro_rule::check_intro_rule,
     comp_rule::{generate_computation_rules, ComputationRule},
-    recursor::generate_recursor,
+    recursor::{generate_borrowed_recursor, generate_recursor},
     recursor_info::RecursorUniverse,
     squash_rule::{generate_squash_function, generate_squash_rules},
     squash_type::squashed_type,
@@ -93,80 +93,143 @@ pub fn check_inductive_type(
                     env.definitions.insert(path, intro_rule);
                 }
 
-                // Form the recursor.
-                let recursor = generate_recursor(&env, &mut meta_gen, ind, &info);
-                if let Some((rec_info, recursor_def)) = recursor.value() {
-                    // Put the recursor in the environment.
-                    // This shouldn't need to be outside a `bind`, this is just lifetime hacking.
-                    let mut new_path_data = env.db.lookup_intern_path_data(env.source.path);
-                    new_path_data
-                        .0
-                        .push(recursor_def.def().contents.name.contents);
-                    let path = env.db.intern_path_data(new_path_data);
-                    env.definitions.insert(path, recursor_def);
+                // Generate the squashed type.
+                let squashed = squashed_type(&env, &mut meta_gen, ind);
 
-                    // Add the universe parameter created for the type former if applicable.
-                    let mut universe_variables = env.universe_variables.to_owned();
-                    match rec_info.recursor_universe {
-                        RecursorUniverse::Prop => {}
-                        RecursorUniverse::Parameter(param) => {
-                            let new_universe_parameter = Name {
-                                provenance: ind.provenance.clone(),
-                                contents: param,
-                            };
-                            universe_variables.insert(0, new_universe_parameter);
-                        }
-                    };
-                    env.universe_variables = &universe_variables;
+                // Recursion: taking the squashed type is idempotent, so this recurses only at most once.
+                let squashed_checked = squashed
+                    .as_ref()
+                    .map(|squashed| check_inductive_type(env.clone(), squashed));
+                if let Some(squashed_checked) = &squashed_checked {
+                    if let Some(squashed_checked) = &squashed_checked.value() {
+                        // Add the squashed type into the environment.
+                        env.definitions.insert(
+                            env.db.intern_path_data({
+                                let mut path = env.db.lookup_intern_path_data(env.source.path);
+                                path.0.push(
+                                    squashed_checked.inductive.inductive.contents.name.contents,
+                                );
+                                path
+                            }),
+                            &squashed_checked.type_declaration,
+                        );
+                    }
+                }
 
-                    // Generate the computation rules for the recursor.
-                    let comp_rules =
-                        generate_computation_rules(&env, &mut meta_gen, ind, &info, rec_info);
+                let squash_function = generate_squash_function(
+                    &env,
+                    &mut meta_gen,
+                    ind,
+                    squashed.as_ref().unwrap_or(ind),
+                );
 
-                    // Generate the squashed type.
-                    let squashed = if let Some(squashed) = squashed_type(&env, &mut meta_gen, ind) {
-                        // Recursion: taking the squashed type is idempotent, so this recurses only at most once.
-                        check_inductive_type(env.clone(), &squashed).bind(move |squashed_type| {
-                            // Add the squashed type into the environment.
-                            let mut env: Environment<'_> = env;
-                            env.definitions.insert(
-                                env.db.intern_path_data({
-                                    let mut path = env.db.lookup_intern_path_data(env.source.path);
-                                    path.0.push(
-                                        squashed_type.inductive.inductive.contents.name.contents,
-                                    );
-                                    path
-                                }),
-                                &squashed_type.type_declaration,
-                            );
-                            let func =
-                                generate_squash_function(&env, &mut meta_gen, ind, &squashed);
-                            let rules = generate_squash_rules(&env, &mut meta_gen, ind, &squashed);
-                            func.map(|func| (Some(squashed_type), func, rules))
-                        })
-                    } else {
-                        let func = generate_squash_function(&env, &mut meta_gen, ind, ind);
-                        let rules = generate_squash_rules(&env, &mut meta_gen, ind, ind);
-                        func.map(|func| (None, func, rules))
-                    };
+                if let Some(squash_function) = &squash_function.value() {
+                    // Add the squash function into the environment.
+                    env.definitions.insert(
+                        env.db.intern_path_data({
+                            let mut path = env.db.lookup_intern_path_data(env.source.path);
+                            path.0.push(squash_function.def().contents.name.contents);
+                            path
+                        }),
+                        squash_function,
+                    );
+                }
 
-                    squashed.bind(move |squashed| {
-                        recursor.bind(move |(rec_info, recursor)| {
-                            comp_rules.map(move |computation_rules| {
-                                (intro_rules, recursor, computation_rules, squashed)
+                let squash_rules = generate_squash_rules(
+                    &env,
+                    &mut meta_gen,
+                    ind,
+                    squashed.as_ref().unwrap_or(ind),
+                );
+
+                if let Some(squash_function_value) = squash_function.value() {
+                    // Form the recursors, both in owned and borrowed form.
+                    let recursor =
+                        generate_recursor(&env, &mut meta_gen, ind, &info).bind(|recursor| {
+                            generate_borrowed_recursor(
+                                &env,
+                                &mut meta_gen,
+                                ind,
+                                squashed.as_ref().unwrap_or(ind),
+                                squash_function_value,
+                                &info,
+                            )
+                            .map(|borrowed_recursor| (recursor, borrowed_recursor))
+                        });
+                    if let Some((
+                        (rec_info, recursor_def),
+                        (borrowed_rec_info, borrowed_recursor_def),
+                    )) = recursor.value()
+                    {
+                        // Put the recursor in the environment.
+                        // This shouldn't need to be outside a `bind`, this is just lifetime hacking.
+                        let mut new_path_data = env.db.lookup_intern_path_data(env.source.path);
+                        new_path_data
+                            .0
+                            .push(recursor_def.def().contents.name.contents);
+                        let path = env.db.intern_path_data(new_path_data);
+                        env.definitions.insert(path, recursor_def);
+
+                        // Add the universe parameter created for the type former if applicable.
+                        let mut universe_variables = env.universe_variables.to_owned();
+                        match rec_info.recursor_universe {
+                            RecursorUniverse::Prop => {}
+                            RecursorUniverse::Parameter(param) => {
+                                let new_universe_parameter = Name {
+                                    provenance: ind.provenance.clone(),
+                                    contents: param,
+                                };
+                                universe_variables.insert(0, new_universe_parameter);
+                            }
+                        };
+                        env.universe_variables = &universe_variables;
+
+                        // Generate the computation rules for the recursor.
+                        let comp_rules =
+                            generate_computation_rules(&env, &mut meta_gen, ind, &info, rec_info);
+
+                        squashed_checked
+                            .map(|dr| dr.map(Some))
+                            .unwrap_or_else(|| Dr::ok(None))
+                            .bind(move |squashed_type| {
+                                squash_function.bind(|squash_function| {
+                                    recursor.bind(
+                                        move |(
+                                            (rec_info, recursor_def),
+                                            (borrowed_rec_info, borrowed_recursor_def),
+                                        )| {
+                                            comp_rules.map(move |computation_rules| {
+                                                (
+                                                    intro_rules,
+                                                    squashed_type,
+                                                    recursor_def,
+                                                    computation_rules,
+                                                    squash_function,
+                                                    squash_rules,
+                                                )
+                                            })
+                                        },
+                                    )
+                                })
                             })
-                        })
-                    })
+                    } else {
+                        recursor.map(|_| unreachable!())
+                    }
                 } else {
-                    recursor.map(|_| unreachable!())
+                    squashed_checked
+                        .map(|dr| dr.map(Some))
+                        .unwrap_or_else(|| Dr::ok(None))
+                        .bind(|_| squash_function.map(|_| unreachable!()))
                 }
             })
             .map(
                 move |(
                     intro_rules,
+                    squashed_type,
                     recursor,
                     computation_rules,
-                    (squashed_type, squash, squash_rules),
+                    squash,
+                    squash_rules,
                 )| {
                     CertifiedInductiveInformation {
                         inductive: CertifiedInductive {
