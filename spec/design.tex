@@ -1,0 +1,294 @@
+\section{Quill and Feather}
+
+This project aims to codify the languages of Quill and Feather.
+They are innately linked, but are not the same.
+Put simply, Quill is the user-facing language, which is transpiled into Feather, a functional intermediate language.
+This is then compiled to an executable file.
+The reasoning behind this choice to separate Quill from Feather is explored later.
+
+Occasionally, we describe features that `Quill has', especially when the separation of responsibility between Quill and Feather is not yet established, however they may apply equally to both languages.
+Quill, being the name of the `end product', is simply used as a synonym for the project in its entirety.
+
+\section{Goals}
+
+\subsection{Opinions and facts}
+
+In this section, I will outline several reasons why certain paradigms were chosen for Quill's design.
+It is important to emphasise that when I say `favour X over Y', I do not mean that statement as a blanket truth for programming as a discipline; rather, I am designing a language with such features because I wish one were to exist.
+The answers to the questions posed below will likely have different answers to different programmers, and different languages likely exist that satisfy those requirements.
+Quill is created simply because there is no language that adequately meets the requirements I would wish for a language, it is not a statement that those requirements are objectively good.
+
+\subsection{Outline of goals}
+
+Quill must be, first and foremost, a functional efficient programming language.
+It is worth elaborating on the definitions and implications of these words, as well as the reasons for having chosen such words.
+
+\subsection{Functional programming}
+
+By \textit{functional}, we refer to functional programming.
+On a macroscopic level, any program accepts some input, performs some calculations, and produces some output.
+Where functional and imperative programming languages differ is the ways in which programmers are empowered to perform such calculations.
+
+Functional programs are, in and of themselves, functions.
+Those functions are constructed by the composition of other functions, repeatedly applying transformations to input data to convert it into new data, until a final result is calculated, at which point it is returned to the user.
+Conversely, an imperative program typically manipulates input data directly, by mutating it, as opposed to transforming it with functions.
+
+There are several advantages to functional programming when compared to imperative programming.
+\begin{itemize}
+    \item A functional program is, by its very nature, comprised of distinct transformative functions.
+    These functions can naturally be easily separated from each other and from the data they operate on.
+    The modularity encourages the use of abstraction, and decouples the functions themselves from their implementation details, which allows for potentially easier refactoring.
+    \item Combinators abstract away boilerplate.
+    Off-by-one errors are difficult to introduce when your loop is encapsulated inside a \lstinline{map} or \lstinline{fold}.
+    \item In \textit{pure} functional programming, functions have no side effects.
+    In particular, they are \textit{deterministic}; a function's output depends only on the function's inputs, regardless of the execution context.
+    This allows for far superior static analysis of programs.
+    Any expression may be safely and easily evaluated at compile time due to this determinism, which removes the need for complicated \lstinline{constexpr} mechanics or code colouring.
+    \item Immutability is preferred by default.
+    Whole transformations of input variables are more idiomatic than gradually updating a variable's contents.
+    This prevents bugs which may be introduced by concurrent modification, such as altering the contents of a list while iterating through it.
+    Code often operates on the assumption that certain variables will not change; this paradigm codifies and enforces that assumption.
+\end{itemize}
+
+\subsection{Programmer versus compiler}
+
+Much of the `benefits' of functional programming outlined above are predicated on a tacit assumption: that it is worth foregoing direct control over the instructions being executed in exchange for fewer bugs and a more robust programming experience.
+
+Fundamentally, every language must define a split of power between the programmer and the compiler.
+Languages in the C family often give the programmer direct control over the system's memory, leaving allocation and deallocation up to the programmer.
+By allowing the programmer such direct access to the sequence of instructions that will be executed, this forces the programmer to assume the responsibility of writing correct code.
+The compiler, to such a programmer, is a tool to take ideas and formalise them into a logical system.
+
+Higher-level languages take a different stance; any gain in performance achieved as a result of direct memory management (for example) is eclipsed by the cognitive load such a system places on the programmer, and the time cost that is incurred when inevitable memory-related bugs are found and must be fixed.
+
+More modern programming languages understand the compiler not as a tool to formalise some already-perfect idea into a logical language, but instead as a partner, which will validate your decisions and ensure that certain logical invariants are upheld.
+Of course, this comes at the cost of flexibility---for example, by denying mutability outright, certain algorithms like quicksort become nontrivial to express.
+
+One particularly prominent example is the Rust compiler, notorious for novice users `fighting the borrow checker'.
+Rust's borrow checker statically analyses memory use using an ownership-based memory model, and thus eliminates whole classes of bugs at compile-time, such as dangling and null pointers.
+This comes at the cost of forcing the programmer to prove to the compiler that memory management is safe at compile time.
+The borrow checker is quite conservative in what it accepts, and if in doubt will reject an otherwise valid program.
+Certain constructions, which would be idiomatic in related languages like C++, are invalid under the rules of the borrow checker in Rust, and many users struggle to understand why the borrow checker is rejecting clearly working code.
+However, once one is familiar with the borrow checker, it becomes clear that it is an ally, not an adversary: delegating some amount of power to the borrow checker is a compromise that allows you to be certain about the memory properties of a program at the expense of absolute freedom.
+
+\subsection{When to compromise with the compiler}
+
+At the heart of Quill is the supposition that it is worth trading absolute freedom for compile-time guarantees, provided that the expense incurred is not `too significant'.
+Unfortunately, what tradeoffs are too significant is a problem of opinion, not of logic, so this remains an unsatisfying conclusion to this analysis.
+We provide a number of heuristics to guide our future discussion.
+Note that these heuristics are very opinionated, and do not apply equally to programming as a whole.
+A number of these assertions originate from the `Zen of Zig', a description of the goals of Zig and its community, accessible on the command line by running \lstinline{zig zen}.
+
+We assert that the language should be built to deal with large projects better than small ones.
+Many programmers have experienced the bloat that arises when tools are used for longer than originally intended, and more and more time is spent forcing yet more features into such programs.
+It is often the case that a small program unintentionally becomes large; it is rarely the case that a large program unintentionally becomes small.
+For this reason, programs should be built with the intent to scale, even if this is not an initial design goal.
+
+Catching bugs at compile time is superior to catching them at runtime.
+Clearly, this belief is not held by all programmers; for instance Python does not have a strict notion of compile time and runtime, and almost all errors (except, of course, syntax errors) can occur at any point during program execution.
+There is also the disadvantage that an incomplete program cannot be run at all.
+There is merit in being able to execute partially completed, logically unsound, programs---provided that this be for the purpose of debugging and aiding development, and not for use in production code.
+Languages that have more compile-time guarantees are often harder to get a running program, but often easier to get a correct program once it does run.
+Given that a common objective is to create correct and sound code, even if that means more initial time in development, means that we err on the side of compile-time guarantees when possible.
+
+Clarity in reading and understanding code is favoured over ease of writing code.
+Code is written only once, but read many times.
+By making relations clear between different parts of a program, for example by establishing strict visibility rules, large programs become easier to understand.
+
+Code should be designed in a modular manner.
+In any large project, refactoring and redesigning certain modules is inevitable.
+The programming language should actively work to make such tasks easier to perform.
+By promoting a culture of modular code design, these inevitable processes become significantly less of a burden.
+Independent, modular parts are much more simple to reason logically about, when compared to large interlinked processes.
+Given the emphasis on reading (and understanding) code over writing it, a modular design is instrumental.
+
+Data should be decoupled from the operations performed on them.
+This opposes the paradigm of object-oriented programming, which often ties together any data with its functions.
+With languages like Java, this paradigm falls into the problem that all functions \textit{must} be contained with a class, degrading the meaning of a class as an object that may be instantiated with an inheritance hierarchy.
+Inheritance-based languages also suffer from the diamond problem.
+These issues are not sufficient to abandon the object-oriented paradigm completely---indeed, object-oriented programming has many benefits, especially in particular domains with concrete inheritance hierarchies---but are enough for our purposes to favour an alternate paradigm.
+
+Processes should be designed in a sufficiently abstract way as to know only what it must.
+If a function's argument may be of an arbitrary type, there is no use in specifying it; indeed, this can only introduce bugs, when implementation details are unintentionally relied on.
+Whenever possible, features like Rust's traits or Haskell's typeclasses should be used to intentionally `forget' unneeded information.
+
+\subsection{Efficient programming}
+
+The word \textit{efficient} carries a double meaning: computational efficiency, and efficiency of writing and reading code.
+Quill attempts to satisfy both of these definitions, to an extent.
+The commitment to efficiency of reading code follows from the previous asserted goals, but efficiency of writing code does not.
+Of course, Quill would ideally be an efficient language to write code in, but this must come at a lower priority.
+
+Under the aforementioned constraints, Quill should be the most \textit{computationally} efficient language possible.
+It is important to emphasise here that speed will \textit{never} come at the expense of one of Quill's other goals.
+Quill will never become a `functional C'; the level of independence offered over memory management offered (and required) by C conflicts with, for example, the axiom that catching bugs at compile time is better than catching them at runtime.
+When such languages as Rust exist, which demonstrate the ability for a modern language to have neither a garbage collector nor unsafe memory access, it is difficult to justify the inclusion of such a feature into Quill.
+
+However, when possible, efficient constructs will be favoured over inefficient ones.
+Perhaps most importantly, Quill is a compiled language, not a just-in-time compiled or interpreted language.
+This provides a clear speed benefit, and the only cost for the programmer is perhaps an increase in compilation time.
+
+This analysis would imply that the best choice for Quill should be a Rust-like ownership system.
+Such a system has not seen prominence in functional programming languages to date, but we intend to show that this is not as a result of incompatibility of the two paradigms---rather, ownership-based memory management is simply a sufficiently new concept such that many languages have not caught up with the development yet.
+
+Denying the ability for the programmer to write computationally efficient imperative constructs places a burden on the compiler to translate idiomatic functional programs into efficient imperative ones.
+As a basic example, tail-recursion can be easily translated into iteration.
+Constructs such as lambda abstractions and higher-order functions can in theory be translated into ordinary functions whose efficiency matches that of C.
+
+Not all efficiency constraints are in direct opposition to some of Quill's goals.
+For example, compile-time optimisation and static analysis is greatly aided by Quill's emphasis on static typing and modular design.
+
+Concurrency may also be implemented in a way that easily aligns with Quill's objectives, by utilising concepts such as the \lstinline{Send} and \lstinline{Sync} marker traits from Rust.
+Again, compile-time guarantees are used to reduce or eliminate the possibility of runtime bugs.
+
+\section{Requirements}
+
+The above goals naturally lead to the following requirements for Quill as a language.
+
+\subsection{Reliability of performance}
+
+For Quill to be as efficient as possible we require a departure from conventional functional programming models, abandoning thunk-based computation in favour of translation to imperative instructions.
+Values will be evaluated eagerly, unless their values are placed behind (for example) a function which must be invoked to compute the value.
+
+In line with adopting an ownership-based memory model, a garbage collector (or a runtime in general) will likely be unnecessary.
+
+\subsection{Immutability by default}
+
+Functions should be pure.
+Pure functions lend themselves better to static analysis and static optimisation, eventually leading to more performant programs with fewer bugs.
+This naturally entails referential transparency and variable immutability as a key principle.
+In a similar way, recursion is to be preferred over iteration.
+
+\subsection{Static type system}
+
+A static type system prevents many classes of runtime bugs, so it should be used in Quill.
+Assuming a static type system is used, the functional programming paradigm requires many features in such a type system, such as higher-order functions and higher-kinded types.
+
+Haskell has several language extensions designed to make the type system more expressive, and this comes at the cost of compiler bloat.
+An alternative is to manipulate abstractions as values \cite{ScrapYourTypeClasses}.
+This has the advantage of allowing the programmer more flexibility when manipulating abstractions, but requires higher-rank functions to be usable directly inside data structures.
+For Quill, which will have heavy compile-time code manipulation, this seems to be a good choice.
+Such abstractions-as-values can be optimised away statically into plain function calls.
+
+It is also possible to represent types themselves as values \cite{ZigComptimeTypes}.
+For a similar reason, this makes sense to implement in Quill.
+This will, however, introduce some subtleties about type equivalence and naming.
+These will be addressed later.
+
+Arguably, representing everything as a value distils functional programming into its purest form.
+Formal type theory often represents types as values, and deals with this by constructing a hierarchy of universes to contain types of types \textit{ad infinitum} \cite[p.~24]{hottbook}.
+
+Thus, we arrive at another axiom for Quill (and hence Feather) to follow: everything is a value.
+
+\subsection{Everything is a value}
+
+In letting types and abstractions be values, the compiler is obligated to perform certain optimisations.
+Types cannot be represented in compiled machine code in the same way they can be represented in Feather, so it falls on the compiler to deduce all types at compile time.
+Higher-rank functions are used often in abstractions, such as in functors, which have a \lstinline{map} function generic over any input type.
+Clearly, the types used inside the functor must be determined statically and converted to ordinary functions so that types do not need to be represented at runtime.
+This also adds the compile-time benefit of optimisation for specific input types; for example, a \lstinline{memcpy} would be unnecessary if the type being copied is zero-sized.
+
+Multiple dispatch from Julia and related languages can be emulated at compile-time by simply allowing the implementation of an abstraction used to be chosen at the time of the function call, rather than forced by the type system \cite{MultipleDispatch}.
+In particular, by providing various implementations of an abstraction to the compiler itself, the compiler can choose the most appropriate abstraction for the task at compile-time using specialisation rules---although since abstractions are values, the programmer is of course free to specify which abstraction to use manually.
+
+\subsection{Code generation}
+
+Since everything is a value, naturally Quill and Feather code should be values.
+It stands to reason that syntax extensions themselves should be writable in the same way as normal Quill code, in a functional style.
+The compiler should be able to evaluate such functions at compile time.
+This foregoes the typical need for a macro system like in C, by simply allowing Quill to be its own macro system.
+Rust's procedural macros fill a similar role, in that they use Rust code to generate more Rust code, and can even parse code blocks and apply transformations \cite{ProcMacros}.
+In accordance with the principle of modularity, Quill's language design should be minimal yet expressive, and syntax extensions should then provide the necessary conveniences for developing idiomatic functional code.
+For example, monadic \lstinline{do} blocks may not be part of the base language.
+
+\section{High-level design}
+
+In this section, we outline the different parts of the Quill project, their responsibilities, and how they interact.
+Each part should be represented as one or more distinct and non-hierarchical modules.
+In particular, any shared data between two parts should be realised as a distinct shared module, not by including one part as a dependency of another.
+These parts will be presented roughly chronologically in the order they are used to compile a Quill program.
+
+% TODO: this
+
+\iffalse
+
+\subsection{Lexer (\lstinline{lex})}
+
+Quill programs are read from an input file, or standard input.
+The resulting stream of Unicode code points is converted into a stream of \textit{tokens}, logically indivisible chunks that have a type.
+For example, a symbol such as \lstinline{/} is a token, and a string such as \lstinline{"Hello, world!"} is also a token.
+
+Then, token streams are converted into \textit{token trees}, which are pairs of brackets of matching type and their contents, such as \lstinline{(1 + 2)}.
+Naturally, token trees may be nested.
+
+The lexer supports syntax extensions, which alter the rules it uses to classify tokens.
+For instance, a syntax extension could be used to convert \lstinline{10m} into \lstinline{metres 10}.
+The resulting code \lstinline{metres 10} will be automatically enclosed in a token tree, so that operator precedence is automatically handled, unlike in the C preprocessor.
+
+\subsection{Parser (\lstinline{parse})}
+
+Token trees from the lexer are analysed to check that they match certain patterns defined either by the Quill compiler or by syntax extensions.
+Each pattern may contain sub-patterns that also need to be parsed recursively.
+Names are resolved.
+This results in an untyped abstract syntax tree.
+The nodes of this abstract syntax tree represent expressions or top-level definitions such as functions.
+Syntax extensions cannot create new node types.
+Many nodes in the syntax tree will be given a type, and most nodes in the tree will provide some typing information for the type checker, such as equivalence relations between types of certain nodes.
+
+\subsection{Type checker (\lstinline{typeck})}
+
+The type checker infers types of all variables in a given expression, given the constraints from the parser.
+This may need to execute arbitrary Quill code, especially when types are manipulated as values.
+Thus, this and almost all future parts of the compiler may be executed in parallel.
+This results in a typed syntax tree.
+
+\subsection{Feather transpiler (\lstinline{feathergen})}
+
+Typed syntax trees are converted into Feather, an intermediate language that can be executed and compiled to machine code.
+Expressions in Feather are based on a modified version of \textit{administrative normal form} (ANF), taking influence from \textit{K-normal form} (KNF).
+This representation allows many code transformations and optimisations to be performed \cite{ANFContinued}, while retaining the semantic content of regions to be used for lifetime analysis \cite{KNF}.
+
+\subsection{Interpreter (\lstinline{interpret})}
+
+Feather code can be evaluated directly without compilation.
+The resulting code will likely run slower than compiled code, but no expensive code generation or linking step is required.
+This is used to execute expressions at compile time, such as type manipulation.
+
+\subsection{Monomorphisation (\lstinline{mono})}
+
+Static analysis on Feather expressions is performed, and all values of runtime-incompatible types, such as types and higher-rank functions, are deduced.
+The resulting code is duplicated for each possible (semantically different) value of these values, and usages are updated so that the code no longer depends on higher-rank functions or types as values.
+At this stage, implementations of abstractions can be resolved automatically.
+
+\subsection{Code generation (\lstinline{codegen})}
+
+Feather programs must be compiled into machine code.
+This task is handled by the \lstinline{codegen} module.
+At a high level, this module takes monomorphised Feather code and converts it into LLVM IR, which will be passed off to an LLVM compiler which will convert it to machine code.
+This process involves the conversion of function paradigms such as recursion into imperative constructs such as iteration, or functional transformations into mutation where applicable.
+It also must provide native implementations of standard library functions that cannot be expressed without some interaction with the OS or kernel.
+This also acts as a frontend for linking the final object files together into an executable.
+
+\fi
+
+\subsection{Diagnostics and error handling (\lstinline{diag})}
+
+Using this diagnostic infrastructure, errors and warnings may be emitted with reference to the actual code that caused the error, displaying an easy-to-read representation of the error on the command line.
+
+\subsection{Query-based compilation}
+
+To increase and enforce modularity, the functionality each of the above modules is typically represented using queries.
+This has seen use in Rust \cite{RustDevGuideOverview}, which has been seen to enhance incremental compilation among other modularity benefits.
+This will also empower the compiler to act in parallel.
+
+An approach of \textit{interactive compilation} is used for both Feather and Quill.
+The programmer should be able to omit certain data, such as expressions or types, and the compiler should try to fill in the gaps and inform the programmer of exactly what remains to be defined.
+If the programmer purposefully omits something in order to query information from the compiler, the compiler should not produce an error, but an informative message (unless the information could not be acquired).
+This makes the compiler behave like an advanced REPL.
+
+Suppose a programmer is implementing a function to compute the sum of three numbers.
+One may write something like the pseudocode \lstinline{a + b + ?}, where \lstinline{a} and \lstinline{b} are numbers of a certain fixed type.
+The compiler should recognise that the programmer is asking a question, and respond by telling the programmer what type is expected in place of the question mark.
+
+An interactive approach for the Feather compiler allows the Quill compiler to do without a type checker of its own, since it can rely on the infrastructure of Feather's type checker and gradually feed it more Quill-specific information if it fails to fully deduce all types in an expression.
+In particular, the Feather compiler must be able to execute arbitrary expressions that may not be compilable to machine code, such as expressions involving types.

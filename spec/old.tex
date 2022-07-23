@@ -1,0 +1,1367 @@
+\part{Feather Language Specification}
+
+\chapter{Types and values}
+\label{ch:types_and_values}
+
+% TODO: talk about `undefined`
+% TODO: talk about the fact that feather essentially *is* its type system, and how buying in to feather is essentially buying in to its type system
+% TODO: talk about how the syntax is *defined* by the type inference rules, and does not stand alone
+
+\section{Type systems}
+
+\subsection{The typing environment}
+
+\begin{defn}
+    An \textit{assumed judgment} is a pair of the form \( \langle x, \tau \rangle \), where \( x \) is an expression and \( \tau \) is a type.
+    A set of assumed judgments, denoted \( \Gamma \), is a \textit{typing environment} or \textit{typing context}.
+\end{defn}
+Consider the following subset of the Hindley-Milner declarative rule system.
+\begin{mathpar}
+    \inferrule*[right=Var]{\langle x, \sigma \rangle \in \Gamma}{\Gamma \vdash x : \sigma}
+    \and
+    \inferrule*[right=App]{\Gamma \vdash e_0 : \tau \to \tau' \quad \Gamma \vdash e_1 : \tau}{\Gamma \vdash e_0\ e_1 : \tau'}
+    \and
+    \inferrule*[right=Abs]{\Gamma, x : \tau \vdash e : \tau'}{\Gamma \vdash \lambda\ x\ .\ e : \tau \to \tau'}
+\end{mathpar}
+Note that the conclusions of these rules are judgments; their evaluation is governed by the type system itself.
+The use of these three rules, or an equivalent formulation thereof, in an arbitrary functional programming language is largely uncontroversial.
+The \textsc{Var} rule is essentially an axiom for building basic typing judgments, given assumed judgments in the typing context.
+It is the most basic way of constructing a judgment that an object has a specific type.
+The \textsc{App} rule describes the functionality of applying an argument to a function.
+If the type of the function's argument matches the function's domain, the function can be applied, and the resulting variable has type equal to the function's codomain.
+Finally, the \textsc{Abs} rule performs the reverse operation: it creates an abstraction using a lambda.
+The newly created function has a type compatible with the \textsc{App} rule, so that the function can later be evaluated with a particular input.
+
+Note that the types in the above definitions are not restricted to simply small types in \( \UU \).
+For instance, application of pre-existent type constructors are already supported through the use of the \textsc{App} and \textsc{Abs} rules, including dependent types.
+
+The remaining Hindley-Milner rules are as follows.
+\begin{mathpar}
+    \inferrule*[right=Inst]{\Gamma \vdash e : \sigma'\quad \sigma' \sqsubseteq \sigma}{\Gamma \vdash e : \sigma}
+    \and
+    \inferrule*[right=Gen]{\Gamma \vdash e : \sigma\quad \alpha \notin \mathrm{free}(\Gamma)}{\Gamma \vdash e : \forall \alpha\ .\ \sigma}
+\end{mathpar}
+These rules concern subtyping and creating generic versions of monotypes.
+However, in accordance with the principle to treat types as values, the symbol \( \forall \) should be replaced by a type-theoretic construction that allows for the type quantified to be provided as a function argument.
+Thus, no variant of these two rules will be used in Feather.
+
+What now remains is to create rules to allow interactions with the other, more interesting types found in various type theories.
+Clearly, it is not a practical idea to try to implement all of homotopy type theory inside a single programming language: most of the concepts will never be useful in any real projects.
+In any case, code that makes heavy use of complex type theoretic constructs is likely to become unmaintainable quickly.
+A balance must be struck to create a minimal, yet versatile, subset of this type theory.
+
+Further, we require the ability for types to self-reference without the algorithmic complexity of implementing \( \mathsf{W} \)-types.
+For example, the coproduct construction \( B = A + B \), where \( A \) is a known type, should be perfectly valid in Feather.
+Such styles of construction are used regularly in the creation of \lstinline{cons} lists, for example.
+Thus, we will not use the rules of homotopy type theory directly, and we must design and prove features about our own type system.
+
+% TODO: explain types
+
+\subsection{Instancing, coproducts, and universes}
+
+Recursion in a type definition is only feasible due to the existence of coproducts, since they permit the creation of a type \( A + B \) where no object of type \( B \) need be constructed.
+In order to construct a valid recursive type definition, we must have a coproduct that references itself.
+This can be achieved by, for example, defining a function \( F \) that returns a type \( A + F \), where \( A \) is a type.
+We can see from this example that recursive type definitions are constructed exactly like recursive function definitions.
+It makes sense that such a function \( F \) should be permitted to exist in Feather's type system.
+
+To what extent should recursive coproduct types be valid?
+We might reason that a type such as \( F = \emptyt + F \) should not be a valid type, since there is no way to construct an object of type \( F \) without already having such an object.
+However, this does not qualify as a logical contradiction; after all, \( \emptyt \) itself is also a type that cannot be constructed, and such an empty type is an accepted part of many theories.
+
+Consider the following two rules from the homotopy type theoretic definition of the coproduct.
+\begin{mathpar}
+  \inferrule*[right=$+$-\rform]
+  {\oftp\Gamma{A}{\UU} \\ \oftp\Gamma{B}{\UU}}
+  {\oftp\Gamma{A+B}{\UU}}`'
+  \and
+  \inferrule*[right=$+$-\rintro${}_1$]
+  {\oftp\Gamma{A}{\UU} \\ \oftp\Gamma{B}{\UU} \\\\ \oftp\Gamma{a}{A}}
+  {\oftp\Gamma{\inl(a)}{A+B}}
+\end{mathpar}
+The formation rule \( + \)-\rform{} specifies that we can only deduce that \( A+B \) is a type once we have already deduced \( A \) and \( B \) are types themselves.
+This would theoretically forbid the construction of a type such as \( F = A + F \) above.
+
+However, we are not restricted to eagerly evaluating all facets of a type the moment it is constructed.
+By considering lazy evaluation as a possibility, we may deduce the existence of the type \( A+B \) without knowing the precise details of \( A \) and \( B \), just that they are types.
+This circumvents the original problem with recursive definitions.
+For example, when we define \( F = A + F \), the compiler sees from syntax that if \( F \) represents a valid Feather expression, it is a type.
+Hence, \( F \) may be constructed without already knowing the precise contents of \( F \).
+
+There is a problem, however, in that the universe of \( A + B \) should depend both on the universe of \( A \) and that of \( B \).
+In our new formulation, it does not, since we rely on syntax to determine if something is a type.
+We now must consider to what extent an infinite hierarchy of universes is required in Feather.
+In all of the typing rules in Appendix A of `Homotopy Type Theory', the universe indices in the premises are all arbitrary and exactly match the universe indices in the conclusions, with the exceptions of the \UU-\textsc{intro} and \UU-\textsc{cumul} rules \cite{hottbook}.
+This leads us to consider an alternative type theory which contains exactly one universe \UU{}, such that \( \UU : \UU \).
+Due to the lack of \( \mathsf{W} \)-types, this is unlikely on its own to lead to unsoundness.
+
+\subsection{Dependence}
+
+Many type theories make use of dependent types.
+The most common are dependent function types \( \tprd{x:A} B \) and dependent pair types \( \tsm{x:A} B \).
+Note that a dependent coproduct cannot exist, since the value of a coproduct type is determined by a value from any one of its component types.
+Typically, independent types are defined as special cases of the dependent types, where \( x \) is not bound in \( B \).
+
+If independent and dependent types are the same internally, we must determine during compilation if the variable \( x \) is bound in \( B \), in order to make certain transformations and deductions.
+Automatic dependence deduction could lead to unexpected behaviour, since it is determined by semantics; changing one line of code could break a hypothetical `dependence checker' and cause cascading type inference errors.
+For many programs and use cases, dependent types by default are not desirable.
+Thus, for any dependent type, we will create an independent variant of that type.
+Feather code must therefore explicitly opt in to dependence for a particular type.
+
+For types such as \( \tprd{x:A} B \), we will force \( B \) to be a type family, an independent function of type \( A \to \UU \).
+This allows the compiler to leverage its knowledge of lambda abstractions, rather than having to introduce a new analysis workflow for bound and unbound variables.
+
+Consider nested independent products \( A \times (B \times C) \) or coproducts \( A + (B + C) \).
+Since there is no dependence between \( A \) and the other types, we should be able to consider \( A, B, C \) to lie in the same space in the hierarchy; that is, there should exist types \( A \times B \times C \) and \( A + B + C \) that emphasise the fact that there is no dependence between the three types in question.
+
+\section{Abstract computation}
+
+\subsection{Computability}
+
+In this section discussing the process of abstract computation in a mathematical world, we do not consider the concept of a computable function.
+Although functions and syntactic expressions will be created, composed, and used in other ways, we will not concern ourselves here with the mechanics of computing a value from such an expression.
+That will be covered in \cref{ch:value_inference}.
+
+\subsection{Objects and variables}
+
+Feather expressions are evaluated on a computer with physical hardware, not in a hypothetical mathematical landscape with infinite processing power.
+As such, syntax that we define should respect ownership of memory.
+However, there is an important distinction to be made between compile-time ownership and runtime ownership.
+Where the values of variables exist at compile time and at runtime, the inferred types of such variables exist only at compile time, and hence their ownership need not be tracked so precisely.
+Types, when used as values, follow the same ownership rules as values.
+\begin{defn}
+  An \textit{object} is an \textit{a priori} indivisible mathematical object, in that it does not exist directly on physical hardware.
+  A \textit{variable} is a name used to unambiguously address an object.
+  A \textit{realisation} of an object is a binary representation of that object, stored in a fixed (at runtime) location in hardware.
+
+  Any given object may have multiple variables referring to it, and multiple realisations encoding it.
+  In particular, when ownership of an object is transferred, the variable referring to it may change, and the object may be realised in a different physical location.
+\end{defn}
+\begin{defn}
+  A variable \( x \) is called \textit{bound} if \( x \) is the name of a variable bound in a \( \lambda \) or \( \Lambda \) abstraction (which will be defined later).
+  A variable that is not bound is called \textit{free}.
+\end{defn}
+\begin{egs}
+  In the expression \( \lam x y \), the scope of \( x \) is \( y \).
+  In the expression \( e \defeq (\lam x y)(z) \), the scope of \( z \) includes \( e \) as a sub-expression, assuming that \( z \) is a bound variable from an abstraction whose lambda term contains \( e \).
+\end{egs}
+\begin{defn}
+  Let \((\ast)\) be a premise of the form \( \oftp\Gamma xA \).
+  We say that \((\ast)\) \textit{consumes} the object referred to by the variable \( x \).
+
+  Let \((\ast\ast)\) be a conclusion of the form \( \oftp\Gamma xA \).
+  We say that \((\ast\ast)\) \textit{constructs} an object of type \( A \) and binds it to the variable \( x \), or that \((\ast\ast)\) is a \textit{constructor} for (the object referred to by) \( x \).
+
+  If an inference rule contains a premise that consumes \( x \), we might say that the inference rule itself consumes \( x \).
+  Similarly, if the conclusion of an inference rule constructs \( x \), we might say that the rule constructs \( x \).
+\end{defn}
+\begin{egs}
+  Consider these hypothetical inference rules.
+  \begin{mathpar}
+    \inferrule*[right=\((\dagger)\)]
+    {\oftp{\Gamma}{A}{\UU} \and \oftp{\Gamma}{B}{\UU}}
+    {\oftp\Gamma{A \oplus B}{\UU}}
+    \and
+    \inferrule*[right=\((\ddagger)\)]
+    {\oftp{\Gamma}{B}{\UU} \\ \oftp\Gamma{f}{A \to B} \\ \oftp\Gamma{a}{A}}
+    {\oftp\Gamma{f(a)}{B}}
+  \end{mathpar}
+  \((\dagger)\) is a constructor for the type \( A \oplus B \), and is a consumer of \( A \) and \( B \).
+  \((\ddagger)\) is a constructor for \( f(a) \), and is a consumer of \( B \), \( f \) and \( a \).
+\end{egs}
+\begin{defn}
+  Let \((\ast)\) be a statement of the form \( \jdeqtp\Gamma xyA \).
+  We say that \((\ast)\) is a \textit{computation} of \( x \) into \( y \), or vice versa.
+  Alternatively, we say that \((\ast)\) \textit{computes} \( x \) and yields the result \( y \), or vice versa.
+
+  We may also write statements of the form \( \Gamma \vdash x \mapsto y : A \).
+  These are \textit{one-directional} computations of \( x \) into \( y \).
+  This symbolises a conversion of \( x \) into \( y \) that emphasises a particular direction of conversion.
+  When one direction of computation is emphasised in this way, it is also called a \textit{simplification} of \( x \) into \( y \).
+  Any simplification may be reversed, but semantically we should think of a simplified expression as `simpler' in some way than the unsimplified expression, so typically the transition should only occur in the forward direction.
+
+  Abstractly, \( x \) and \( y \) refer to the same underlying mathematical object, but its realisation has changed.
+  The physical machine is now closer to knowing `true value' of the object, in some sense.
+  This notion of values of an object will be explored in \cref{ch:value_inference}.
+\end{defn}
+
+\subsection{Ownership}
+\begin{defn}
+  A computation of \( a \) into \( b \) \textit{respects ownership} if all free variables that appear in \( x \) appear exactly once in \( y \), and vice versa.
+\end{defn}
+\begin{eg}
+  Consider \( \jdeqtp\Gamma{(\lam{x:A} (x.b))(a)}{a.b}{B} \).
+  The left hand side has free variables \( a \) and \( b \).
+  Since \( x \) is bound in the lambda abstraction, it is not free.
+  The right hand side has free variables \( a \) and \( b \); even though \( a \) is `bound in \( b \)' in the traditional sense, it is a name defined externally to this expression, so we consider it free.
+  These two sets match, hence this computation respects ownership.
+\end{eg}
+\begin{defn}
+  A constructor \textit{respects ownership} if:
+  \begin{enumerate}
+    \item every computation used as a premise respects ownership;
+    \item every consumed variable is consumed in exactly one premise; and
+    \item any given consumed variable appears no more than once as a value in its conclusion.
+  \end{enumerate}
+  If a given variable \( x \) appears exactly once in its conclusion, we say that the inference rule \textit{transfers ownership} of \( x \).
+  % If \( x \) does not appear in the conclusion, we say that the inference rule \textit{drops} \( x \).
+\end{defn}
+\begin{eg}
+  In \((\dagger)\) above, the variables \( A \) and \( B \) appear exactly once each in the premises and exactly once each in the conclusion.
+  Hence \((\dagger)\) respects ownership.
+  In \((\ddagger)\), \( B \), \( f \) and \( a \) are consumed exactly once each, and the variables \( f \) and \( a \) appear exactly once in the conclusion as a value.
+  Hence \((\ddagger)\) respects ownership, even though \( B \) was not used as a value in the conclusion.
+\end{eg}
+\begin{defn}
+  An inference rule with a computation for its conclusion is called a \textit{computation rule}.
+\end{defn}
+This classifies all inference rules as either constructors or computation rules, with few unique exceptions that will be discussed later.
+Computation rules are not used for determining ownership or type checking.
+
+\subsection{Regions and lifetimes}
+
+\begin{defn}
+  For a given expression \( e \), let \( \rho(e) \) be defined by
+  \begin{enumerate}
+    \item if \( e \) is a \( \lambda \) or \( \Lambda \) abstraction (which will be defined later), then \( \rho(e) = \qty{e} \);
+    \item otherwise, \( \rho(e) \) is the union of itself and all of the regions of its child expressions.
+  \end{enumerate}
+  We call \( \rho(e) \) the \textit{expression region}, or simply \textit{region}, of \( e \).
+  Informally, the region of an expression is the set of expressions that must \textit{a priori} be executed in order to determine the value of \( e \).
+  It is also the set of expressions that are guaranteed to be able to access anything that \( e \) can; that is, if a variable \( x \) with some lifetime can be evaluated by \( e \), it can be evaluated by any expression in \( \rho(e) \).
+\end{defn}
+\begin{defn}
+  An \textit{external region} is an object \( \rho_n^{\mathrm{ext}} \) for a natural number \( n \).
+  The \textit{static region} is a specific fixed external region denoted \( \lstatic \).
+\end{defn}
+\begin{defn}
+  A \textit{region} is either an expression region or an external region.
+  The set of all regions for a given expression \( e \) is called the \textit{region set} \( \mathcal R(e) \), which is the union of all external regions together with \( \rho(e) \).
+  This set is equipped with the following partial order:
+  \begin{enumerate}
+    \item for two expression regions \( \rho(e_1), \rho(e_2) \in \mathcal R(e) \), we have \( \rho(e_1) \leq \rho(e_2) \) if \( \rho(e_1) \subseteq \rho(e_2) \);
+    \item for an external region \( \rho_i^{\mathrm{ext}} \) and an expression region \( \rho(e) \), we have \( \rho(e) \leq \rho_i^{\mathrm{ext}} \) unconditionally;
+    \item for any region \( \rho \), we have \( \rho \leq \lstatic \) and not \( \lstatic \leq \rho \), so \( \lstatic \) is the unique greatest element;
+    \item the non-static external regions may have an arbitrary fixed partial order in a given region set.
+  \end{enumerate}
+  We further define the intersection of two regions \( \rho \cap \rho' \) by
+  \begin{enumerate}
+    \item for two expression regions \( \rho(e_1), \rho(e_2) \), the intersection \( \rho(e_1) \cap \rho(e_2) \) is defined in the normal set-theoretic manner;
+    \item for an external region \( \rho_i^{\mathrm{ext}} \) and an expression region \( \rho(e) \), we have \( \rho(e) \cap \rho_i^{\mathrm{ext}} = \rho(e) \) unconditionally;
+    \item for any region \( \rho \), we have \( \rho \cap \lstatic = \rho \);
+    \item for two non-static external regions \( \rho_i^{\mathrm{ext}}, \rho_j^{\mathrm{ext}} \), the term \( \rho_i^{\mathrm{ext}} \cap \rho_j^{\mathrm{ext}} \) is considered irreducible up to commutativity and associativity, and is also defined to be a region.
+  \end{enumerate}
+  If this is not empty, this is the greatest lower bound of \( \rho \) and \( \rho' \); that is, \( \rho \cap \rho' \) is the unique region such that for all \( \widetilde \rho \leq \rho, \rho' \), we have \( \widetilde \rho \leq \rho \cap \rho' \).
+  This partial order defines \( \rho \leq \rho' \) if \( \rho \) is a subregion of \( \rho' \).
+  Rust uses subtyping to refer to the same concept, writing \( \rho \leq \rho' \) as \( \rho' : \rho \).
+\end{defn}
+\begin{defn}
+  Any assumed judgment \( \langle x, \tau \rangle \) has an associated region \( \rho \), called its \textit{lifetime}.
+  We will write \( \langle x, \tau, \rho \rangle \) to denote the assumed judgment together with its lifetime.
+\end{defn}
+\begin{defn}
+  Any judgment or judgmental equality has an associated region \( \rho \), called its \textit{lifetime}.
+  This can be written
+  \[ \Gamma \vdash x : A, \rho;\quad \Gamma \vdash x \equiv y : A, \rho \]
+  We say that a judgment or judgmental equality is \textit{alive} in a region \( \rho' \) if \( \rho \leq \rho' \).
+  A judgment or judgmental equality \textit{respects lifetimes} if, for all lifetimes \( \rho' \) contained within the statement of the judgment or judgmental equality, the lifetime \( \rho \) of the judgment itself satisfies \( \rho \leq \rho' \).
+
+  Note that the use of the expressions themselves in the judgment or judgmental equality need not be valid for the lifetime of the judgment or judgmental equality.
+  For instance, a variable \( x \) created in a local scope might still attain the judgment \( \Gamma \vdash A,\lstatic \) even though the local scope containing \( x \) is a subregion of \( \lstatic \); this is because object referred to by the name \( x \) may be continually transferred to new owners until the end of \( \lstatic \).
+  The use of the name \( x \) outside this local scope would be syntactically incorrect, but the object may still be accessible by other names.
+  Further, the object may be destroyed at any point before the expiration of \( \lstatic \).
+  The lifetime of the judgment simply states the maximal span of time the judgment is valid for.
+\end{defn}
+\begin{eg}
+  \( \oftp\Gamma x{T,\lstatic} \) respects lifetimes, as no lifetimes are specified in the expression \( x \).
+  The use of the name \( x \) need not be semantically correct for \( \lstatic \), but the ownership of the object it refers to may be transferred indefinitely inside the lifetime \( \lstatic \).
+\end{eg}
+\begin{defn}
+  An inference rule \textit{respects lifetimes} if its premises and conclusion respect lifetimes, and for all lifetimes \( \rho' \) of the premises, the lifetime \( \rho \) of the conclusion satisfies \( \rho \leq \rho' \).
+\end{defn}
+\begin{eg}
+  Let \( \& x \) be a borrow of \( x \), which was constructed from the judgment \( \oftp\Gamma{\& x}{T,\rho} \).
+  This will be defined more formally later.
+  Then, the use of the variable \( \& x \) in region \( \rho' \) respects lifetimes if \( \rho' \leq \rho \).
+  The variable \( \& x \) need not be addressable using that name for \( \rho' \), but the underlying object may be transferred between different owners provided that the ownership remains within \( \rho' \), and hence within \( \rho \).
+\end{eg}
+If lifetimes are not stated explicitly in inference rules, lifetimes will implicitly be added to each of the premises independently such that the conclusion is valid for the intersection of the premises.
+\[ \inferrule{\mathcal J_1, \rho_1 \and \dots \and \mathcal J_n, \rho_n}{\mathcal J, \bigcap_{i=1}^n \rho_i} \]
+Inference rules where the lifetimes are given implicitly always respect lifetimes by construction.
+
+\subsection{Borrowing}
+
+\begin{defn}
+  The \textit{scope} of a bound variable \( x \) is the lambda term, which is the outermost expression for which the use of the name \( x \) is valid.
+  We say that a region \( \rho \) is \textit{in the scope of \( x \)} if \( \rho \) is a subregion of the region given by the scope of \( x \).
+
+  A bound variable has a set of \textit{borrowing regions} \( \rho_{\&} \) for which it is \textit{borrowed}.
+  Each such region contained within \( \rho_{\&} \) must lie in the scope of \( x \).
+  For a region \( \rho \) in the scope of \( x \), we say that \( x \) is \textit{borrowed} if \( \rho \leq \rho' \) for some \( \rho' \in \rho_{\&} \).
+  That is, \( x \) is considered to be borrowed in a region \( \rho \) if \( \rho \) is entirely contained inside a borrowing region.
+  For a region \( \rho \) in the scope of \( x \), we say that \( x \) is \textit{owned} if it is not borrowed.
+
+  Due to the hierarchical structure of expressions, it is not possible to have a region partially contained inside a borrowing region.
+  Hence, if \( x \) is owned in the region \( \rho \), \( \rho \) does not intersect with any borrowing regions.
+\end{defn}
+\begin{defn}
+  An expression \( e \) \textit{consumes} a variable \( x \) if its construction entails the use of an inference rule that consumes \( x \).
+  We say that \( e \) \textit{respects borrowing} if no bound variable is consumed while borrowed.
+\end{defn}
+Note that only the construction of variables is considered when determining borrowing.
+The values of such variables are not relevant.
+\begin{eg}
+  Consider the expression \( (f\ \&x)\ x \).
+  If the borrowing region used by \( \&x \) is \( f\ \&x \), then \( x \) is borrowed to execute \( f\ \&x \) and the borrow is subsequently released.
+  Then, while evaluating the argument \( x \), \( x \) is owned.
+  We can therefore evaluate \( (f\ \&x)\ x \) respecting borrowing.
+
+  Instead, suppose that the borrowing region used by \( \&x \) is the whole expression \( (f\ \&x)\ x \).
+  This can happen, for example, if the return type of \( f \) contains a lifetime constrained by that of its argument.
+  Here, \( \&x \) is borrowed while we try to evaluate the second argument \( x \).
+  This does not respect borrowing.
+\end{eg}
+
+Now, when discussing new inference rules, we must be careful to verify that these rules respect ownership and lifetimes.
+This analysis can be mostly performed before writing the compiler itself, leaving little analysis to be done at compile-time.
+Exceptions include, for instance, the handling of expressions like \( (f\ x)\ x \).
+This clearly does not respect ownership; \( x \) is consumed twice.
+However, this cannot be determined before compile-time.
+
+Then, when inference rules are applied in practice, we must check whether the expressions used in a given program respect borrowing.
+This is a compile-time check, known as the borrow checker.
+
+\section{Inference rules}
+
+\subsection{Unique construction}
+
+The construction of objects using inference rules defines a unique syntactic expression for constructing objects in this way.
+We will define inference rules such that there exists a unique way to construct any given object, ignoring computation rules.
+This will be known as the \textit{principle of unique construction}.
+The only minor exception to this rule is that both dependent and independent function types may be invoked in the same way, although this will not be a problem for most use cases of this principle.
+
+\subsection{Structural rules}
+
+Although we skip over many of the minutiae of rigorously defining a type system, we must state the following well-known structural rules \cite{hottbook}.
+Note that instead of formulating these laws using the logic of bound and unbound variables, we will use a function-based approach.
+The semantic difference is irrelevant for our practical purposes.
+We begin with the first Hindley-Milner rule, \textsc{Var}.
+\begin{mathpar}
+\inferrule*[right=Var]{\langle x, A, \rho \rangle \in \Gamma}{\Gamma \vdash x : A, \rho}
+\end{mathpar}
+Informally, \textsc{Var} states that the variable \( x \) may be constructed inside region \( \rho \) and kept alive throughout the region, and during that time it will have type \( A \).
+The distinction between monotypes and polytypes is not made here.
+
+We can see that this constructor respects ownership, since there are no consumed variables and no computations used as a premise.
+This rule respects lifetimes vacuously, since there is no judgment or judgmental equality in the premise.
+
+\subsection{Computation rules}
+
+We can simplify expressions, and the resulting value keeps the same type as the original expression.
+\begin{mathparpagebreakable}
+\inferrule*[right=\(\mapsto\)-\textsc{refl}]{\oftp\Gamma{a}{A}}{\Gamma\vdash a \mapsto a : A}
+\and
+\inferrule*[right=\(\equiv\)-\rintro]{\Gamma\vdash a \mapsto b : A\and \Gamma\vdash b \mapsto a : A}{\jdeqtp\Gamma{a}{b}{A}}
+\and
+\inferrule*[right=\(\equiv\)-\relim]{\jdeqtp\Gamma{a}{b}{A}}{\Gamma\vdash a \mapsto b : A}
+\and
+\inferrule*[right=\(\equiv\)-\textsc{symm}]{\jdeqtp\Gamma{a}{b}{A}}{\jdeqtp\Gamma{b}{a}{A}}
+\and
+\inferrule*[right=\(\mapsto\)-\textsc{trans}]{\Gamma\vdash a \mapsto b : A \\ \Gamma\vdash b \mapsto c : A}{\Gamma\vdash a \mapsto c : A}
+\and
+\inferrule*[right=\(\mapsto\)-\textsc{conv}${}_1$]{\oftp\Gamma{a}{A} \\ \Gamma\vdash A \mapsto B : \UU}{\oftp\Gamma{a}{B}}
+\and
+\inferrule*[right=\(\mapsto\)-\textsc{conv}${}_2$]{\Gamma\vdash a \mapsto b : A \\ \Gamma\vdash A \mapsto B : \UU}{\Gamma\vdash a \mapsto b : B}
+\end{mathparpagebreakable}
+% TODO: verify ownership
+
+\subsection{Let expressions}
+Where bound variables must be used, the syntax \( x.b \) specifically states that the name \( x \) is bound in expression \( b \).
+\begin{mathparpagebreakable}
+  \inferrule*[right=\textsc{Let-\rintro}]
+  {\oftp{\Gamma,\tmtp xA}{x.b}{B} \and \oftp\Gamma{a}{A}}
+  {\oftp\Gamma{\mathtt{let}\ x = a\ \mathtt{in}\ x.b}{B}}
+\and
+  \inferrule*[right=\textsc{Let-\rcomp}]
+  {\oftp{\Gamma,\tmtp xA}{x.b}{B} \and \oftp\Gamma{a}{A}}
+  {\jdeqtp\Gamma{\mathtt{let}\ x = a\ \mathtt{in}\ x.b}{a.b}{B}}
+\end{mathparpagebreakable}
+
+When binding \( a \) in \( b \) in \textsc{Let-\rcomp}, we assume that \( a \) is evaluated only once, and then its value is bound in \( b \).
+Note that \lstinline{let}-polymorphism is accomplished not through the type system itself, but through dependent function types as described below.
+
+\subsection{Independent function types}
+\begin{mathparpagebreakable}
+  \def\premise{\oftp{\Gamma}{A}{\UU} \and \oftp{\Gamma}{B}{\UU}}
+  \inferrule*[right=$\to$-\rform]
+    \premise
+    {\oftp\Gamma{A \to B}{\UU}}
+\and
+  \inferrule*[right=$\to$-\rintro]
+  {\oftp{\Gamma,\tmtp xA}{x.b}{B}}
+  {\oftp\Gamma{\lam{x:A} (x.b)}{A \to B}}
+\and
+  \inferrule*[right=$\to$-\relim]
+  {\oftp\Gamma{f}{A \to B} \\ \oftp\Gamma{a}{A}}
+  {\oftp\Gamma{f(a)}{B}}
+\and
+  \inferrule*[right=$\to$-\rcomp]
+  {\oftp{\Gamma,\tmtp xA}{x.b}{B} \\ \oftp\Gamma{a}{A}}
+  {\jdeqtp\Gamma{(\lam{x:A} (x.b))(a)}{a.b}{B}}
+\and
+  \inferrule*[right=$\to$-\runiq]
+  {\oftp\Gamma{f}{A \to B}}
+  {\jdeqtp\Gamma{f}{(\lam{y:A}f(y))}{A \to B}}
+\end{mathparpagebreakable}
+
+\subsection{Dependent function types (\texorpdfstring{$\Pi$}{Π}-types)}
+
+Type families such as \( B:A \to \UU \) are used frequently to circumvent the use of bound variables.
+The type family is not a dependent function type.
+We make an orthographic distinction between independent abstractions \( \lambda \) and dependent abstractions \( \Lambda \).
+Other authors use \( \Lambda \) to refer to \( \lambda \) abstractions where the bound variable is a type, but either independent or dependent abstractions may be used in Feather regardless of whether the bound variable is a type or a normal object.
+
+\begin{mathparpagebreakable}
+  \def\premise{\oftp{\Gamma}{A}{\UU} \and \oftp{\Gamma}{B}{A \to \UU}}
+  \inferrule*[right=$\Pi$-\rform]
+    \premise
+    {\oftp\Gamma{\tprd{x:A}B(x)}{\UU}}
+\and
+  \inferrule*[right=$\Pi$-\rintro]
+  {\oftp{\Gamma}{B}{A \to \UU} \and \oftp{\Gamma,\tmtp xA}{x.b}{B(x)}}
+  {\oftp\Gamma{\Lambda(x:A).\,(x.b)}{\tprd{x:A} B(x)}}
+\and
+  \inferrule*[right=$\Pi$-\relim]
+  {\oftp\Gamma{f}{\tprd{x:A} B(x)} \\ \oftp\Gamma{a}{A}}
+  {\oftp\Gamma{f(a)}{B(a)}}
+\and
+  \inferrule*[right=$\Pi$-\rcomp]
+  {\oftp{\Gamma}{B}{A \to \UU} \\ \oftp{\Gamma,\tmtp xA}{x.b}{B(x)} \\ \oftp\Gamma{a}{A}}
+  {\jdeqtp\Gamma{(\Lambda(x:A).\,(x.b))(a)}{a.b}{B(a)}}
+\and
+  \inferrule*[right=$\Pi$-\runiq]
+  {\oftp\Gamma{f}{\tprd{x:A} B(x)}}
+  {\jdeqtp\Gamma{f}{(\Lambda(x:A).\,f(y))}{\tprd{x:A} B(x)}}
+\end{mathparpagebreakable}
+
+Now that dependent function types have been created, the need for bound variables is no longer present.
+Due to the use of functions instead of bound variables, the elimination and computation rules for this type, as well as the unit type and other primitive types, will not be needed.
+
+\subsection{The empty type \texorpdfstring{$\emptyt$}{0}}
+Here, the antecedent \( \wfctx \Gamma \) is used to denote simply that \( \Gamma \) is a valid typing context, since no other antecedents are present.
+\begin{mathparpagebreakable}
+  \inferrule*[right=$\emptyt$-\rform]
+  {\wfctx\Gamma}
+  {\oftp\Gamma\emptyt{\UU}}
+\end{mathparpagebreakable}
+
+\subsection{Primitive types}
+\label{sec:prim_types}
+
+We assume the definition of the type \( \mathbb N \) of natural numbers \( 0, 1, \dots \), along with the usual arithmetic operations.
+\begin{defn}
+    An \textit{\( n \)-bit unsigned integer} is an element of \( \mathbb N \) strictly less than the value \( 2^n \).
+    That is, \( x \) is an \( n \)-bit unsigned integer if there exists a value \( y : \mathbb N \) such that \( x + y = 2^n \) and \( y \neq 0 \).
+    We construct the type of \( n \)-bit unsigned integers, written \( \mathbb N_n : \UU \).
+    To preserve uniqueness of types, we will write \( x_n \) to denote the instance of \( x \) of type \( \mathbb N_n \).
+    For clarity, the notation \( x_{\mathbb N_n} \) is also used.
+\end{defn}
+Let \( \mathbb Z \) be the type of all integers, created by generating a group from \( \mathbb N \) under addition.
+\begin{defn}
+    An \textit{\( n \)-bit signed integer} is an element of \( \mathbb Z \) not less than \( -2^{n-1} \), and strictly less than \( 2^{n-1} \).
+    Likewise we construct the type of \( n \)-bit signed integers, denoted \( \mathbb Z_n : \UU \).
+    Again, the notation \( x_n = x_{\mathbb Z_n} \) is used to refer to the instance of \( x \) that has type \( \mathbb Z_n \).
+\end{defn}
+\begin{defn}
+    For \( n = 16, 32, 64, 128, 256 \), we define the \textit{\( n \)-bit floating point} type \( \mathbb F_n : \UU \) to be the quotient of \( \mathbb N_n \) by the equivalence relation defined by the IEEE 754 standard for floating point representation.
+    Arithmetic is defined on this type as per the specification \cite{IEEE754}.
+\end{defn}
+\begin{defn}
+    We define the Boolean type \( \mathbb B : \UU \) with elements \( \qty{\bot, \top} \), conventionally named `false' and `true'.
+\end{defn}
+\begin{defn}
+    Let \( \mathbb U : \UU \) be the type of Unicode code points; its elements are 64-bit unsigned integers as defined above, tagged \( x_{\mathbb U} \) such that their type is not simply \( \mathbb N \).
+\end{defn}
+\begin{defn}
+    Let \( \emptyt \) be the \textit{empty type} with no elements.
+    Let \( \unit : \UU \) be the \textit{unit type} with one element \( \ttt : \unit \).
+\end{defn}
+These are exactly the primitive types used in Feather.
+\begin{defn}
+    An \textit{atom} is an element of type \( \mathbb N_n, \mathbb Z_n, \mathbb F_n, \mathbb B, \mathbb U, \emptyt, \unit \) for any valid \( n \).
+\end{defn}
+
+In the following rules, let \( \mathbb P \) denote a primitive type and let \( p \) be an arbitrary element of type \( \mathbb P \).
+
+\begin{mathparpagebreakable}
+  \inferrule*[right=$\mathbb P$-\rform]
+  {\wfctx\Gamma}
+  {\oftp\Gamma{\mathbb P}{\UU}}
+\and
+  \inferrule*[right=$\mathbb P$-\rintro]
+  {\wfctx\Gamma}
+  {\oftp\Gamma{p}{\mathbb P}}
+\end{mathparpagebreakable}
+For booleans, we provide an induction principle.
+\begin{mathparpagebreakable}
+  \inferrule*[right=$\mathbb B$-\relim]
+  {\oftp{\Gamma}{C}{\mathbb B \to \UU} \\\\
+   \oftp{\Gamma}{c_\bot}{\unit \to C(\bot)} \\
+   \oftp{\Gamma}{c_\top}{\unit \to C(\top)} \\\\
+   \oftp\Gamma{e}{\mathbb B}}
+  {\oftp\Gamma{\ind{\mathbb B}(C,c_\bot,c_\top,e)}{C(e)}}
+\and
+  \inferrule*[right=$\mathbb B$-\rcomp${}_\bot$]
+  {\oftp{\Gamma}{C}{\mathbb B \to \UU} \\
+   \oftp{\Gamma}{c_\bot}{\unit \to C(\bot)} \\
+   \oftp{\Gamma}{c_\top}{\unit \to C(\top)} \\\\
+   \oftp\Gamma{a}{A_j}}
+  {\jdeqtp\Gamma{\ind{\mathbb B}(C,c_\bot,c_\top,\bot)}{c_\bot(\ttt)}{C(\bot)}}
+\and
+  \inferrule*[right=$\mathbb B$-\rcomp${}_\top$]
+  {\oftp{\Gamma}{C}{\mathbb B \to \UU} \\
+   \oftp{\Gamma}{c_\bot}{\unit \to C(\bot)} \\
+   \oftp{\Gamma}{c_\top}{\unit \to C(\top)} \\\\
+   \oftp\Gamma{a}{A_j}}
+  {\jdeqtp\Gamma{\ind{\mathbb B}(C,c_\bot,c_\top,\top)}{c_\top(\ttt)}{C(\top)}}
+\end{mathparpagebreakable}
+Note that using the computation rule, this induction principle will only ever consume one of the two functions \( c_\bot \) and \( c_\top \).
+Therefore, a variable \( x \) may be consumed both by \( c_\bot \) and by \( c_\top \), and the induction principle will still respect ownership.
+
+\subsection{Product types}
+To aid in clarifying semantic meaning, we permit fields in a composite (product, dependent pair, coproduct) type to be named.
+In particular, the notation \( \bigtimes_{j=1}^n A_j \) represents the product of the types \( A_j \), together with optionally some information about the fields' names or documentation associated with each field.
+The precise information allowed will be clarified when syntax is discussed later.
+
+\begin{mathparpagebreakable}
+  \inferrule*[right=$\times$-\rform]
+    {\oftp{\Gamma}{A_1}{\UU} \and \cdots \and \oftp{\Gamma}{A_n}{\UU}}
+    {\oftp\Gamma{\bigtimes_{j=1}^n A_j}{\UU}}
+  \and
+  \inferrule*[right=$\times$-\rintro]
+    {\oftp\Gamma{a_1}{A_1} \and \cdots \and \oftp\Gamma{a_n}{A_n}}
+    {\oftp\Gamma{(a_1,\dots,a_n)}{\bigtimes_{j=1}^n A_j}}
+  \and
+  \inferrule*[right=$\times$-\relim]
+    {\oftp{\Gamma}{C}{\bigtimes_{j=1}^n A_j \to \UU} \\
+     \oftp{\Gamma}{g}{\tprd{x_1:A_1} \cdots \tprd{x_n:A_n} C((a_1,\dots,a_n))} \\
+     \oftp\Gamma{p}{\bigtimes_{j=1}^n A_j}}
+    {\oftp\Gamma{\ind{\bigtimes_{j=1}^n A_j}(C,g,p)}{C(p)}}
+  \and
+  \inferrule*[right=$\times$-\rcomp]
+    {\oftp{\Gamma}{C}{\bigtimes_{j=1}^n A_j \to \UU} \\\\
+     \oftp{\Gamma}{g}{\tprd{x_1:A_1} \cdots \tprd{x_n:A_n} C((a_1,\dots,a_n))} \\
+     \oftp\Gamma{a_1}{A_1} \and \cdots \and \oftp\Gamma{a_n}{A_n}}
+    {\jdeqtp\Gamma{\ind{\bigtimes_{j=1}^n A_j}(C,g,(a_1,\dots,a_n))}{g(a_1)\cdots(a_n)}{C((a_1,\dots,a_n))}}
+\end{mathparpagebreakable}
+
+\subsection{Dependent pair types (\texorpdfstring{$\Sigma$}{Σ}-types)}
+\begin{mathparpagebreakable}
+  \def\premise{\oftp{\Gamma}{A}{\UU} \and \oftp{\Gamma}{B}{A \to \UU}}
+  \inferrule*[right=$\Sigma$-\rform]
+    \premise
+    {\oftp\Gamma{\tsm{x:A} B(x)}{\UU}}
+  \and
+  \inferrule*[right=$\Sigma$-\rintro]
+    {\oftp{\Gamma}{B}{A \to \UU} \\
+     \oftp\Gamma{a}{A} \\ \oftp\Gamma{b}{B(a)}}
+    {\oftp\Gamma{\dtup ab}{\tsm{x:A} B(x)}}
+  \and
+  \inferrule*[right=$\Sigma$-\relim]
+    {\oftp{\Gamma}{C}{\tsm{x:A} B(x) \to \UU} \\
+     \oftp{\Gamma}{g}{\tprd{x:A} \tprd{y:B(x)} C(\dtup x y)} \\
+     \oftp\Gamma{p}{\tsm{x:A} B(x)}}
+    {\oftp\Gamma{\ind{\tsm{x:A} B(x)}(C,g,p)}{C(p)}}
+  \and
+  \inferrule*[right=$\Sigma$-\rcomp]
+    {\oftp{\Gamma}{C}{\tsm{x:A} B(x) \to \UU} \\\\
+     \oftp{\Gamma}{g}{\tprd{x:A} \tprd{y:B(x)} C(\dtup x y)} \\
+     \oftp\Gamma{a}{A} \\ \oftp\Gamma{b}{B(a)}}
+    {\jdeqtp\Gamma{\ind{\tsm{x:A} B(x)}(C,g,\dtup{a}{b})}{g(a)(b)}{C(\dtup a b)}}
+\end{mathparpagebreakable}
+
+\subsection{Coproduct types}
+
+Unlike the dependent pair type, where the second entry is dependent on the first, there is no inherent ordering associated with types in a coproduct.
+For this reason, we will define the coproduct of an arbitrary finite sequence of types \( \bigplus_{j=1}^n A_j \), instead of the conventional definition \( A + B \).
+In the following rules, let \( i \in \qty{1, \dots, n} \).
+\begin{mathparpagebreakable}
+  \inferrule*[right=$+$-\rform]
+  {\oftp\Gamma{A_1}{\UU} \\ \cdots \\ \oftp\Gamma{A_n}{\UU}}
+  {\oftp\Gamma{\bigplus_{j=1}^n A_j}{\UU}}
+\and
+  \inferrule*[right=$+$-\rintro]
+  {\oftp\Gamma{a}{A_i}}
+  {\oftp\Gamma{\inj_i(a)}{\bigplus_{j=1}^n A_j}}
+\and
+  \inferrule*[right=$+$-\relim]
+  {\oftp{\Gamma}{C}{\bigplus_{j=1}^n A_j \to \UU} \\\\
+   \oftp{\Gamma}{c_1}{\tprd{x_1:A_1} C(\inj_1(x_1))} \\
+   \cdots \\
+   \oftp{\Gamma}{c_n}{\tprd{x_n:A_n} C(\inj_n(x_n))} \\\\
+   \oftp\Gamma{e}{\bigplus_{j=1}^n A_j}}
+  {\oftp\Gamma{\ind{\bigplus_{j=1}^n A_j}(C,c_1,\dots,c_n,e)}{C(e)}}
+\and
+  \inferrule*[right=$+$-\rcomp]
+  {\oftp{\Gamma}{C}{\bigplus_{j=1}^n A_j \to \UU} \\
+   \oftp{\Gamma}{c_1}{\tprd{x_1:A_1} C(\inj_1(x_1))} \\
+   \cdots \\
+   \oftp{\Gamma}{c_n}{\tprd{x_n:A_n} C(\inj_n(x_n))} \\\\
+   \oftp\Gamma{a}{A_k}}
+  {\jdeqtp\Gamma{\ind{\bigplus_{j=1}^n A_j}(C,c_1,\dots,c_n,\inj_k(a))}{c_k(a)}{C(\inj_k(a))}}
+\end{mathparpagebreakable}
+
+\subsection{Borrowed types}
+
+To use an ownership-based memory model, we will create borrowed types.
+Note that lifetimes are not considered to be part of an object's type, they are a tag attached to a judgment or judgmental equality.
+These rules interact with ownership and lifetimes in deep ways, and each such rule will be discussed.
+
+% TODO: talk more about these rules specifically
+
+\begin{mathparpagebreakable}
+  \inferrule*[right=$\mathcal B$-\rform]
+    {\oftp{\Gamma}{A}{\UU}}
+    {\oftp\Gamma{\mathcal B(A)}{\UU}}
+  \and
+  \inferrule*[right=$\mathcal B$-\rintro]
+    {\oftp{\Gamma}{A}{\UU,\rho_A} \\
+     \oftp\Gamma{a}{A,\rho_a} \\
+     \rho \leq \rho_A \cap \rho_a}
+    {\oftp\Gamma{\& a}{\mathcal B(A), \rho}}
+\end{mathparpagebreakable}
+We say that the $\mathcal B$-\rintro{} rule does \textit{not} consume the variable \( a \) or the type \( A \).
+The type \( A \) is given here simply to emphasise that \( \& a \) must have a lifetime that does not exceed that of \( A \).
+Further, we state that \( a \) is borrowed for \( \rho \).
+\begin{mathparpagebreakable}
+  \inferrule*[right=$\mathcal B$-\relim]
+    {\oftp{\Gamma}{C}{\mathcal B(A) \to \UU,\rho_C} \\\\
+     \oftp{\Gamma}{g}{\tprd{x:A} C(\& x),\rho_g} \\
+     \oftp\Gamma{p}{\mathcal B(A),\rho_p}}
+    {\oftp\Gamma{\ind{\mathcal B(A)}(C,g,p)}{C(p)}}
+  \and
+  \inferrule*[right=$\mathcal B$-\rcomp]
+    {\oftp{\Gamma}{C}{\mathcal B(A) \to \UU} \\\\
+     \oftp{\Gamma}{g}{\tprd{x:A} C(\& x)} \\
+     \oftp\Gamma{a}{A}}
+    {\jdeqtp\Gamma{\ind{\mathcal B(A)}(C,g,\& a)}{g(a)}{C(\& a)}}
+\end{mathparpagebreakable}
+The $\mathcal B$-\relim{} rule amounts to the ability to copy the value of a variable from behind a borrow.
+
+% TODO: prove uniqueness rules
+
+\section{Functions and operations}
+
+In this section, we discuss the primitive operations that can be performed on objects.
+
+\subsection{Recursors}
+
+Note that the induction principle is not a function but an atomic syntactic expression.
+If we were to create an induction function, it would not necessarily respect ownership in the same way that the atomic induction principle does.
+For example, the induction principle for the boolean type uses functions \( c_\bot \) and \( c_\top \), but only one of those functions is ever evaluated in the induction principle.
+When viewed as a function, however, we may partially apply \( \ind{\mathbb B} \) to \( c_\bot \) and \( c_\top \).
+The conclusion of this constructor will contain both \( c_\bot \) and \( c_\top \) in its conclusion, so ownership is not respected.
+\begin{defn}
+  The \textit{recursor} for the product type is
+  \begin{align*}
+    \rec{\bigtimes_{j=1}^n A_j}' \defeq &\ \Lambda\qty(C:\bigtimes_{j=1}^n A_j \to \UU).\,\lambda\qty(g:A_1 \to \dots \to A_n \to C).\\
+    &\Lambda\qty(x:\bigtimes_{j=1}^n A_j).\,\ind{\bigtimes_{j=1}^n A_j}(C,\widetilde g,x)
+  \end{align*}
+  where
+  \[
+    \widetilde g \defeq \prd{x_1:A_1} \cdots \prd{x_n:A_n} g(x_1, \dots, x_n) : \prd{x_1:A_1} \cdots \prd{x_n:A_n} C
+  \]
+  with type
+  \[
+    \rec{\bigtimes_{j=1}^n A_j} : \prd{C:\UU} (A_1 \to \dots \to A_j \to C) \to \bigtimes_{j=1}^n A_j \to C
+  \]
+\end{defn}
+We will often use the recursor atomically, not as a function.
+This will allow us to make stronger lifetime guarantees.
+
+We can analogously define the recursor for an arbitrary type with an induction function.
+For instance, the recursor for the coproduct type has the following type, and is defined in a similar way; converting many of the dependent functions in the induction principle into independent functions.
+\[
+  \rec{\bigplus_{j=1}^n A_j} : \prd{C:\UU} (A_1 \to C) \to \cdots \to (A_n \to C) \to \bigplus_{j=1}^n A_j \to C
+\]
+The induction principle and the recursor function both allow us to define expressions via pattern matching.
+However, the recursor allows for easier type deduction when the resulting type of each branch is fixed.
+In particular, the recursor allows for `if-else' constructions using the boolean type.
+\[
+  \rec{\mathbb B} : \prd{C:\UU} \underbrace{(\unit \to C)}_{\text{false branch}} \to \underbrace{(\unit \to C)}_{\text{true branch}} \to \mathbb B \to C
+\]
+In particular, since only one branch of the recursor for boolean types is ever evaluated, this `if-else' construction respects ownership if its component functions do.
+
+\subsection{Primitive operations}
+
+The primitive types offer various primitive operations, such as arithmetic and logic operations.
+These operations, together with the inference rules defined above, characterise exactly the core functionality of Feather's expressions.
+
+\chapter{Syntax}
+
+\iffalse{}
+\section{Conventions regarding S-expressions and Feather expressions}
+
+\subsection{Typing}
+
+Previously, we have created types of S-expressions for Feather's syntax.
+For example, \lstinline{(const false)} has type \lstinline{Expr}.
+There is a need to distinguish between the type of an S-expression and the type of the Feather expression it represents.
+These two type systems are logically distinct; the existence of an S-expression type does not imply the existence of a corresponding Feather type, or vice versa.
+
+We define \( \mathcal T(e) \) to be the Feather type of an S-expression \( e : \) \lstinline{Expr}.
+
+Unless otherwise stated, all types in all following sections refer to the Feather type system, so \( x : \tau \) should be interpreted as the judgment `\( x \) is a Feather expression with type \( \tau \)'.
+Further, the word `expression' should be taken to mean `Feather expression'.
+
+\subsection{De Bruijn indices}
+
+While de Bruijn indices are useful when processing Feather algorithmically, they are inconvenient to use when discussing the language at a higher level.
+To this end, from now on unless otherwise stated, constructs using a de Bruijn index will instead be written as if they use a named variable.
+Likewise, binding expressions will be written as if they bind their variables to names.
+\fi{}
+
+\section{Mathematical notation}
+
+The previous description of the Feather type and computation system was entirely mathematical.
+We will now move away from that idealism, providing syntactic and semantic building blocks that emulate the mathematical behaviour defined in the previous chapter.
+This allows us to prove logical statements about Feather using the mathematical formalism, while permitting a more programmer-friendly and more practical representation that can be encoded in a text file.
+
+Feather has two representations, an \textit{in-memory} representation, and a \textit{textual} representation.
+These two representations fundamentally encode the same data; they are in isomorphism.
+Hence, we will discuss here the textual representation, and leave the in-memory representation as an implementation detail.
+
+\section{S-expressions}
+
+\subsection{Binary representations}
+% TODO: move this section to the part where we actually generate machine code
+\begin{defn}
+    A \textit{(binary) representation} of a type \( A : \mathcal U \) is an injective function
+    \[ \rho : A \to \mathbb B^n \]
+    for some \( n : \mathbb N \).
+    We say that \( \rho \) represents \( A \) in \( n \) bits.
+    Since \( \rho \) is injective, this implicitly defines the surjective function \( \rho^{-1} : \mathbb B^n \to A \) such that \( \rho^{-1} \circ \rho \equiv \mathrm{id}_A \).
+    Note that if some \( x : \mathbb B^n \) is not contained in the image of \( \rho \), its value under \( \rho^{-1} \) is undefined \textit{a priori}.
+\end{defn}
+\begin{defn}
+    A representation \( \rho : A \to \mathbb B^n \) in \( n \) bits is \textit{minimal} if, for all representations \( \sigma : A \to \mathbb B^m \) in \( m \) bits, we have \( m \geq n \).
+    That is, the amount of bits required for the representation of \( \rho \) is minimal.
+\end{defn}
+\begin{defn}
+    The canonical binary expansion for \( \mathbb N_n \), written \( \rho_{\mathbb N_n} \), is the base-2 representation of a number using \( n \) bits, where \( \top \) corresponds to a one, and \( \bot \) corresponds to a zero.
+    The representation \( \rho_{\mathbb Z_n} \) works similarly, using two's complement.
+    Floating-point representations are constructed in a similar way.
+    Booleans are represented in a single bit using the identity map.
+    The representation of Unicode code points uses a full 32 bits for convenience of word size.
+    The unit type is represented in zero bits.
+\end{defn}
+It is then trivial to prove the following lemma.
+\begin{lem}
+    The canonical representations of atomic types, with the exception of \( \mathbb U \), are minimal.
+\end{lem}
+
+\subsection{Expressions and schemas}
+\begin{defn}
+    A \textit{symbol} is a string of Unicode code points, written as a string.
+    The type of symbols is \( \mathbb S \).
+    When written textually, symbols must be \textit{escaped} in such a way that they are unambiguously symbols.
+    If the symbol contains any non-letter characters, symbols should be surrounded with quote marks \lstinline{"} to disambiguate them.
+    Standard C character escaping should be used to represent control characters and quote marks.
+\end{defn}
+\begin{defn}
+    An \textit{S-expression} is either an atom, a symbol, or a list of S-expressions, denoted \lstinline{(x y ... z)} where \lstinline{x}, \lstinline{y}, \lstinline{z} are S-expressions.
+    A \textit{schema} is a prescribed form of an S-expression; it ascribes types to S-expressions that fit a certain form.
+    The symbols \lstinline{*} and \lstinline{+} are used as in Backus-Naur form.
+    Note that \lstinline{T*}, for example, is not an S-expression alone; it is a list of S-expressions which must be parenthesised in order to form an S-expression.
+\end{defn}
+
+\section{Expression syntax}
+
+\subsection{Context-free semantics}
+
+Expressions in Feather are context-free, in the sense that an arbitrary expression may be bound to an arbitrary name or instanced inline with no change in program semantics.
+This assertion assumes that names have been resolved (for instance, by the Quill language frontend).
+In particular, we may apply rules from the lambda calculus, which will be codified in the form of computation rules, to simplify terms.
+In the practical case, this is only true after type checking has been completed, since types returned as values from functions are considered different to the values themselves.
+
+\subsection{Identifiers}
+
+The following schemas specify identifiers and related types.
+
+\begin{tabular}{r l p{6cm}}
+    \lstinline!Span! \( ::= \) & \lstinline!(!\( \mathbb N_{32} \) \( \mathbb N_{32} \)\lstinline!)! & start location (inclusive), then end location (exclusive) \\
+    \lstinline!Name! \( ::= \) & \( \mathbb S \)\lstinline! | (!\( \mathbb S \)\lstinline! Span)! & the symbol itself then optionally the span at which it was written \\
+    \lstinline!QualifiedName! \( ::= \) & \lstinline!(Name+)! & list of one or more name segments
+\end{tabular}
+
+A \textit{location} represents a place in some input code, represented as an amount of Unicode code points from the start of the file.
+Since Feather is an IL, locations refer to a place inside a file of Quill code.
+This allows error messages and debug symbols to refer to the original code.
+A \textit{span} refers to a region of code, delimited by two locations, typically a single token or token tree.
+
+Feather distinguishes between \textit{names}, which are single symbols representing in-scope items, and \textit{qualified names}, which represent a module hierarchy and then optionally refer to an item inside that hierarchy, depending on context.
+Importantly, a qualified name with only one name segment is \textit{not} a name.
+
+\subsection{Primitives}
+
+\begin{tabular}{r l p{7cm}}
+    \lstinline!Primitive! \( ::= \) & \( \mathbb Z_{n} \)\lstinline! | !\( \mathbb N_{n} \)\lstinline! | !\( \mathbb F_{n} \)\lstinline! | !\( \mathbb U \)\lstinline! | !\( \mathbb B \)\lstinline! | !\( \ttt \) \\
+    \lstinline!PrimitiveType! \( ::= \) & \lstinline!Int!\( n \)\lstinline! | Uint!\( n \)\lstinline! | Float!\( n \)\lstinline! | Char | Bool | Unit | Empty!
+\end{tabular}
+
+The \( n \) above may be substituted for valid integers.
+
+\subsection{Expressions}
+
+The type of expressions is \lstinline{Expr}.
+Expressions are organised into tree structures.
+There exists a partial function \( p : \) \lstinline{Expr} \( \to \) \lstinline{Expr} which yields the parent expression if it exists.
+
+\begin{defn}
+    An expression is called \( n \)-\textit{binding}, or an \( n \)-\textit{binder}, if it creates \( n \) new local variables, assigning them values.
+    An expression that binds no new local variables is called \textit{non-binding}.
+
+    A single expression may be binding and non-binding in different contexts.
+    In particular, an expression's binding nature must be viewed from the perspective of one of its children.
+\end{defn}
+
+\begin{defn}
+    The \textit{ancestors} of an expression are the expressions from which it can use variables.
+    If there is a parent expression, it is an ancestor, and all of its ancestors are also ancestors.
+\end{defn}
+
+\begin{defn}
+    Let \( e \) be an expression, \( b \) be an \( n \)-binding ancestor of \( e \), and \( m \in \qty{0, \dots, n-1} \).
+    The \textit{de Bruijn index} of \( c \) from \( e \), written \( i_e(b, m) \), is a constant referring to the \( m \)th bound variable in the binding expression \( x \).
+    In particular,
+    \[ i_e(b, m) = \begin{cases}
+        i_{p(e)}(b, m) & \text{if } p(e) \neq b \text{ and is non-binding} \\
+        i_{p(e)}(b, m) + k & \text{if } p(e) \neq b \text{ exists and is } k \text{-binding} \\
+        n - m - 1 & \text{if } p(e) = b \\
+    \end{cases} \]
+    This definition orders all bound variables in reverse order, assigning them de Bruijn indices of sequential natural numbers.
+    Note that \( p(e) \) will always exist and this algorithm will always terminate since \( b \) was defined to be an ancestor of \( e \).
+\end{defn}
+
+Now that the requisite definitions have been made, we can define the schemas for expressions.
+
+\begin{tabular}{r l p{7cm}}
+    \lstinline!DeBruijnIndex! \( ::= \) & \( \mathbb N_{32} \) \\
+    \lstinline!ExprContents! \( ::= \) & \( \dots \) \\
+    \lstinline!ExprInfo! \( ::= \) & \lstinline!(at Span) | (ty Expr)! \\
+    \lstinline!Expr! \( ::= \) & \lstinline!ExprContents | (expr ExprContents ExprInfo*)!
+\end{tabular}
+
+Any variant of the \lstinline{ExprInfo} tag may only be supplied once per expression.
+The variants for the \lstinline{ExprContents} type will be described in the following section.
+
+The expressions may have additional information attached to them, denoting the location in code where the expression was written, the variable's type (which itself is an expression), or its name if one was given in Quill code.
+%The semantic meaning of each expression will be explored later; for now, it suffices to define which expressions are binders.
+%In particular, \lstinline{lambda} expressions are 1-binding, \lstinline{destructure n} expressions are \( n \)-binding, and all other expressions defined here are non-binding.
+
+\section{Expression contents}
+
+There are many types of expression in Feather, which are the variants of the \lstinline{ExprContents} type.
+Each will be discussed in this section.
+When describing schemas, we will use syntax such as \( x:A \)\lstinline! T!.
+This represents a Feather expression or value \( x \) of type \( A \), with S-expression type \lstinline{T}.
+If a given value is not a Feather expression or value, we might instead simply write \( x:\ \)\lstinline{T} to denote that \( x \) has S-expression type \lstinline{T}.
+
+% TODO: reorder all the subsections to match the inference rules' order
+
+\subsection{Instantiation}
+\begin{lstlisting}[mathescape=true]
+(local $x:A$ DeBruijnIndex)$ \;\longleftrightarrow\; x:A $
+\end{lstlisting}
+This expression represents the bound variable described by the de Bruijn index.
+This typically transfers ownership of the bound variable \( x \).
+\begin{lstlisting}[mathescape=true]
+(inst QualifiedName)
+\end{lstlisting}
+This expression instances the object described by the given qualified name.
+Typically, a function call must be executed to evaluate the result of this expression.
+\begin{lstlisting}[mathescape=true]
+(reducety $e:A$ Expr $B:\UU$ Expr)$ \;\longleftrightarrow\; e : B $
+(expandty $e:A$ Expr $B:\UU$ Expr)$ \;\longleftrightarrow\; e : B $
+\end{lstlisting}
+Superficially, the two above expressions perform a very similar function; they apply the \( \equiv \)-\textsc{conv}${}_1$ rule to alter the type of a variable to an equivalent type without altering its value.
+However, the way in which they perform their functions differ greatly.
+In \lstinline{reducety}, the value $A$ is evaluated, and its value is compared to $B$.
+In particular, we gradually evaluate any part of $A$ that is different to $B$ until they match or we can see that the two types are irreconcilably different.
+This is an actual computation of a Feather expression, so we must take care to forbid infinite loops or otherwise arduous code execution.
+Conversely, in \lstinline{expandty}, $B$ is evaluated until it matches $A$.
+By the Church-Rosser theorem (specifically, a version of this theorem proven for our type system), an instance of \lstinline{reducety} composed with an instance of \lstinline{expandty} is sufficient to convert between any two equivalent types.
+
+\subsection{Borrowed values}
+\begin{lstlisting}[mathescape=true]
+(borrow $x:A$ DeBruijnIndex)$ \;\longleftrightarrow\; \&x:\mathcal B(A) $
+\end{lstlisting}
+This expression constructs a borrow of the bound variable described by the de Bruijn index.
+The region \( \rho \) of the borrow is to be determined by the borrow checker, and is not written explicitly.
+\begin{lstlisting}[mathescape=true]
+(copy $e:\mathcal B(A)$ Expr)$ \;\longleftrightarrow\; \rec{\mathcal B(A)}(A, \mathrm{id}_A, e): A $
+\end{lstlisting}
+This copies the value behind the expression \( e \), which is a borrow of an object of some type \( A \).
+The recursor is used to extract the value from behind the borrow.
+% TODO: dereference to contained borrowed types?
+
+\subsection{Let expressions}
+\begin{lstlisting}[mathescape=true]
+(let $e:A$ Expr $f:B$ Expr)$ \;\longleftrightarrow\; \mathtt{let}\ x:A = e\ \mathtt{in}\ x.f : B $
+\end{lstlisting}
+Let expressions allow us to formalise the notion of applying a function immediately after creating the function.
+Consider the following pseudocode transformation.
+\begin{lstlisting}
+let x = e1 in e2 => (lambda x . e2) e1
+\end{lstlisting}
+This would remove the need for explicit \lstinline{let} expressions in Feather.
+However, the behaviour of the \lstinline{lambda} abstraction as a closure could interfere with borrow checking and potentially slow program execution by abstracting expressions into external functions unnecessarily.
+
+When calculating de Bruijn indices in expression \( e \), the \lstinline{let} expression is considered a zero-binder.
+In expression \( f \), the \lstinline{let} expression is considered a 1-binder.
+
+\subsection{Abstractions and function application}
+\begin{lstlisting}[mathescape=true]
+(lambda $n:\mathbb N_{32}$ $e:A$ Expr)$ \;\longleftrightarrow\; \lambda x_1 \dots \lambda x_n\,.\,(x_1\dots x_n.e:A) $
+\end{lstlisting}
+
+This expression creates a \( \lambda \) abstraction.
+The type of the abstracted variables are not given, and are implicit from the type of the lambda itself.
+Note that no variable names are given for the new bound variables in the S-expression form; they can be addressed using de Bruijn indices.
+This expression is an \( n \)-binder.
+
+In order to compile Feather to machine code, we need to convert closures into functions that do not capture any variables.
+This means that we need a primitive notion of a multi-argument \( \lambda \) abstraction.
+Consider \( \lam{x}{y} x.y.z \).
+Here, \( x \) is bound in \( z \), but this is only possible if the inner \( \lambda \) captures the \( x \) from the outer \( \lambda \).
+By default, \( \lambda \) abstractions may capture outer variables, but they will later be converted into functions that do not capture outer variables.
+
+\begin{lstlisting}[mathescape=true]
+(ffunc $A:\UU$ Expr $B:\UU$ Expr)$ \;\longleftrightarrow\; (A \to B) $
+\end{lstlisting}
+
+This expression allows us to form the function type.
+
+\begin{lstlisting}[mathescape=true]
+(dlambda $B:A \to \UU$ Expr $e:B(x)$ Expr)$ \;\longleftrightarrow\; \Lambda (x:A)\,.\,(x.e:B(x)) $
+(fdfunc $A:\UU$ Expr $B:A \to \UU$ Expr)$ \;\longleftrightarrow\; \tprd{x:A} B(x) $
+\end{lstlisting}
+
+The prefix \lstinline{d} refers to dependence.
+Dependent \( \Lambda \) abstractions need not be multiply binding, since they never appear in final compiled builds, so do not need to have their captured variables checked.
+This expression is considered non-binding from the perspective of \( B \), and 1-binding from the perspective of \( e \).
+
+\begin{lstlisting}[mathescape=true]
+(ap $e:A \to B$ Expr $x:A$ DeBruijnIndex)$ \;\longleftrightarrow\; e\ x:B $
+\end{lstlisting}
+
+We can apply parameters to functions, provided that the parameter is bound in a local.
+This restriction is known as A-normal form.
+
+\begin{lstlisting}[mathescape=true]
+(dap $e:\tprd{x:A} B(x)$ Expr $x:A$ DeBruijnIndex)$ \;\longleftrightarrow\; e\ x:B(x) $
+\end{lstlisting}
+
+\subsection{Primitive types}
+The prefix \lstinline{f} refers to a \rform{} rule, and \lstinline{i} refers to an \rintro{} rule.
+The word `rune', referring to the type \( \mathbb U \), is intended to distinguish from conventional use of the word `char' in the C family of languages, which may not be sufficiently large to encode an arbitrary Unicode code point.
+\begin{lstlisting}[mathescape=true]
+(funiverse)$ \;\longleftrightarrow\; \UU : \UU $
+(fu$n$)$ \;\longleftrightarrow\; \mathbb N_{n} : \UU $
+(fi$n$)$ \;\longleftrightarrow\; \mathbb Z_{n} : \UU $
+(ff$n$)$ \;\longleftrightarrow\; \mathbb F_{n} : \UU $
+(fbool)$ \;\longleftrightarrow\; \mathbb B : \UU $
+(frune)$ \;\longleftrightarrow\; \mathbb U : \UU $
+(fempty)$ \;\longleftrightarrow\; \emptyt : \UU $
+(funit)$ \;\longleftrightarrow\; \unit : \UU $
+
+(iu$n$ $u:\mathbb N_{n}$)$ \;\longleftrightarrow\; u: \mathbb N_{n} $
+(ii$n$ $i:\mathbb Z_{n}$)$ \;\longleftrightarrow\; i: \mathbb Z_{n} $
+(if$n$ $f:\mathbb F_{n}$)$ \;\longleftrightarrow\; f: \mathbb F_{n} $
+(ifalse)$ \;\longleftrightarrow\; \bot: \mathbb B $
+(itrue)$ \;\longleftrightarrow\; \top: \mathbb B $
+(irune $u:\mathbb U$)$ \;\longleftrightarrow\; u: \mathbb U $
+(iunit)$ \;\longleftrightarrow\; \ttt : \unit $
+\end{lstlisting}
+We can also use the recursor for the boolean type to construct an `if-else' expression.
+Note the change in argument order from a typical `if-else' expression.
+\begin{lstlisting}[mathescape=true]
+(if $f: \unit \to C$ Expr $t: \unit \to C$ Expr $b: \mathbb B$ Expr)$ \;\longleftrightarrow\; \rec{\mathbb B}(C,f,t,b): C $
+(dif $C: \mathbb B \to \UU$ $f: \unit \to C(\bot)$ Expr $t: \unit \to C(\top)$ Expr $b: \mathbb B$ Expr)
+    $\longleftrightarrow\; \ind{\mathbb B}(C,f,t,b): C(b) $
+\end{lstlisting}
+
+\subsection{Composite types}
+Previously, we stated that composite types may carry extra information about field names and documentation.
+Now, we will define exactly what extra information may be given.
+A composite type comprises \textit{components}.
+A component is called a \textit{field} in a product type, and a \textit{variant} in a coproduct type.
+
+\begin{tabular}{r l p{7cm}}
+  \lstinline!ComponentInfo! \( ::= \) & \lstinline!(doc !\( \mathbb S \)\lstinline!)! \\
+  \lstinline!Component! \( ::= \) & \lstinline!(!\( \mathbb S \)\lstinline! Expr ComponentInfo*)!
+\end{tabular}
+
+The \lstinline{Expr} in a component evaluates to the type of the component, and the \( \mathbb S \) denotes its name.
+Types that differ only in their component information are considered to be equal.
+
+We can create Feather expressions to execute the \( \times \)-\rform, \( \times \)-\rintro, and \( \times \)-\relim{} rules.
+The syntax \( A:\UU \)\lstinline! Component! should be interpreted to mean a component whose contained type is \( A \), and which may have extra component information.
+The prefix \lstinline{e} refers to the elimination rule \( \mathsf{ind} \), and the prefix \lstinline{m} refers to a pattern match operation.
+% TODO: Update this
+% TODO: Should we use A-normal form on things like `[f/i/m/e]prod` - forcing them to be bound variables?
+\begin{lstlisting}[mathescape=true]
+(fprod $A_1:\UU$ Component $\dots$ $A_n:\UU$ Component)$ \;\longleftrightarrow\; \bigtimes_{j=1}^n A_j: \UU $
+(iprod $e_1:A_1$ Expr $\dots$ $e_n:A_n$ Expr)$ \;\longleftrightarrow\; (e_1,\dots, e_n): \bigtimes_{j=1}^n A_j $
+(mprod (Name*) $p:\bigtimes_{j=1}^n A_j$ Expr $e:C$ Expr)
+    $\longleftrightarrow\; \rec{\bigtimes_{j=1}^n A_j}(C,(\lam{x_1:A_1}\dots\lam{x_n:A_n} x_1\dots x_n . e),p): C $
+(eprod (Name*) $C : \bigtimes_{j=1}^n A_j \to \UU$ Expr
+  $g : A_1 \to \dots \to A_n \to C$ Expr $p:\bigtimes_{j=1}^n A_j$ Expr)
+    $\longleftrightarrow\; \ind{\bigtimes_{j=1}^n A_j}(C,g,p): C(p) $
+\end{lstlisting}
+Note that the recursor and induction function are used atomically here, not as functions.
+This helps us with ownership rules later.
+The \lstinline{(Name*)} parameter lists the names of each field in the product type.
+
+The \lstinline{mprod} rule, defined using the recursor, allows us to perform pattern-matching operations without introducing a \lstinline{lambda} abstraction at the Feather level, even if a \( \lambda \)-abstraction is used at the mathematical level.
+This is an \( n \)-binder only from the perspective of the body \( e \).
+We cannot similarly define \lstinline{eprod} inline in this way; since its return type is determined by a function's result, it must be encased in a function.
+Consider a hypothetical rule
+\begin{lstlisting}[mathescape=true]
+(rprod (Name*) $g : A_1 \to \dots \to A_n \to C$ Expr $p:\bigtimes_{j=1}^n A_j$ Expr)
+    $\longleftrightarrow\; \rec{\bigtimes_{j=1}^n A_j}(C,g,p): C $
+\end{lstlisting}
+This can be encoded precisely by setting
+\[ x_1\dots x_n . e = g(x_1, \dots, x_n) \]
+in \lstinline{mprod}.
+This is equivalent by \( \to \)-\runiq, so the direct existence of the recursor as a Feather expression is unnecessary.
+We similarly define
+\begin{lstlisting}[mathescape=true]
+(fpair $A:\UU$ Component $B:A \to \UU$ Component)$ \;\longleftrightarrow\; \tsm{x:A} B(x) : \UU $
+(ipair $a:A$ Expr $b:B(a)$ Expr)$ \;\longleftrightarrow\; \sigma(a,b) : \tsm{x:A} B(x) $
+(rpair $g: \tprd{x:A} B(x) \to C$ Expr $p:\tsm{x:A}B(x)$ Expr)
+    $\longleftrightarrow\; \rec{\tsm{x:A} B(x)} (C,g,p): C $
+(epair $C:\tsm{x:A}B(x)\to\UU$ Expr $g: \tprd{x:A} B(x) \to C$ Expr $p:\tsm{x:A}B(x)$ Expr)
+    $\longleftrightarrow\; \ind{\tsm{x:A} B(x)} (C,g,p): C(p) $
+\end{lstlisting}
+The type annotation for \lstinline{ipair} is used to determine the function \( B \), since this is not uniquely determined by \( a \) and \( b \) alone.
+Finally, we define
+\begin{lstlisting}[mathescape=true]
+(fcoprod $A_1:\UU$ Component $\dots$ $A_n:\UU$ Component)$ \;\longleftrightarrow\; \bigplus_{j=1}^n A_j: \UU $
+(icoprod $n:\mathbb N_{32}$ $e:A$ Expr)$ \;\longleftrightarrow\; \inj_n(e): \bigplus_{j=1}^n A_j $
+(mcoprod $p:\bigplus_{j=1}^n A_j$ Expr $e_1 : C$ Expr $\dots$ $e_n : C$ Expr)
+    $\longleftrightarrow\; \rec{\bigplus_{j=1}^n A_j}(C,\lam{x:A_1} x.g_1,\dots,\lam{x:A_n} x.g_n,p): C $
+(ecoprod $C:\bigplus_{j=1}^n A_j\to\UU$ Expr $e_1 : A_1 \to C$ Expr $\dots$ $e_n : A_n \to C$ Expr
+  $p:\bigplus_{j=1}^n A_j$ Expr)
+    $\longleftrightarrow\; \ind{\bigplus_{j=1}^n A_j}(C,g_1, \dots, g_n,p): C(p) $
+\end{lstlisting}
+No \( n \) is required in \lstinline{rcoprod} and \lstinline{ecoprod}, since the number of variants is implicit from the arity of the S-expression itself.
+Similarly to with the dependent pair type, the type annotation for \lstinline{icoprod} is used to determine the possible variants for the coproduct.
+Note that we can create recursive definitions here by, for example, encasing an \lstinline{fcoprod} inside a function, and then using an \lstinline{inst} to instance that name inside its own definition.
+This is the same procedure as is used in making recursive function definitions.
+
+% \subsection{Blanks}
+% TODO: add expressions that do nothing but serve to have their types or other info inferred
+
+\section{Top-level hierarchy}
+
+\subsection{Modules}
+
+Expressions are stored for use in definitions.
+Definitions are contained within modules.
+Modules are each stored as their own S-expressions, and are not contained within any parent object.
+
+\begin{tabular}{r l p{7cm}}
+    \lstinline!Visibility! \( ::= \) & \lstinline!pub | priv! \\
+    \lstinline!DefInfo! \( ::= \) & \lstinline!(at Span) | (ty Expr) | (vis Visibility) | (doc !\( \mathbb S \)\lstinline!)! \\
+    \lstinline!Def! \( ::= \) & \lstinline!(def Name (DefInfo*) Expr)! \\
+    \lstinline!ModuleInfo! \( ::= \) & \lstinline!(file QualifiedName) | (doc !\( \mathbb S \)\lstinline!)! \\
+    \lstinline!Module! \( ::= \) & \lstinline!(module (ModuleInfo*) Def*)!
+\end{tabular}
+
+If present, a \lstinline{doc} tag represents documentation for the definition or module in question.
+Any variant of the \lstinline{DefInfo} or \lstinline{ModuleInfo} tags may only be supplied once per definition or module.
+Definitions must have unique names within a module.
+
+\subsection{Projects}
+
+A project is comprised of a hierarchical structure of modules.
+Since modules are not stored inside a parent object, the descriptions of modules inside projects simply refer to the name of the module.
+The module itself can then be loaded from disk when necessary.
+% TODO: sort out dependencies
+
+\begin{tabular}{r l p{7cm}}
+    \lstinline!ProjectInfo! \( ::= \) & \lstinline!(doc !\( \mathbb S \)\lstinline!)! \\
+    \lstinline!ProjectModule! \( ::= \) & \lstinline!(module QualifiedName)! \\
+    \lstinline!Project! \( ::= \) & \lstinline!(project !\( \mathbb S \)\lstinline! ProjectInfo* ProjectModule*)! \\
+\end{tabular}
+
+Any variant of the \lstinline{ProjectInfo} tag may only be supplied once.
+
+\section{Examples}
+Here is an example of a simple module which exports a function to compute the sum of two integers.
+For the purposes of this example, assume the existence of a function \lstinline{add} of type \( \mathbb Z_{64} \to \mathbb Z_{64} \) stored within the module \lstinline{core.i64}.
+\begin{lstlisting}
+(module (doc "Provides a function to compute the sum of two integers.")
+    (def (vis pub) (doc "Computes the sum of two integers.") sum
+        (lambda (lambda (ap (ap (inst (core i64 add)) 0) 1)))
+    )
+)
+\end{lstlisting}
+If this module were saved in the directory \lstinline{foo} with file name \lstinline{bar}, a project containing this module might be written
+\begin{lstlisting}
+(project demo_project
+    (doc "An example project.")
+    (module (foo bar))
+)
+\end{lstlisting}
+
+\chapter{Value inference}
+\label{ch:value_inference}
+
+\section{Introduction}
+
+\subsection{The value inference engine}
+
+A Feather program, when initially written, will not necessarily specify all types of all sub-expressions.
+It is the role of the \textit{type checker} to infer the types variables, when explicit declarations are absent.
+In particular, given an expression, the type checker must deduce the types of expressions that do not have type annotations, given that the given annotations are logically consistent, and verify that the deduced types are well-typed with respect to the given types.
+
+Due to the identification of types with values, the type checker is simply one facet of a more general \textit{value inference engine}, which determines the values of objects in Feather programs through direct computation as well as indirect means.
+\begin{defn}
+  An expression \( e \) is \textit{well-typed} if:
+  \begin{enumerate}
+    \item its sub-expressions are well-typed;
+    \item there exists an inference rule from \cref{ch:types_and_values} that constructs \( e \) in a type \( A \), given that the sub-expressions and bound variables have already been constructed;
+    \item the type deduced is unique; that is, if two types \( A \) and \( B \) are deduced for \( e \), we have \( A \equiv B \colon \UU \).
+  \end{enumerate}
+  If \( e \) is well-typed, we can refer to \textit{the type} of \( e \), since it is known to be unique.
+\end{defn}
+In most programming languages, the phrase `constructs \( e \) in a type \( A \)' would be written `infers that \( e \) has type \( A \)'; here, we make the distinction that the expression \( e \) constructs an object, which has ownership properties that must be tracked.
+
+Note that an expression may be well-typed, yet it (or its constructor) may \textit{not respect ownership, borrowing or lifetimes}.
+The verification that the inference rules respect these constraints is to be carried out by later phases in the compiler, which will be detailed in subsequent sections.
+
+\subsection{values}
+
+The process of deducing the types of expressions does not happen instantaneously; a network of information is gradually built by the compiler, and is improved incrementally until expressions are deduced to be either well-typed or not well-typed.
+When evaluating types in many programming languages, it is useful to consider type variables, which are placeholders for types that are to be evaluated later.
+We extend this notion to arbitrary expressions.
+\begin{defn}
+  An \textit{inference variable} is an object with known type, used in place of a value where one is not known.
+  An example is that of \textit{type variables}, usually denoted \( \alpha : \UU \).
+  These are endowed with a way of generating new free inference variables with an attached unique identifier, and an equivalence relation \( = \) that declares inference variables to be equal if their identifiers match.
+\end{defn}
+\begin{defn}
+  A \textit{value} is a computed realisation of an object which does not contain inference variables, and cannot be simplified, where bidirectional computation rules are not considered simplifications.
+  The value is said to be in \textit{normal form}.
+\end{defn}
+\begin{defn}
+  A \textit{value} is a realisation of an object which may contain inference variables, and may be simplifiable.
+  If there exists a finite sequence of simplifications on a value that reduces it to normal form, we say that the value is \textit{weakly normalising}, or \textit{lazily computable}.
+  If all sequences of simplifications reduce the value to a normal form, the value is \textit{strongly normalising}, or \textit{(strictly) computable}.
+\end{defn}
+\begin{eg}
+  The pseudocode expression \( 1 \) is a value.
+  The expression \( 1 + 1 \) is a value, which may be simplified into the value \( 2 \), so \( 1 + 1 \) is strongly normalising.
+  The expression \( \alpha \) is a value, where \( \alpha \) is an inference variable.
+  This is not computable.
+\end{eg}
+values may include arbitrary self-reference, and need not be computable.
+For instance, let \( f(x) \mapsto f(x+1) \) for \( x \in \mathbb N \), then \( f(1) \) is not (lazily) computable, but it is a value.
+The expression \( \proj 1((1, f(0))) \), where \( \proj 1 \) represents the projection of the first element of a pair, is lazily computable, since \( f(0) \) need not be evaluated.
+However, it is not strictly computable.
+
+Formally, we say that the Feather computation system does not have the weak normalisation property, in the sense of an abstract reduction system.
+\begin{lem}
+  Feather's computation system has the unique normal form property: for any value \( e \), if it has normal forms \( a, b \), then \( a \equiv b \).
+\end{lem}
+\begin{proof}
+  This follows from the unique construction principle.
+\end{proof}
+
+\section{Computability}
+
+\subsection{Classes of computable functions}
+
+The Feather compiler cannot determine whether an arbitrary value is computable, since this would entail a solution to the halting problem.
+However, it can determine the computability of a large class of computable partial recursive functions, which here will be called \textit{hierarchically substructure recursive functions}.
+We do not aim to require that all Feather functions be hierarchically substructure recursive, for instance, a simple \lstinline{while} loop which waits for a particular user input would not satisfy this definition, as will be seen later.
+However, this is a sufficiently broad definition that `most useful functions' (under suitable assumptions) are hierarchically substructure recursive, for instance the Ackermann function.
+We require that any value computed at compile time be hierarchically substructure recursive, since this will guarantee that compilation will always terminate.
+%Regardless of the knowledge that compilation will terminate, it may be undesirable for the compiler to freeze for large amounts of time, computing arbitrarily complex values.
+% A compiler may emit a warning and prompt the user to cancel the operation if the compilation time is sufficiently long, such as a duration of more than a few seconds for the evaluation of a single expression.
+
+\subsection{Substructure recursive functions}
+
+% TODO: mutually hierarchically substructure recursive functions?
+
+\begin{defn}
+  An object \( a \) is a \textit{substructure} of another object \( b \) if it appears in the constructor for \( a \), or in the constructor of any substructure of \( a \).
+  If \( b: \mathbb N_n \), then \( a \) is a substructure if \( a: \mathbb N_n \) and \( a < b \).
+\end{defn}
+Substructures for natural numbers act like substructures for purposes of recursion, but have a different underlying representation.
+We can think of natural numbers as repeated calls to a `successor' constructor function, and in this case, this matches the definition of a substructure.
+\begin{lem}
+  The number of substructures of a value is finite.
+\end{lem}
+\begin{proof}
+  A value is constructed with a chain of finitely many constructors, since it must be computable.
+  Since constructors consume only finitely many values, there must be only finitely many substructures in total.
+\end{proof}
+\begin{defn}
+  A function \( f: A \to B \) is \textit{substructure recursive} if, in the simplification of \( f(a) \), \( f \) only appears in the form \( f(a') \) where \( a' \) is a substructure of \( a \), and no other function appears.
+\end{defn}
+This is a slightly more flexible definition of recursion than \textit{primitive recursion}, since it allows the use of custom types.
+\begin{lem}
+  Substructure recursive functions are computable, when provided values as their parameters.
+\end{lem}
+\begin{proof}
+  Under the assumption that no other function appears in the body of \( f \), we have a fixed upper bound on the time complexity of \( f(a) \).
+  Let \( n \) be the number of substructures of \( a \), which is well-defined since \( a \) is a value.
+  Let \( k \) be the number of occurences of \( f \) in \( f(a) \).
+  By induction, we can see that there is an upper bound on the total amount of inner invocations of \( f \) (after the initial function call), which is \( nk \).
+  Thus, \( f \) is \( \mathcal O(n) \), and is hence computable.
+\end{proof}
+\begin{defn}
+  A function \( f: A_1 \to \dots \to A_n \to B \) is \textit{hierarchically substructure recursive} if, in the simplification of \( f(a_1, \dots, a_n) \), \( f \) only appears in the form \( f(a_1', \dots, a_n') \) where there exists \( k \in \qty{1, \dots, n} \) such that \( a_k' \) is a substructure of \( a_k \), and for all \( i \in \qty{1, \dots, k-1} \), \( a_i' \) is either a substructure of \( a_i \) or equal to \( a_i \).
+\end{defn}
+This generalises the notion of primitive recursion to include many functions which are computable yet have no simple form upper bound on complexity.
+\begin{eg}
+  The Ackermann function is hierarchically substructure recursive.
+\end{eg}
+\begin{lem}
+  Hierarchically substructure recursive functions are computable, when provided values as their parameters.
+\end{lem}
+\begin{proof}
+  Let \( a_1 \) be fixed.
+  Then, suppose for purposes of induction that for an arbitrary \( i \), the expression \( f(a_1, a_2, \dots, a_{i-1}, a_i') : A_{i+1} \to \dots \to A_n \to B \) is a computable function for all substructures \( a_i' \) of \( a_i \).
+  Then, any inner function call of \( f \) is computable as it is of this form.
+  By induction on the \( n \) variables \( a_i \) in turn, since the composition of computable functions is computable, we have that \( f \) is computable with inputs \( a_1, \dots, a_n \).
+\end{proof}
+Note that hierarchically substructure recursive functions do not have an \textit{a priori} upper bound on time complexity.
+
+\section{Inference rules}
+
+\subsection{Existence of inference rules}
+
+Each expression in Feather is defined to map onto a semantically equivalent mathematical expression, with the sole exception of \lstinline{inst}.
+Thus, we can see that every non-\lstinline{inst} Feather expression has a unique inference rule that determines its type, given the types of sub-expressions and bound variables.
+
+\subsection{Constraint generation}
+
+\begin{defn}
+  An \textit{equality constraint} is a judgmental equality between two values.
+  A \textit{judgment constraint} is a judgment that one value is an element of the type represented by another value.
+  A constraint is \textit{satisfied} under a typing context \( \Gamma \) if \( \Gamma \) entails that the judgment or judgmental equality holds.
+\end{defn}
+\begin{defn}
+  The \textit{induced constraints} of an inference rule are the constraints that are satisfied between the values and types of objects that appear in the rule's premises and conclusion.
+  In particular, the induced judgment constraints are the objects that must be consumed in order to deduce all types in question.
+\end{defn}
+\begin{egs}
+  Consider this modified version of the rule \( \to \)-\relim, where all types have been replaced with named inference variables.
+  \[ \inferrule*[right=$\to$-\relim]
+  {\oftp\Gamma{f}{F} \\ \oftp\Gamma{a}{A}}
+  {\oftp\Gamma{f(a)}{B}} \]
+  Here, the only nontrivial induced constraint is \( F \equiv A \to B \).
+  Now, consider this modified version of the rule \( \Pi \)-\relim.
+  \[ \inferrule*[right=$\Pi$-\relim]
+  {\oftp\Gamma{f}{F} \\ \oftp\Gamma{a}{A}}
+  {\oftp\Gamma{f(a)}{C}} \]
+  The constraints are \( B: A \to \UU \), \( F \equiv \tprd{x:A} B(x) \), \( a: A \), \( C \equiv B(a) \).
+  We must include the constraint \( a:A \) since the value of \( a \) appears in the other constraints.
+
+  Note that this function application rule requires significantly more constraints than the independent case, further emphasising why the independent case should be considered the default, although it is important to recognise that most of these constraints are satisfied easily if the type of \( F \) is known.
+\end{egs}
+% TODO: create an appendix(?) of all the versions of the inference rules adapted for actual Feather grammar and for constraints
+\begin{lem}
+  An expression is well-typed if and only if:
+  \begin{enumerate}
+    \item each atomic sub-expression has a unique type known \emph{a priori};
+    \item each bound variable has a known unique type; and
+    \item we can assign types to it and its sub-expressions, such that given these types, all their constraints are satisfied.
+  \end{enumerate}
+\end{lem}
+Here, an \textit{atomic} sub-expression is one that is created without consuming any objects.
+\begin{proof}
+  The only non-trivial part of this lemma is to show that the types assigned are unique.
+  According to the principle of unique construction, we can create a finite tree of constructions to make this expression.
+  All atomic sub-expressions and bound variables have known unique types, and hence we can inductively uniquely deduce the types of each sub-expression via the unique inference rule that constructs it.
+\end{proof}
+Thus, the problem of type checking has been reduced to a constraint satisfaction problem, where the values to be determined are the types of the bound variables.
+Note that this simplification is not generally possible in normal Hindley-Milner type systems, due to the existence of implicit polytypes.
+In our type system, the expression \( \lam xx \) is not well-typed since we cannot uniquely assign a type to the bound variable \( x \).
+
+\subsection{Unification}
+
+\begin{defn}
+  A mapping \( m: \alpha_i \mapsto a_i \) of inference variables to values is called an \textit{unification map} if the inference variables in the domain of \( m \) do not appear anywhere in its codomain.
+  They can be applied to values, replacing all instances of that variable with their value under \( m \).
+  The condition of inference variables not appearing in the codomain ensures idempotence of \( m \).
+
+  Let \( A \equiv B \) be an equality constraint.
+  Suppose there exists a unification mapping \( m: \alpha_i \mapsto a_i \) such that \( m(A) \equiv m(B) \), then we say \( A \) and \( B \) are \textit{unified} to \( m(A) \) (or, equivalently, \( m(B) \)).
+
+  Suppose \( m \) is a unification mapping such that for all unification mappings \( m' \), \( m'(A) \) and \( m'(B) \) are functions of \( m(A) \) and \( m(B) \) respectively, under another unification map.
+  Then \( m(A) \) is the \textit{most general unifier} of \( A \) and \( B \).
+\end{defn}
+The most general unifier is unique up to relabelling inference variables.
+We can create an algorithm to explicitly construct the most general unifier of two values under certain conditions.
+\begin{defn}
+  The function \( \mathsf{mgu} \) is a binary function on values.
+  In a success condition, it returns a unification map \( m \) which unifies \( A \) and \( B \).
+  In a fail condition, it returns a description of the substructures of \( A \) and \( B \) that failed to unify.
+  The function is generated by the following rules, with higher rules taking priority.
+  \begin{enumerate}
+    \item If \( A \) or \( B \) is a function application, and the function is an abstraction not an \lstinline{inst}, the function is evaluated first.
+    \item If both \( A \) and \( B \) are a composite type such as a product or coproduct, \( \mathsf{mgu} \) is called on its components.
+    \item If \( A \) and \( B \) are \lstinline{inst} expressions, they are treated as atomic, and must match exactly.
+    \item If either \( A \) or \( B \) is an inference variable, then the function succeeds, with the empty map if both are inference variables and \( A = B \), or the map \( A \mapsto B \) or \( B \mapsto A \) otherwise.
+    \item Otherwise, the function fails.
+  \end{enumerate}
+  The restriction on \lstinline{inst} allows us to ensure that \( \mathsf{mgu} \) will always terminate.
+  This is because expressions without \lstinline{inst} are strictly computable. % TODO: prove this
+\end{defn}
+Notably, this definition allows us to construct newtypes by simply having a function return the type.
+The unification algorithm treats such a function as distinct from its returned value.
+It should be clear that if \( \mathsf{mgu} \) succeeds, it is the most general unifier.
+
+\section{The inference algorithm}
+
+Given an expression \( e \), we wish to infer types and values wherever possible.
+We begin with type inference.
+The following algorithm is applied to untyped expressions to deduce their types and values.
+
+First, a set of constraints are generated for each expression.
+The expression tree is scanned for the induced constraints of each constructor.
+For each equality constraint, the function \( \mathsf{mgu} \) is run, and if errors are found, type inference will fail.
+If a constraint is resolved in such a way that the type of an expression is now known, we proceed to value inference for that expression.
+For each judgment constraint, value inference must be run for the value in question, since its value is required for other deductions.
+A process, such as that described in \cite{Heeren02generalizinghindley-milner}, may be used to solve constraints without bias.
+
+To perform value inference on an expression, we first require that the types of sub-expressions are known.
+Then, the usual computation rules defined in \cref{ch:types_and_values} can be used to deduce the value of this expression.
+If a function is instanced, it must be hierarchically substructure recursive in order for its value to be computed; any other function will not have its value deduced.
+
+% TODO: \chapter{Ownership and borrowing}
+
+% TODO: \chapter{Default values}
+% this chapter contains information about how specialisation works and how the Feather compiler should be able to tell what implementation of a "trait" you want
+
+\iffalse{}
+
+\begin{appendices}
+    \appendixpage
+    \noappendicestocpagenum
+    \addappheadtotoc
+
+    \chapter{Type theory formalisation reference}
+    \label{ch:formalisation_reference}
+
+    For the purposes of discussion, we present many of the rules listed in `Homotopy Type Theory' \cite{hottbook}.
+
+    \input{hott_rules.tex}
+\end{appendices}
+
+\fi{}

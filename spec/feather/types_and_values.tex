@@ -1,0 +1,247 @@
+\section{Theory and metatheory}
+Feather contains a logical system that is capable of proving statements.
+We also want to be able to state things about this theory itself, so we make a distinction between Feather's theory and the metatheory that governs and describes it.
+There are many things that we can only prove outside Feather, such as typing judgments.
+
+\section{Universes}
+Informally, a universe is a level at which we can construct types. Most programming languages have only a single universe, but we will need a whole infinity of them for our type system.
+\begin{defn}
+	A \textit{universe} is either:
+	\begin{itemize}
+		\item the zero universe \( 0 \), or
+		\item the successor \( u + 1 \) of any universe \( u \).
+	\end{itemize}
+\end{defn}
+This is exactly the construction of the Peano naturals, which gives each universe a name; the name of the corresponding number.
+For instance, the name of the successor of the zero universe is \( 1 \).
+The zero universe is different from all of the other universes: it is \textit{impredicative}, and this will be explored in more detail later.
+
+We augment the notion of universe with two operations.
+\begin{itemize}
+	\item \( \max(u, v) \) yields the higher of the two universes;
+	\item \( \imax(u, v) \) (read `impredicative maximum') yields the higher of the two universes, but when \( v = 0 \), this instead gives zero.
+\end{itemize}
+Note that testing whether universes are higher or equal happens in the metatheory, one cannot prove inside Feather what a universe value is.
+
+\section{Sorts}
+\begin{defn}
+	A \textit{sort} is the collection of types that lie in a given universe. We write \( \Sort u \) for the sort of types in universe \( u \).
+	We abbreviate \( \Sort 0 \) as \( \Prop \), and \( \Sort 1 \) as \( \Type \).
+\end{defn}
+We postpone formally defining what the elements of each sort are until \cref{ch:inductive_types}, but we can give an informal description.
+\( \Prop \) is the universe of propositions, statements that can be proven or disproven in Feather.
+\( \Type \) is the universe of small types; that is, the types one would find in any other programming language.
+Higher sorts primarily contain types that are too large to fit into any of the other universes.
+
+Note that our sorts are non-cumulative; if \( \alpha : \Sort u \), it is not true that \( \alpha : \Sort (u + 1) \).
+
+\section{The Curry--Howard correspondence}
+We want Quill to be a language in which statements about data can be formally stated and proven.
+To achieve this goal, we use the well known correspondence between propositions and types.
+More information about this can be found elsewhere, but here is a brief summary.
+
+A proposition, a statement to be proven, is represented by a type in the sort \( \Prop \).
+A proof of the truth of the statement is a value of that type.
+Inhabited types are true statements; uninhabited types are false.
+
+Logical implication is represented by a function: if propositions \( P \) and \( Q \) are represented by types \( \alpha \) and \( \beta \), the logical statement \( P \implies Q \) is represented by the function type \( \alpha \to \beta \).
+A proof of the implication is simply a function of this type.
+
+The value `true' or \( \top \) is represented by a type in \( \Prop \) with one element, which can be interpreted as a canonical proof of `true'.
+The value `false' or \( \bot \) is represented by a type in \( \Prop \) with no elements.
+Negation is written as proving a contradiction: \( \neg P \) is represented by \( \alpha \to \bot \), where \( \bot \) is a type in \( \Prop \) with no inhabitants.
+This is because we cannot prove that a type is uninhabited, just that if it were, it would lead to contradictions.
+Note that the law of the excluded middle is not clearly true in this constructive approach, but in the presence of an additional axiom, such as the axiom of choice \( \mathsf{AC} \), it is provable \cite{Diaconescu1975-df}. This result is known as Diaconescu's theorem.
+
+\section{Impredicativity and proof irrelevance}
+We would like proofs to exist only at compile time, so that we can prove things about programs statically, but their existence does not slow down program execution.
+
+The sort \( \Prop \) is impredicative, meaning roughly that data stored in types of this sort cannot be extracted and used in other sorts. Intuitively, this corresponds to the fact that proofs do not exist at runtime, we cannot inspect their data at runtime, where `runtime' corresponds to the use of \( \Type \) and higher sorts.
+
+We also have the idea of proof irrelevance.
+In essence, any two proofs of the same proposition are considered equal.
+This corresponds to the fact that once we have proven a statement is true, we only care that a correct proof exists, and not what it is.
+In contrast, this is normally not the case for data; it is not enough to construct it, we must be able to use and inspect it later.
+This is a useful property to have when eliding proofs at runtime.
+With proof irrelevance, we can entirely delete proofs from compiled code, since it could never use the values in any way.
+
+\section{Names and qualified names}
+\begin{defn}
+	We define the set of names \( \mathcal N \) to be the set of nonempty strings of non-whitespace non-control Unicode characters.
+\end{defn}
+The notation \( A\ast \) denotes the set of lists of elements in \( A \), for a set \( A \).
+\begin{defn}
+	We define the set of qualified names \( \mathcal Q \subset \mathcal N\ast \) to be the set of nonempty lists of elements of \( \mathcal N \).
+\end{defn}
+
+\section{Universe expressions}
+\begin{defn}
+	A \textit{universe expression} is one of:
+	\begin{itemize}
+		\item the zero universe \( 0 \);
+		\item the successor universe \( u + 1 \) of any universe expression \( u \);
+		\item the maximum \( \max(u, v) \) of any two universe expressions \( u, v \);
+		\item the impredicative maximum \( \imax(u, v) \) of any two universe expressions \( u, v \);
+		\item a universe variable \( u \in \mathcal N \).
+	\end{itemize}
+\end{defn}
+Given the existence of universe variables, it is not always possible to easily compare two universe variables.
+\begin{defn}
+	We say a universe variable \( n \in \mathcal N \) is \textit{free} in a universe expression \( u \) if it does not appear anywhere in its syntax tree.
+\end{defn}
+\begin{defn}
+	Let \( U \in \mathcal N\ast \) be a list of names of universe variables.
+	Let \( V \) be a list of universe expressions of the same length, where each \( u \in U \) is free in each \( v \in V \).
+	Then, for all universe expressions \( u \), the \textit{substitution} \( u[V/U] \) is the universe expression formed by substituting all universe variables of \( U \) with the corresponding universe expressions in \( V \).
+\end{defn}
+
+\section{Typing judgments}
+\begin{defn}
+	A \textit{typing judgment} is the statement that a value has a particular type.
+	The judgment that a value \( x \) has type \( \alpha \) is written \( x : \alpha \).
+\end{defn}
+Note that because the typing rules are part of the metatheory, we cannot prove a typing judgment in Feather.
+\begin{defn}
+	We say that a value \( \alpha \) is a \textit{type} if \( \alpha : \Sort u \) for some universe \( u \).
+\end{defn}
+A typing judgment \( x : \alpha \) does not prove that \( \alpha \) is a type.
+However, we will create typing rules in such a way that the only typing judgments \( x : \alpha \) that may exist are such that \( \alpha \) is a type.
+Note that the value \( \alpha \) may be a type regardless of whether there is an element \( x : \alpha \).
+If no such \( x \) exists, we say \( \alpha \) is uninhabited.
+\begin{defn}
+	A \textit{typing environment} \( \Gamma \) is a set of distinct qualified names \( q \in \mathcal Q \), each associated with a list of universe names \( U \), a type \( \alpha \) and possibly a value \( x \).
+	The universe names \( u \in U \) may be present as universe variables in \( \alpha \) and \( x \), but otherwise, \( \alpha \) and \( x \) are closed expressions, in the sense that we will define later.
+
+	We write \( \langle q, U, \alpha \rangle \in \Gamma \) if the name \( q \) is in \( \Gamma \) and is associated with type \( \alpha \).
+	We write \( \langle q, U, \alpha, x \rangle \in \Gamma \) if \( x \) is in \( \Gamma \) and is associated with type \( \alpha \) and value \( x \).
+	In particular, \( \langle q, U, \alpha, x \rangle \in \Gamma \) implies \( \langle q, U, \alpha \rangle \in \Gamma \), for notational convenience.
+\end{defn}
+Intuitively, if \( \langle q, U, \alpha \rangle \in \Gamma \), \( q \) is the name of an opaque definition with universe parameters \( U \) and type \( \alpha \), defined somewhere earlier in the file or in a separate imported file.
+If \( \langle q, U, \alpha, x \rangle \in \Gamma \), then \( q \) is the name of a definition with type \( \alpha \) and body \( x \).
+
+\section{Expressions}
+\subsection{Definitional equality}
+While equality in the metatheory is easy to define, we must define equality carefully in Feather itself.
+To start with, we define the strict notion of \textit{definitional equality}.
+\begin{defn}
+	We say that \( x \) and \( y \) are \textit{definitionally equal of type \( \alpha \)}, or simply \textit{definitionally equal} or \textit{defeq}, if there is an inference rule with a conclusion of the form \( \jdeqtp\Gamma x y \alpha \) (and all of its antecedents are satisfied).
+\end{defn}
+We declare the following inference rules, taken from the HoTT book \cite{hottbook}.
+\begin{mathparpagebreakable}
+	\inferrule*[right=$\equiv$-refl]{\oftp\Gamma{x}{\alpha}}{\jdeqtp\Gamma{x}{x}{\alpha}}
+\and
+	\inferrule*[right=$\equiv$-symm]{\jdeqtp\Gamma{x}{y}{\alpha}}{\jdeqtp\Gamma{y}{x}{\alpha}}
+\and
+	\inferrule*[right=$\equiv$-trans]{\jdeqtp\Gamma{x}{y}{\alpha} \\ \jdeqtp\Gamma{y}{z}{\alpha}}{\jdeqtp\Gamma{x}{z}{\alpha}}
+\and
+	\inferrule*[right=$\equiv$-type]{\oftp\Gamma{x}{\alpha} \\ \jdeqtp\Gamma{\alpha}{\beta}{\Sort u}}{\oftp\Gamma{x}{\beta}}
+\and
+	\inferrule*[right=$\equiv$-$\equiv$]{\jdeqtp\Gamma{x}{y}{\alpha} \\ \jdeqtp\Gamma{\alpha}{\beta}{\Sort u}}{\jdeqtp\Gamma{x}{y}{\beta}}
+\end{mathparpagebreakable}
+\begin{lem}
+	Definitional equality is an equivalence relation.
+\end{lem}
+\begin{proof}
+	Reflexivity, symmetry, and transitivity are clear from the rules \( \equiv \)-\textsc{refl}, \( \equiv \)-\textsc{symm}, and \( \equiv \)-\textsc{trans}.
+\end{proof}
+\begin{lem}
+	If \( x : \alpha \) and \( y : \beta \) are definitionally equal, their types \( \alpha \) and \( \beta \) are definitionally equal.
+\end{lem}
+\begin{proof}
+	Given that we have not defined all of the inference rules yet, we cannot prove this.
+	However, it is important to notice that all of the rules we define will satisfy this property.
+	Simply checking the property holds for each rule suffices, because definitional equality is an equivalence relation.
+\end{proof}
+Feather's kernel contains a definitional equality checker.
+The aim is that almost every pair of definitionally equal values that occur in practice can be shown to be definitionally equal automatically by the kernel.
+\begin{defn}
+	A \textit{rewrite rule} is a syntactic replacement rule, written \( x \;\triangleright\; y \), such that \( x \) and \( y \) are definitionally equal expressions.
+\end{defn}
+\begin{lem}
+	Let \( x \) and \( y \) be rewritten by a sequence of rewrite rules to new expressions \( x' \) and \( y' \).
+	Then, \( x \equiv y \) if and only if \( x' \equiv y' \).
+\end{lem}
+\begin{proof}
+	This holds because rewrite rules preserve equality, and definitional equality is an equivalence relation.
+\end{proof}
+To check whether two terms \( x \) and \( y \) are definitionally equal, the kernel performs a number of rewrite rules on \( x \) and \( y \).
+If the rewrite rules convert \( x \) and \( y \) into syntactically equal expressions (which are definitionally equal by \( \equiv \)-\textsc{refl}), the original two expressions must have been definitionally equal.
+
+\subsection{Instancing definitions}
+We use the sequent calculus to describe inference rules.
+The first rule we will define is the following.
+\[ \inferrule*[right=Inst]
+	{\langle q, U, \alpha \rangle \in \Gamma}
+	{\Gamma \vdash \forall V, q\{V\} : \alpha[V/U]} \]
+This rule holds where \( V \) is a list of universe expressions the same length as \( U \), such that all elements of \( U \) are free in all elements of \( V \).
+The rule lets us instantiate a definition contained in the environment: given a definition in \( \Gamma \), we can substitute the universe parameters in the definition for arbitrary universe expressions (up to renaming the universe parameters).
+\[ \inferrule*[right=Inst-comp]
+	{\langle q, U, \alpha, x \rangle \in \Gamma}
+	{\Gamma \vdash \forall V, q\{V\} \equiv x[V/U] : \alpha[V/U]} \]
+The computation rule for \textsc{Inst} is that if the body \( x \) of the definition is defined, we can replace the name \( q \) with the body.
+The following rewrite rule is called \textit{\( \delta \)-reduction}.
+\[ \inferrule
+	{\langle q, U, \alpha, x \rangle \in \Gamma}
+	{\forall V, q\{V\} \;\triangleright_\delta\; x[V/U]} \]
+\( \delta \)-reduction preserves definitional equality due to \textsc{Inst-comp}.
+More precisely, the left hand side and right hand side are definitionally equal.
+
+\subsection{\texorpdfstring{\( \Pi \)}{Π} types and \texorpdfstring{\( \lambda \)}{λ} abstractions}
+The inference rules for dependent function types are similar to those found in the HoTT book \cite{hottbook}.
+\[ \inferrule*[right=$\Pi$-\rform]
+	{\oftp{\Gamma}{\alpha}{\Sort u} \and \oftp{\Gamma,\tmtp x\alpha}{\beta}{\Sort v}}
+	{\oftp\Gamma{\tprd{x:\alpha}\beta}{\Sort \max(u, v)}} \]
+The \( \Pi \) type is the type of dependent functions.
+In particular, \( \prd{x:\alpha}\beta \) is the type of dependent functions from \( \alpha \) to \( \beta \), where the type \( \beta \) may depend on the value of \( x \) passed into the function.
+Note that here, \( x \) must be a name, and not an arbitrary expression.
+Note also that \( \alpha \) and \( \beta \) are types of potentially different universes; the resulting \( \Pi \) type lives in the higher of the two.
+There is no way to create a `non-dependent function type'; it is simply a special case of the \( \Pi \) type where \( \beta \) does not depend on \( x \).
+\begin{mathpar}
+	\inferrule*[right=$\Pi$-\rintro]
+		{\oftp{\Gamma,\tmtp x\alpha}{b}{\beta}}
+		{\oftp\Gamma{\lam{x:\alpha} b}{\tprd{x:\alpha} \beta}}
+	\and
+	\inferrule*[right=$\Pi$-\relim]
+		{\oftp\Gamma{f}{\tprd{x:\alpha} \beta} \\ \oftp\Gamma{a}{\alpha}}
+		{\oftp\Gamma{f\ a}{\beta[a/x]}}
+\end{mathpar}
+\( \lambda \) abstractions create dependent function types, and once more, \( x \) must be a name and not an arbitrary expression.
+The application of a dependent function to a suitably typed argument yields a result of the expected type.
+The syntax \( \beta[a/x] \) is as defined above in the case of universe expressions; replace all uses of the name \( x \) with the expression \( a \).
+Our notation for function application comes from that of functional programming; \( f\ a \) means \( f(a) \).
+\[ \inferrule*[right=$\Pi$-\rcomp]
+	{\oftp{\Gamma,\tmtp x\alpha}{b}{\beta} \\ \oftp\Gamma{a}{\alpha}}
+	{\jdeqtp\Gamma{(\lam{x:\alpha} b)\ a}{b[a/x]}{\beta[a/x]}} \]
+This is the computation rule for \( \lambda \) abstractions.
+The following rewrite rule is called \textit{\( \beta \)-reduction}.
+\[ \inferrule
+	{\oftp{\Gamma,\tmtp x\alpha}{b}{\beta} \\ \oftp\Gamma{a}{\alpha}}
+	{(\lam{x:\alpha} b)\ a \;\triangleright_\beta\; b[a/x]} \]
+\( \beta \)-reduction preserves definitional equality due to \( \Pi \)-\rcomp.
+\[ \inferrule*[right=$\Pi$-\runiq]
+	{\oftp\Gamma{f}{\tprd{x:\alpha} \beta}}
+	{\jdeqtp\Gamma{f}{(\lam{x:\alpha}f(x))}{\tprd{x:\alpha} \beta}} \]
+Functions are definitionally equivalent to a \( \lambda \) abstraction that evaluates it.
+The following rewrite rule is called \textit{\( \eta \)-expansion}.
+\[ \inferrule
+	{\oftp\Gamma{f}{\tprd{x:\alpha} \beta}}
+	{f \;\triangleright_\eta\; \lam{x:\alpha}f(x)} \]
+This preserves definitional equality due to \( \Pi \)-\runiq.
+
+\subsection{Let expressions}
+\[ \inferrule*[right=\lstinline{let}-\rintro]
+	{\oftp\Gamma{a}{\alpha} \\ \oftp{\Gamma,\tmtp x\alpha}{y}{\beta}}
+	{\oftp\Gamma{\text{\lstinline{let}}\ x = a\ \text{\lstinline{in}}\ y}{\beta}} \]
+We can bind new local variables in a \lstinline{let} expression.
+Note that \( x \) must be a name.
+\[ \inferrule*[right=\lstinline{let}-\rcomp]
+	{\oftp\Gamma{a}{\alpha} \\ \oftp{\Gamma,\tmtp x\alpha}{y}{\beta}}
+	{\jdeqtp\Gamma{\text{\lstinline{let}}\ x = a\ \text{\lstinline{in}}\ y}{y[a/x]}{\beta}} \]
+The computation rule for \lstinline{let} is that we can substitute the bound variable for the value supplied to the \lstinline{let} expression.
+The following rewrite rule is called \textit{\( \zeta \)-reduction}.
+\[ \inferrule
+	{\oftp\Gamma{a}{\alpha} \\ \oftp{\Gamma,\tmtp x\alpha}{y}{\beta}}
+	{\text{\lstinline{let}}\ x = a\ \text{\lstinline{in}}\ y \;\triangleright_\zeta\; y[a/x]} \]
+\( \zeta \)-reduction preserves definitional equality due to \lstinline{let}-\rcomp.
+
+\subsection{\texorpdfstring{\( \Delta \)}{Δ} types and \texorpdfstring{\( \& \)}{\&} borrows}
