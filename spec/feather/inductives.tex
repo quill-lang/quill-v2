@@ -1,2 +1,55 @@
 \section{Inductive families}
-We present a system of inductive types similar to that found in \cite{Dybjer1994}.
+We present a system of inductive types similar to that described by Dybjer in \cite{Dybjer1994}.
+\begin{defn}
+	An \textit{inductive family} is composed of
+	\begin{itemize}
+		\item a qualified name \( q \);
+		\item a list of universe parameters \( U \in \mathcal N \ast \);
+		\item a type \( P \), which is to be the type of the inductive type to be declared;
+		\item a list of types of intro rules \( i_n \),
+	\end{itemize}
+	subject to various conditions laid out in the remainder of this section.
+\end{defn}
+The type \( P \) must be of the form
+\[ P = \prd{\vb A : \bm \sigma}{\vb a : \bm \alpha} \Sort u \]
+where \( \vb A, \vb a \) are lists of parameters and \( \bm \sigma, \bm \alpha \) are lists of types.
+We call \( \vb A \) the \textit{global parameters} and \( \vb a \) the \textit{index parameters}.
+The combined list of parameters is used to index a particular type from a family of types being constructed at once.
+When we construct the inductive family, we add the assumption \( q : P \) to the environment \( \Gamma \) (more precisely, we add \( \langle q, U, P \rangle \)), essentially declaring the inductive type available for use in later expressions.
+
+The type of each intro rule must be of the form
+\[ i_n = \prd{\vb A : \bm \sigma}{\vb b : \bm \beta}{\vb u : \bm \gamma} P\ \vb A\ (p\ \vb A\ \vb b) \]
+where
+\begin{itemize}
+	\item \( \bm \beta \) and \( \bm \gamma \) are lists of types
+	\item each \( \gamma_i \) has the form
+	\[ \gamma_i = \prd{x:\bm \xi_i} P\ \vb A\ (p_i\ \vb A\ \vb b\ \vb x) \]
+	where \( \bm \xi_i \) is a list of types that cannot contain \( P \) (this is known as the \textit{positivity constraint}), and
+	\[ p_i : \prd{\vb A : \bm \sigma}{\vb b : \bm \beta}{\vb x:\bm \xi_i} \bm \alpha \]
+	\item \( p \) has the form
+	\[ p : \prd{\vb A : \bm \sigma}{\vb b : \bm \beta} \bm \alpha \]
+\end{itemize}
+We call \( \vb b \) the \textit{nonrecursive arguments} and \( \vb u \) the \textit{recursive arguments}.
+In our kernel, we do not enforce the order in which elements \( \vb b \) and \( \vb u \) may occur; the recursive and nonrecursive arguments may be interspersed.
+
+\section{Elimination rule}
+Given the above, we construct the elimination rule
+\[ \mathsf{rec} : \prd{\vb A : \bm \sigma}{C : \prd{\vb a : \bm \alpha}{c : P\ \vb A\ \vb a} \Sort l}{\vb e : \bm \epsilon}{\vb a : \bm \alpha}{c : P\ \vb A\ \vb a} C\ \vb a\ c \]
+\( C \) is called the \textit{type former} or \textit{motive} for the recursion.
+\( l \) is a universe parameter to the recursor, constrained by the following rules.
+\begin{itemize}
+	\item If \( u \) is never the zero universe, \( l \) is arbitrary.
+	\item Otherwise, \begin{itemize}
+		\item If there are zero introduction rules, \( l \) is arbitrary.
+		\item If there is exactly one introduction rule, then
+		\begin{itemize}
+			\item If each argument to the intro rule that is not in \( \vb b \) or \( \vb u \) either lives in \( \Prop \) or occurs in the return type, \( l \) is arbitrary.
+			\item If there is any argument that does not satisfy those conditions, \( l \) must only take the value 0.
+		\end{itemize}
+		\item If there is more than one introduction rule, \( l \) must only take the value 0.
+	\end{itemize}
+\end{itemize}
+For each intro rule \( i_n \), we have a \textit{minor premise} \( e_n \), of type
+\[ \epsilon_n = \prd{\vb b : \bm \beta}{\vb u : \bm \gamma}{\vb v : \bm \delta} C\ (p\ \vb A\ \vb b)\ (i_n\ \vb A\ \vb b\ \vb u) \]
+where \( \bm \delta \) has the same length as \( \bm \gamma \), and
+\[ \delta_i = \prd{\vb x:\bm \xi_i} C\ (p_i\ \vb A\ \vb b\ \vb x)\ (u_i\ \vb x) \]

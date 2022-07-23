@@ -119,8 +119,7 @@ If no such \( x \) exists, we say \( \alpha \) is uninhabited.
 Intuitively, if \( \langle q, U, \alpha \rangle \in \Gamma \), \( q \) is the name of an opaque definition with universe parameters \( U \) and type \( \alpha \), defined somewhere earlier in the file or in a separate imported file.
 If \( \langle q, U, \alpha, x \rangle \in \Gamma \), then \( q \) is the name of a definition with type \( \alpha \) and body \( x \).
 
-\section{Expressions}
-\subsection{Definitional equality}
+\section{Definitional equality}
 While equality in the metatheory is easy to define, we must define equality carefully in Feather itself.
 To start with, we define the strict notion of \textit{definitional equality}.
 \begin{defn}
@@ -167,7 +166,7 @@ The aim is that almost every pair of definitionally equal values that occur in p
 To check whether two terms \( x \) and \( y \) are definitionally equal, the kernel performs a number of rewrite rules on \( x \) and \( y \).
 If the rewrite rules convert \( x \) and \( y \) into syntactically equal expressions (which are definitionally equal by \( \equiv \)-\textsc{refl}), the original two expressions must have been definitionally equal.
 
-\subsection{Instancing definitions}
+\section{Instancing definitions}
 We use the sequent calculus to describe inference rules.
 The first rule we will define is the following.
 \[ \inferrule*[right=Inst]
@@ -186,7 +185,7 @@ The following rewrite rule is called \textit{\( \delta \)-reduction}.
 \( \delta \)-reduction preserves definitional equality due to \textsc{Inst-comp}.
 More precisely, the left hand side and right hand side are definitionally equal.
 
-\subsection{\texorpdfstring{\( \Pi \)}{Π} types and \texorpdfstring{\( \lambda \)}{λ} abstractions}
+\section{\texorpdfstring{\( \Pi \)}{Π} types and \texorpdfstring{\( \lambda \)}{λ} abstractions}
 The inference rules for dependent function types are similar to those found in the HoTT book \cite{hottbook}.
 \[ \inferrule*[right=$\Pi$-\rform]
 	{\oftp{\Gamma}{\alpha}{\Sort u} \and \oftp{\Gamma,\tmtp x\alpha}{\beta}{\Sort v}}
@@ -228,7 +227,7 @@ The following rewrite rule is called \textit{\( \eta \)-expansion}.
 	{f \;\triangleright_\eta\; \lam{x:\alpha}f(x)} \]
 This preserves definitional equality due to \( \Pi \)-\runiq.
 
-\subsection{Let expressions}
+\section{Let expressions}
 \[ \inferrule*[right=\lstinline{let}-\rintro]
 	{\oftp\Gamma{a}{\alpha} \\ \oftp{\Gamma,\tmtp x\alpha}{y}{\beta}}
 	{\oftp\Gamma{\text{\lstinline{let}}\ x = a\ \text{\lstinline{in}}\ y}{\beta}} \]
@@ -244,7 +243,7 @@ The following rewrite rule is called \textit{\( \zeta \)-reduction}.
 	{\text{\lstinline{let}}\ x = a\ \text{\lstinline{in}}\ y \;\triangleright_\zeta\; y[a/x]} \]
 \( \zeta \)-reduction preserves definitional equality due to \lstinline{let}-\rcomp.
 
-\subsection{\texorpdfstring{\( \Delta \)}{Δ} types and \texorpdfstring{\( \& \)}{\&} borrows}
+\section{\texorpdfstring{\( \Delta \)}{Δ} types and \texorpdfstring{\( \& \)}{\&} borrows}
 Borrowed types are a feature of Feather's type system that are not present in most other type systems.
 \[ \inferrule*[right=$\Region$-\rform]
 	{\ }
