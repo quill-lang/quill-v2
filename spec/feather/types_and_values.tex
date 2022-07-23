@@ -245,3 +245,38 @@ The following rewrite rule is called \textit{\( \zeta \)-reduction}.
 \( \zeta \)-reduction preserves definitional equality due to \lstinline{let}-\rcomp.
 
 \subsection{\texorpdfstring{\( \Delta \)}{Δ} types and \texorpdfstring{\( \& \)}{\&} borrows}
+Borrowed types are a feature of Feather's type system that are not present in most other type systems.
+\[ \inferrule*[right=$\Region$-\rform]
+	{\ }
+	{\oftp\Gamma{\Region}{\Type}} \]
+The type \( \Region \) is a type used to manage borrowed values.
+Roughly, a value \( \rho : \Region \) represents a region of code for which a borrow is valid.
+At this stage, we do not perform any borrow or ownership checking to make sure borrows of values are valid at runtime, instead, we treat borrowed values like any other value.
+\begin{mathpar}
+	\inferrule*[right=$\Delta$-\rform]
+		{\oftp{\Gamma}{\rho}{\Region} \and \oftp\Gamma{\alpha}{\Sort u}}
+		{\oftp\Gamma{\Delta_\rho\,\alpha}{\Sort u}}
+	\and
+	\inferrule*[right=$\Delta$-\rintro]
+		{\oftp{\Gamma}{\rho}{\Region} \and \oftp\Gamma{x}{\alpha}}
+		{\oftp\Gamma{\&_\rho\,x}{\Delta_\rho\,\alpha}}
+\end{mathpar}
+For a region \( \rho \), the type \( \Delta_\rho\,\alpha \) represents the type of values of type \( \alpha \), borrowed for the region \( \rho \).
+To create a borrowed value, the \( \& \) operator can be used.
+
+Most types provide a way of eliminating a borrow on that type.
+The simplest of these rules is the double borrow elimination rule.
+\begin{mathpar}
+	\inferrule*[right=$\Delta\Delta$-\relim]
+		{\oftp{\Gamma}{\rho_1}{\Region} \and \oftp{\Gamma}{\rho_2}{\Region} \and \oftp\Gamma{x}{\Delta_{\rho_1}\,\Delta_{\rho_2}\,\alpha}}
+		{\oftp\Gamma{\ast\,x}{\Delta_{\rho_2}\,\alpha}}
+	\and
+	\inferrule*[right=$\Delta\Delta$-\rcomp]
+		{\oftp{\Gamma}{\rho_1}{\Region} \and \oftp{\Gamma}{\rho_2}{\Region} \and \oftp\Gamma{x}{\Delta_{\rho_2}\,\alpha}}
+		{\jdeqtp\Gamma{\ast\,\&_{\rho_1}\,x}{x}{\Delta_{\rho_2}\,\alpha}}
+\end{mathpar}
+The double borrow elimination rule is a way of reducing a chain of borrows to only one.
+The corresponding rewrite rule is called \( \ast \)-reduction (read `dereference reduction').
+\[ \inferrule
+	{\oftp{\Gamma}{\rho_1}{\Region} \and \oftp{\Gamma}{\rho_2}{\Region} \and \oftp\Gamma{x}{\Delta_{\rho_2}\,\alpha}}
+	{\ast\,\&_{\rho_1}\,x \;\triangleright_\ast\; x} \]
