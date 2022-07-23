@@ -30,8 +30,10 @@ pub enum RecursorForm<'a> {
     Borrowed {
         /// The region parameter.
         region: &'a LocalConstant,
-        /// The name of the squashed type.
-        squashed_type: &'a QualifiedName,
+        /// The squashed type.
+        squashed: &'a Inductive,
+        /// The squashed type, instanced.
+        squashed_type: &'a Inst,
         /// The name of the squash function.
         squash: &'a QualifiedName,
     },
@@ -46,17 +48,25 @@ pub fn recursor_info(
 ) -> Dr<RecursorInfo> {
     partial_recursor_info(env, meta_gen, ind, info, form).bind(
         |(major_premise, recursor_universe, type_former)| {
-            Dr::sequence(ind.contents.intro_rules.iter().map(|intro_rule| {
-                minor_premise_info(
-                    env,
-                    meta_gen,
-                    ind,
-                    intro_rule,
-                    info,
-                    form,
-                    type_former.clone(),
-                )
-            }))
+            Dr::sequence(ind.contents.intro_rules.iter().enumerate().map(
+                |(intro_rule_idx, intro_rule)| {
+                    minor_premise_info(
+                        env,
+                        meta_gen,
+                        ind,
+                        intro_rule,
+                        match form {
+                            RecursorForm::Owned => None,
+                            RecursorForm::Borrowed { squashed, .. } => {
+                                Some(&squashed.contents.intro_rules[intro_rule_idx])
+                            }
+                        },
+                        info,
+                        form,
+                        type_former.clone(),
+                    )
+                },
+            ))
             .map(|minor_premises| RecursorInfo {
                 major_premise,
                 recursor_universe,
@@ -128,32 +138,15 @@ fn partial_recursor_info(
                 // If we're making the borrowed form of the recursor, the parameter is in squashed form.
                 match form {
                     RecursorForm::Owned => major_premise.clone(),
-                    RecursorForm::Borrowed {
-                        region,
-                        squashed_type,
-                        squash,
-                    } => {
+                    RecursorForm::Borrowed { squashed_type, .. } => {
                         // This block mirrors the construction of the major premise, but we generate it in squashed form.
-                        let squashed_inst = Expr::new_synthetic(ExprContents::Inst(Inst {
-                            name: squashed_type.clone(),
-                            universes: ind
-                                .contents
-                                .universe_params
-                                .iter()
-                                .map(|name| {
-                                    Universe::new_synthetic(UniverseContents::UniverseVariable(
-                                        UniverseVariable(name.contents),
-                                    ))
-                                })
-                                .collect(),
-                        }));
                         LocalConstant {
                             name: Name {
                                 provenance: Provenance::Synthetic,
                                 contents: env.db.intern_string_data("n".to_string()),
                             },
                             metavariable: meta_gen.gen(create_nary_application(
-                                squashed_inst.clone(),
+                                Expr::new_synthetic(ExprContents::Inst(squashed_type.clone())),
                                 info.global_params
                                     .iter()
                                     .chain(&info.index_params)
@@ -197,6 +190,7 @@ pub fn minor_premise_info(
     meta_gen: &mut MetavariableGenerator,
     ind: &Inductive,
     intro_rule: &IntroRule,
+    squashed_intro_rule: Option<&IntroRule>,
     info: &PartialInductiveInformation,
     form: RecursorForm,
     type_former: LocalConstant,
@@ -236,7 +230,9 @@ pub fn minor_premise_info(
                                             .rev()
                                             .skip(1)
                                             .rev()
-                                            .chain(std::iter::once(&intro_rule.name))
+                                            .chain(std::iter::once(
+                                                &squashed_intro_rule.unwrap_or(intro_rule).name,
+                                            ))
                                             .cloned()
                                             .collect(),
                                     },

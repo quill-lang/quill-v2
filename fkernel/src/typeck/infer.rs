@@ -295,16 +295,18 @@ fn infer_type_apply<'a>(
     {
         let func_span = apply.function.provenance.span();
         let arg_span = apply.argument.provenance.span();
+        let apply = apply.clone();
         return Err(Box::new(move |report| {
             let mut printer = ExprPrinter::new(env.db);
             report
                 .with_message(format!(
-                    "function of type\n\t{}\ncannot be applied to value of type\n\t{}\nthe function expects a parameter of type\n\t{}",
+                    "function of type\n\t{}\ncannot be applied to value of type\n\t{}\nthe function expects a parameter of type\n\t{}\nerror occurred evaluating the function call\n\t{}",
                     printer.print(&Expr::new_synthetic(ExprContents::Pi(
                         function_type.clone()
                     ))),
                     printer.print(&argument_type),
-                    printer.print(&function_type.parameter_ty)
+                    printer.print(&function_type.parameter_ty),
+                    printer.print(&Expr::new_synthetic(ExprContents::Apply(apply)))
                 ))
                 .with_label(
                     Label::new(env.source, func_span, LabelType::Error).with_message("function"),

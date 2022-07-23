@@ -3,10 +3,11 @@ use fnodes::{
     basic_nodes::{Name, Provenance, QualifiedName},
     definition::{Definition, DefinitionContents},
     expr::{
-        Apply, BinderAnnotation, Delta, Expr, ExprContents, LocalConstant, MetavariableGenerator,
-        Region,
+        Apply, BinderAnnotation, Delta, Expr, ExprContents, Inst, LocalConstant,
+        MetavariableGenerator, Region,
     },
     inductive::Inductive,
+    universe::{Universe, UniverseContents, UniverseVariable},
 };
 
 use crate::{
@@ -27,7 +28,7 @@ pub fn generate_recursor(
 ) -> Dr<(RecursorInfo, CertifiedDefinition)> {
     recursor_info(env, meta_gen, ind, info, RecursorForm::Owned)
         .bind(|rec_info| {
-            let def = generate_recursor_core(env, ind, info, &rec_info);
+            let def = generate_recursor_core(env, ind, info, &rec_info, RecursorForm::Owned);
             let mut print = ExprPrinter::new(env.db);
             tracing::debug!("eliminator has type {}", print.print(&def.contents.ty));
 
@@ -76,6 +77,7 @@ fn generate_recursor_core(
     ind: &Inductive,
     info: &PartialInductiveInformation,
     rec_info: &RecursorInfo,
+    form: RecursorForm,
 ) -> Definition {
     let mut type_former_application = create_nary_application(
         Expr::new_synthetic(ExprContents::LocalConstant(rec_info.type_former.clone())),
@@ -87,9 +89,36 @@ fn generate_recursor_core(
     if info.dependent_elimination {
         type_former_application = Expr::new_synthetic(ExprContents::Apply(Apply {
             function: Box::new(type_former_application),
-            argument: Box::new(Expr::new_synthetic(ExprContents::LocalConstant(
-                rec_info.major_premise.clone(),
-            ))),
+            argument: Box::new({
+                // If we're generating the borrowed form of the recursor, squash the major premise.
+                match form {
+                    RecursorForm::Owned => Expr::new_synthetic(ExprContents::LocalConstant(
+                        rec_info.major_premise.clone(),
+                    )),
+                    RecursorForm::Borrowed { region, squash, .. } => create_nary_application(
+                        Expr::new_synthetic(ExprContents::Inst(Inst {
+                            name: squash.clone(),
+                            universes: ind
+                                .contents
+                                .universe_params
+                                .iter()
+                                .map(|name| {
+                                    Universe::new_synthetic(UniverseContents::UniverseVariable(
+                                        UniverseVariable(name.contents),
+                                    ))
+                                })
+                                .collect(),
+                        })),
+                        std::iter::once(Expr::new_synthetic(ExprContents::LocalConstant(
+                            region.clone(),
+                        )))
+                        .chain(std::iter::once(Expr::new_synthetic(
+                            ExprContents::LocalConstant(rec_info.major_premise.clone()),
+                        ))),
+                        &Provenance::Synthetic,
+                    ),
+                }
+            }),
         }))
     }
 
@@ -122,6 +151,14 @@ fn generate_recursor_core(
         eliminator_type,
         &Provenance::Synthetic,
     );
+
+    // Abstract the region parameter.
+    if let RecursorForm::Borrowed { region, .. } = form {
+        eliminator_type = Expr::new_synthetic(ExprContents::Pi(abstract_pi(
+            region.clone(),
+            eliminator_type,
+        )));
+    }
 
     let eliminator_universe = match rec_info.recursor_universe {
         RecursorUniverse::Prop => Vec::new(),
@@ -175,14 +212,11 @@ pub fn generate_borrowed_recursor(
             }
         });
 
-    recursor_info(
-        env,
-        meta_gen,
-        ind,
-        info,
-        RecursorForm::Borrowed {
-            region: &region,
-            squashed_type: &QualifiedName {
+    let form = RecursorForm::Borrowed {
+        region: &region,
+        squashed,
+        squashed_type: &Inst {
+            name: QualifiedName {
                 provenance: ind.contents.name.provenance.clone(),
                 segments: env
                     .db
@@ -196,66 +230,78 @@ pub fn generate_borrowed_recursor(
                     .chain(std::iter::once(squashed.contents.name.clone()))
                     .collect(),
             },
-            squash: &QualifiedName {
-                provenance: ind.contents.name.provenance.clone(),
-                segments: env
-                    .db
-                    .lookup_intern_path_data(env.source.path)
-                    .0
-                    .into_iter()
-                    .map(|s| Name {
-                        provenance: ind.contents.name.provenance.clone(),
-                        contents: s,
-                    })
-                    .chain(std::iter::once(squash_function.def().contents.name.clone()))
-                    .collect(),
-            },
+            universes: ind
+                .contents
+                .universe_params
+                .iter()
+                .map(|name| {
+                    Universe::new_synthetic(UniverseContents::UniverseVariable(UniverseVariable(
+                        name.contents,
+                    )))
+                })
+                .collect(),
         },
-    )
-    .bind(|rec_info| {
-        let def = generate_recursor_core(env, ind, info, &rec_info);
-        let mut print = ExprPrinter::new(env.db);
-        tracing::debug!(
-            "borrowed eliminator has type {}",
-            print.print(&def.contents.ty)
-        );
+        squash: &QualifiedName {
+            provenance: ind.contents.name.provenance.clone(),
+            segments: env
+                .db
+                .lookup_intern_path_data(env.source.path)
+                .0
+                .into_iter()
+                .map(|s| Name {
+                    provenance: ind.contents.name.provenance.clone(),
+                    contents: s,
+                })
+                .chain(std::iter::once(squash_function.def().contents.name.clone()))
+                .collect(),
+        },
+    };
 
-        let mut env = env.clone();
+    recursor_info(env, meta_gen, ind, info, form)
+        .bind(|rec_info| {
+            let def = generate_recursor_core(env, ind, info, &rec_info, form);
+            let mut print = ExprPrinter::new(env.db);
+            tracing::debug!(
+                "borrowed eliminator has type {}",
+                print.print(&def.contents.ty)
+            );
 
-        // Add the universe parameter created for the type former if applicable.
-        let mut universe_variables = env.universe_variables.to_owned();
-        match rec_info.recursor_universe {
-            RecursorUniverse::Prop => {}
-            RecursorUniverse::Parameter(param) => {
-                let new_universe_parameter = Name {
-                    provenance: ind.provenance.clone(),
-                    contents: param,
-                };
-                universe_variables.insert(0, new_universe_parameter);
-            }
-        };
-        env.universe_variables = &universe_variables;
+            let mut env = env.clone();
 
-        typeck::check(
-            &env,
-            &def,
-            DefinitionOrigin::Recursor {
-                inductive: env.db.intern_path_data(PathData(
-                    env.db
-                        .lookup_intern_path_data(env.source.path)
-                        .0
-                        .into_iter()
-                        .chain(std::iter::once(ind.contents.name.contents))
-                        .collect(),
-                )),
-            },
-        )
-        .map(|def| (rec_info, def))
-    })
-    .map_reports(|report| {
-        report.with_note(format!(
-            "error raised while creating the borrowed form of the recursor for type {}",
-            env.db.lookup_intern_string_data(ind.contents.name.contents)
-        ))
-    })
+            // Add the universe parameter created for the type former if applicable.
+            let mut universe_variables = env.universe_variables.to_owned();
+            match rec_info.recursor_universe {
+                RecursorUniverse::Prop => {}
+                RecursorUniverse::Parameter(param) => {
+                    let new_universe_parameter = Name {
+                        provenance: ind.provenance.clone(),
+                        contents: param,
+                    };
+                    universe_variables.insert(0, new_universe_parameter);
+                }
+            };
+            env.universe_variables = &universe_variables;
+
+            typeck::check(
+                &env,
+                &def,
+                DefinitionOrigin::Recursor {
+                    inductive: env.db.intern_path_data(PathData(
+                        env.db
+                            .lookup_intern_path_data(env.source.path)
+                            .0
+                            .into_iter()
+                            .chain(std::iter::once(ind.contents.name.contents))
+                            .collect(),
+                    )),
+                },
+            )
+            .map(|def| (rec_info, def))
+        })
+        .map_reports(|report| {
+            report.with_note(format!(
+                "error raised while creating the borrowed form of the recursor for type {}",
+                env.db.lookup_intern_string_data(ind.contents.name.contents)
+            ))
+        })
 }

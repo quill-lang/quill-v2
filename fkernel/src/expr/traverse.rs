@@ -126,7 +126,10 @@ fn find_in_expr_offset(
                 find_in_expr_offset(&pi.parameter_ty, predicate.clone(), offset)
                     .or_else(|| find_in_expr_offset(&pi.result, predicate, offset.succ()))
             }
-            ExprContents::Delta(delta) => find_in_expr_offset(&delta.ty, predicate, offset),
+            ExprContents::Delta(delta) => {
+                find_in_expr_offset(&delta.region, predicate.clone(), offset)
+                    .or_else(|| find_in_expr_offset(&delta.ty, predicate, offset))
+            }
             ExprContents::Apply(apply) => {
                 find_in_expr_offset(&apply.function, predicate.clone(), offset)
                     .or_else(|| find_in_expr_offset(&apply.argument, predicate, offset))

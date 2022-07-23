@@ -11,7 +11,7 @@ use fnodes::{
 };
 
 use crate::{
-    expr::{abstract_nary_pi, pi_args},
+    expr::{abstract_nary_pi, pi_args, ExprPrinter},
     typeck::{self, CertifiedDefinition, DefinitionOrigin, Environment},
 };
 
@@ -56,7 +56,9 @@ pub fn generate_squash_function(
         },
         binder_annotation: BinderAnnotation::Explicit,
         parameter_ty: Box::new(Expr::new_synthetic(ExprContents::Delta(Delta {
-            region: Box::new(Expr::new_synthetic(ExprContents::LocalConstant(region))),
+            region: Box::new(Expr::new_synthetic(ExprContents::LocalConstant(
+                region.clone(),
+            ))),
             ty: Box::new({
                 args.iter().fold(
                     Expr::new_synthetic(ExprContents::Inst(Inst {
@@ -137,10 +139,13 @@ pub fn generate_squash_function(
     }));
 
     squash_type = abstract_nary_pi(
-        squashed_args.into_iter(),
+        std::iter::once(region).chain(args),
         squash_type,
         &Provenance::Synthetic,
     );
+
+    let mut printer = ExprPrinter::new(env.db);
+    tracing::debug!("squash function has type {}", printer.print(&squash_type));
 
     let def = Definition {
         provenance: ind.provenance.clone(),
