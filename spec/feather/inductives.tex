@@ -5,26 +5,26 @@ We present a system of inductive types similar to that described by Dybjer in \c
 	\begin{itemize}
 		\item a qualified name \( q \);
 		\item a list of universe parameters \( U \in \mathcal N \ast \);
-		\item a type \( P \), which is to be the type of the inductive type to be declared;
-		\item a list of types of intro rules \( i_n \),
+		\item a type \( I \), which is to be the type of the inductive type to be declared;
+		\item a list of intro rules \( \mathsf{intro_n} : i_n \),
 	\end{itemize}
 	subject to various conditions laid out in the remainder of this section.
 \end{defn}
-The type \( P \) must be of the form
-\[ P = \prd{\vb A : \bm \sigma}{\vb a : \bm \alpha} \Sort u \]
+The type \( I \) must be of the form
+\[ I = \prd{\vb A : \bm \sigma}{\vb a : \bm \alpha} \Sort u \]
 where \( \vb A, \vb a \) are lists of parameters and \( \bm \sigma, \bm \alpha \) are lists of types.
 We call \( \vb A \) the \textit{global parameters} and \( \vb a \) the \textit{index parameters}.
 The combined list of parameters is used to index a particular type from a family of types being constructed at once.
-When we construct the inductive family, we add the assumption \( q : P \) to the environment \( \Gamma \) (more precisely, we add \( \langle q, U, P \rangle \)), essentially declaring the inductive type available for use in later expressions.
+When we construct the inductive family, we add the assumption \( q : I \) to the environment \( \Gamma \) (more precisely, we add \( \langle q, U, I \rangle \)), essentially declaring the inductive type available for use in later expressions.
 
 The type of each intro rule must be of the form
-\[ i_n = \prd{\vb A : \bm \sigma}{\vb b : \bm \beta}{\vb u : \bm \gamma} P\ \vb A\ (p\ \vb A\ \vb b) \]
+\[ i_n = \prd{\vb A : \bm \sigma}{\vb b : \bm \beta}{\vb u : \bm \gamma} I\ \vb A\ (p\ \vb A\ \vb b) \]
 where
 \begin{itemize}
 	\item \( \bm \beta \) and \( \bm \gamma \) are lists of types
 	\item each \( \gamma_i \) has the form
-	\[ \gamma_i = \prd{x:\bm \xi_i} P\ \vb A\ (p_i\ \vb A\ \vb b\ \vb x) \]
-	where \( \bm \xi_i \) is a list of types that cannot contain \( P \) (this is known as the \textit{positivity constraint}), and
+	\[ \gamma_i = \prd{x:\bm \xi_i} I\ \vb A\ (p_i\ \vb A\ \vb b\ \vb x) \]
+	where \( \bm \xi_i \) is a list of types that cannot contain \( I \) (this is known as the \textit{positivity constraint}), and
 	\[ p_i : \prd{\vb A : \bm \sigma}{\vb b : \bm \beta}{\vb x:\bm \xi_i} \bm \alpha \]
 	\item \( p \) has the form
 	\[ p : \prd{\vb A : \bm \sigma}{\vb b : \bm \beta} \bm \alpha \]
@@ -34,22 +34,65 @@ In our kernel, we do not enforce the order in which elements \( \vb b \) and \( 
 
 \section{Elimination rule}
 Given the above, we construct the elimination rule
-\[ \mathsf{rec} : \prd{\vb A : \bm \sigma}{C : \prd{\vb a : \bm \alpha}{c : P\ \vb A\ \vb a} \Sort l}{\vb e : \bm \epsilon}{\vb a : \bm \alpha}{c : P\ \vb A\ \vb a} C\ \vb a\ c \]
+\[ \mathsf{rec} : \prd{\vb A : \bm \sigma}{C : \prd{\vb a : \bm \alpha}{c : I\ \vb A\ \vb a} \Sort \ell}{\vb e : \bm \epsilon}{\vb a : \bm \alpha}{c : I\ \vb A\ \vb a} C\ \vb a\ c \]
 \( C \) is called the \textit{type former} or \textit{motive} for the recursion.
-\( l \) is a universe parameter to the recursor, constrained by the following rules.
+\( \ell \) is a universe parameter to the recursor, constrained by the following rules.
 \begin{itemize}
-	\item If \( u \) is never the zero universe, \( l \) is arbitrary.
+	\item If \( u \) is never the zero universe, \( \ell \) is arbitrary.
 	\item Otherwise, \begin{itemize}
-		\item If there are zero introduction rules, \( l \) is arbitrary.
+		\item If there are zero introduction rules, \( \ell \) is arbitrary.
 		\item If there is exactly one introduction rule, then
 		\begin{itemize}
-			\item If each argument to the intro rule that is not in \( \vb b \) or \( \vb u \) either lives in \( \Prop \) or occurs in the return type, \( l \) is arbitrary.
-			\item If there is any argument that does not satisfy those conditions, \( l \) must only take the value 0.
+			\item If each argument to the intro rule that is not in \( \vb b \) or \( \vb u \) either lives in \( \Prop \) or occurs in the return type, \( \ell \) is arbitrary.
+			\item If there is any argument that does not satisfy those conditions, \( \ell \) must only take the value 0.
 		\end{itemize}
-		\item If there is more than one introduction rule, \( l \) must only take the value 0.
+		\item If there is more than one introduction rule, \( \ell \) must only take the value 0.
 	\end{itemize}
 \end{itemize}
 For each intro rule \( i_n \), we have a \textit{minor premise} \( e_n \), of type
 \[ \epsilon_n = \prd{\vb b : \bm \beta}{\vb u : \bm \gamma}{\vb v : \bm \delta} C\ (p\ \vb A\ \vb b)\ (i_n\ \vb A\ \vb b\ \vb u) \]
 where \( \bm \delta \) has the same length as \( \bm \gamma \), and
 \[ \delta_i = \prd{\vb x:\bm \xi_i} C\ (p_i\ \vb A\ \vb b\ \vb x)\ (u_i\ \vb x) \]
+The computation rules for the recursor are of the form
+\[ \inferrule*[right=$\mathsf{rec}$-\rcomp]
+	{\oftp\Gamma{\vb A}{\bm \sigma} \and \oftp\Gamma{C}{\prd{\vb a : \bm \alpha}{c : I\ \vb A\ \vb a} \Sort \ell} \and \oftp\Gamma{\vb e}{\bm \epsilon} \and \oftp\Gamma{\vb b}{\bm \beta} \and \oftp\Gamma{\vb u}{\bm \gamma}}
+	{\Gamma\vdash {\mathsf{rec}\ \vb A\ C\ \vb e\ (p\ \vb A\ \vb b)\ (\mathsf{intro}_n\ \vb A\ \vb b\ \vb u)}\jdeq{e_i\ \vb b\ \vb u\ \vb v}} \]
+given that the types \( \bm \sigma, \bm \epsilon, \bm \beta, \bm \gamma \) and the universe \( \ell \) satisfy the requirements above.
+This yields the \( \iota \)-reduction rule
+\[ \inferrule
+	{\oftp\Gamma{\vb A}{\bm \sigma} \and \oftp\Gamma{C}{\prd{\vb a : \bm \alpha}{c : I\ \vb A\ \vb a} \Sort \ell} \and \oftp\Gamma{\vb e}{\bm \epsilon} \and \oftp\Gamma{\vb b}{\bm \beta} \and \oftp\Gamma{\vb u}{\bm \gamma}}
+	{{\mathsf{rec}\ \vb A\ C\ \vb e\ (p\ \vb A\ \vb b)\ (\mathsf{intro}_n\ \vb A\ \vb b\ \vb u)}\;\triangleright_\iota\;{e_i\ \vb b\ \vb u\ \vb v}} \]
+
+\section{Squashed types}
+To work with \( \Delta \) types of inductives, we create three new gadgets: squashed types, the squash function, and the borrowed form of the recursor.
+Each is necessary to fully characterise the behaviour of \( \Delta \) types when the parameter is an inductive.
+
+To start, we define the squashed type \( I^{\mathcal S} \) of an inductive type \( I \) with parameters as above.
+We operate under the restriction that \( p \) and \( p_i \) are functions only of \( \vb A \) and not of \( \vb b \); instead of requiring that they are not functions of the recursive arguments, they must now not be functions of any of the arguments.
+It has the following properties:
+\begin{itemize}
+	\item its name is \( q \) with a fixed suffix to denote that it is the squashed variant;
+	\item it has the same universe parameters \( U \);
+	\item its type is \( I^{\mathcal S} = \prd{\rho : \Region} I \);
+	\item its intro rules \( \mathsf{intro}_n^{\mathcal S} : i_n^{\mathcal S} \) have different types:
+\end{itemize}
+\[ i_n^{\mathcal S} = \prd{\rho : \Region}{\vb A : \bm \sigma}{\vb b : \Delta_\rho[\bm \beta]}{\vb u : \Delta_\rho[\bm \gamma]} I^{\mathcal S}\ \rho\ \vb A\ (p\ \vb A) \]
+where \( \Delta_\rho[\bm \beta] \) denotes the elementwise image of the \( \Delta_\rho \) map on \( \bm \beta \).
+For convenience (and due to the \( \ast \)-reduction rule), if any \( \beta_i \) is already of the form \( \Delta_{\rho'} \beta_i' \), we say that it is unchanged.
+Since the \( \Delta \) map preserves universes, the recursor for the squashed type is almost identical:
+\[ \mathsf{rec}^{\mathcal S} : \prd{\rho : \Region}{\vb A : \bm \sigma}{C : \prd{\vb a : \bm \alpha}{c : I^{\mathcal S}\ \rho\ \vb A\ \vb a} \Sort \ell}{\vb e : \bm \epsilon}{\vb a : \bm \alpha}{c : I^{\mathcal S}\ \rho\ \vb A\ \vb a} C\ \vb a\ c \]
+where
+\[ \epsilon_n = \prd{\vb b : \Delta_\rho[\bm \beta]}{\vb u : \Delta_\rho[\bm \gamma]}{\vb v : \bm \delta} C\ (p\ \vb A)\ (i_n\ \vb A\ \vb b\ \vb u) \]
+where \( \bm \delta \) has the same length as \( \bm \gamma \), and
+\[ \delta_i = \prd{\vb x:\bm \xi_i} C\ (p_i\ \vb A\ \vb x)\ (u_i\ \vb x) \]
+Its computation rules are defined as above.
+We can now define the squash function
+\[ \mathsf{squash} : \prd{\rho : \Region}{\vb A : \bm \sigma}{\vb a : \bm \alpha}{c : \Delta_\rho\ I\ \vb A\ \vb a} I^{\mathcal S}\ \rho\ \vb A\ \vb a \]
+It has computation rules of the form
+\[ \inferrule*[right=$\mathsf{squash}$-\rcomp]
+	{\oftp\Gamma{\rho}{\Region} \and \oftp\Gamma{\vb A}{\bm \sigma} \and \oftp\Gamma{\vb b}{\bm \beta} \and \oftp\Gamma{\vb u}{\bm \gamma}}
+	{\jdeqtp\Gamma{\mathsf{squash} (\&_\rho\ (\mathsf{intro}_n\ \vb A\ \vb b\ \vb u))}{\mathsf{intro}_n^{\mathcal S}\ \rho\ \vb A\ \&_\rho[\vb b]\ \&_\rho[\vb u]}{I^{\mathcal S}\ \rho\ \vb A\ (p\ \vb A)}} \]
+where \( \&_\rho[\vb b] \) denotes the elementwise image of the \( \&_\rho \) map on \( \vb b \), except if some \( \beta_i \) is already a \( \Delta \) type, \( b_i \) is unchanged.
+This function can be thought of as propagating the borrow into the elements of a type.
+
+\section{Borrowed form of the recursor}
