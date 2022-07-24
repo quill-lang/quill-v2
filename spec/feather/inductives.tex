@@ -80,19 +80,31 @@ It has the following properties:
 where \( \Delta_\rho[\bm \beta] \) denotes the elementwise image of the \( \Delta_\rho \) map on \( \bm \beta \).
 For convenience (and due to the \( \ast \)-reduction rule), if any \( \beta_i \) is already of the form \( \Delta_{\rho'} \beta_i' \), we say that it is unchanged.
 Since the \( \Delta \) map preserves universes, the recursor for the squashed type is almost identical:
-\[ \mathsf{rec}^{\mathcal S} : \prd{\rho : \Region}{\vb A : \bm \sigma}{C : \prd{\vb a : \bm \alpha}{c : I^{\mathcal S}\ \rho\ \vb A\ \vb a} \Sort \ell}{\vb e : \bm \epsilon}{\vb a : \bm \alpha}{c : I^{\mathcal S}\ \rho\ \vb A\ \vb a} C\ \vb a\ c \]
+\[ \mathsf{rec}^{\mathcal S} : \prd{\rho : \Region}{\vb A : \bm \sigma}{C : \prd{\vb a : \bm \alpha}{c : I^{\mathcal S}\ \rho\ \vb A\ \vb a} \Sort \ell}{\vb e : \bm \epsilon^{\mathcal S}}{\vb a : \bm \alpha}{c : I^{\mathcal S}\ \rho\ \vb A\ \vb a} C\ \vb a\ c \]
 where
-\[ \epsilon_n = \prd{\vb b : \Delta_\rho[\bm \beta]}{\vb u : \Delta_\rho[\bm \gamma]}{\vb v : \bm \delta} C\ (p\ \vb A)\ (i_n\ \vb A\ \vb b\ \vb u) \]
-where \( \bm \delta \) has the same length as \( \bm \gamma \), and
-\[ \delta_i = \prd{\vb x:\bm \xi_i} C\ (p_i\ \vb A\ \vb x)\ (u_i\ \vb x) \]
+\[ \epsilon_n^{\mathcal S} = \prd{\vb b : \Delta_\rho[\bm \beta]}{\vb u : \Delta_\rho[\bm \gamma]} C\ (p\ \vb A)\ (i_n\ \rho\ \vb A\ \vb b\ \vb u) \]
+Note that there are no recursive (with respect to \( I^{\mathcal S} \), not \( I \)) arguments in the squashed type, since \( I^{\mathcal S} \) is defined after \( I \).
 Its computation rules are defined as above.
 We can now define the squash function
 \[ \mathsf{squash} : \prd{\rho : \Region}{\vb A : \bm \sigma}{\vb a : \bm \alpha}{c : \Delta_\rho\ I\ \vb A\ \vb a} I^{\mathcal S}\ \rho\ \vb A\ \vb a \]
 It has computation rules of the form
 \[ \inferrule*[right=$\mathsf{squash}$-\rcomp]
 	{\oftp\Gamma{\rho}{\Region} \and \oftp\Gamma{\vb A}{\bm \sigma} \and \oftp\Gamma{\vb b}{\bm \beta} \and \oftp\Gamma{\vb u}{\bm \gamma}}
-	{\jdeqtp\Gamma{\mathsf{squash} (\&_\rho\ (\mathsf{intro}_n\ \vb A\ \vb b\ \vb u))}{\mathsf{intro}_n^{\mathcal S}\ \rho\ \vb A\ \&_\rho[\vb b]\ \&_\rho[\vb u]}{I^{\mathcal S}\ \rho\ \vb A\ (p\ \vb A)}} \]
+	{\jdeqtp\Gamma{\mathsf{squash}\ \rho\ \vb A\ \vb a\ (\&_\rho\ (\mathsf{intro}_n\ \vb A\ \vb b\ \vb u))}{\mathsf{intro}_n^{\mathcal S}\ \rho\ \vb A\ \&_\rho[\vb b]\ \&_\rho[\vb u]}{I^{\mathcal S}\ \rho\ \vb A\ (p\ \vb A)}} \]
 where \( \&_\rho[\vb b] \) denotes the elementwise image of the \( \&_\rho \) map on \( \vb b \), except if some \( \beta_i \) is already a \( \Delta \) type, \( b_i \) is unchanged.
 This function can be thought of as propagating the borrow into the elements of a type.
+The associated rewrite rule is called \( \mathcal S \)-reduction.
+\[ \inferrule
+	{\oftp\Gamma{\rho}{\Region} \and \oftp\Gamma{\vb A}{\bm \sigma} \and \oftp\Gamma{\vb b}{\bm \beta} \and \oftp\Gamma{\vb u}{\bm \gamma}}
+	{\mathsf{squash}\ \rho\ \vb A\ \vb a\ (\&_\rho\ (\mathsf{intro}_n\ \vb A\ \vb b\ \vb u)) \;\triangleright_{\mathcal S}\;\mathsf{intro}_n^{\mathcal S}\ \rho\ \vb A\ \&_\rho[\vb b]\ \&_\rho[\vb u]} \]
 
 \section{Borrowed form of the recursor}
+We now create another recursor for each type that has a squash function.
+It has type
+\[ \mathsf{recb} : \prd{\rho : \Region}{\vb A : \bm \sigma}{C : \prd{\vb a : \bm \alpha}{c : I^{\mathcal S}\ \rho\ \vb A\ \vb a} \Sort \ell}{\vb e : \bm \epsilon'}{\vb a : \bm \alpha}{c : \Delta_\rho\ I\ \vb A\ \vb a} C\ \vb a\ (\mathsf{squash}\ \rho\ \vb A\ \vb a\ c) \]
+where
+\[ \epsilon_n' = \prd{\vb b : \Delta_\rho[\bm \beta]}{\vb u : \Delta_\rho[\bm \gamma]}{\vb v : \bm \delta'} C\ (p\ \vb A)\ (i_n\ \vb A\ \vb b\ \vb u) \]
+where \( \bm \delta' \) has the same length as \( \bm \gamma \), and
+\[ \delta_i' = \prd{\vb x:\bm \xi_i} C\ (p_i\ \vb A\ \vb x)\ (u_i\ \vb x) \]
+
+% TODO: figure out where the `x' goes in that last statement, and make sure gamma is done correctly, and not as a pi type
