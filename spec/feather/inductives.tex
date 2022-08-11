@@ -229,17 +229,60 @@ The reduction rule, \( \iota^{\mathcal S} \)-reduction, is
 	{{\mathsf{recb}\ \rho\ \vb A\ C\ \vb e\ (p\ \vb A\ \vb b')\ (\&_\rho\ \mathsf{intro}_n\ \vb A\ \vb b\ \vb u)} \;\triangleright_{\iota^{\mathcal S}}\; {e_i\ \mathcal B_\rho[\vb b]\ \mathcal B[\vb u]\ \vb v}} \]
 
 \begin{eg}[natural numbers]
-	The squashed type has intro rules
+	The squashed type associated to \( \mathsf{nat} \) has intro rules
 	\begin{align*}
-		\mathsf{zero}^{\mathcal S} &: \prd{\rho:\Region} \mathsf{nat}^{\mathcal S} \\
-		\mathsf{succ}^{\mathcal S} &: \prd{\rho:\Region}{n:\Delta_\rho\ \mathsf{nat}} \mathsf{nat}^{\mathcal S}
+		\mathsf{zero}^{\mathcal S} &: \prd{\rho:\Region} \mathsf{nat}^{\mathcal S}\ \rho \\
+		\mathsf{succ}^{\mathcal S} &: \prd{\rho:\Region}{n:\Delta_\rho\ \mathsf{nat}} \mathsf{nat}^{\mathcal S}\ \rho
 	\end{align*}
 	and the borrowed form of the recursor is
-	\[ \mathsf{recb}_{\mathsf{nat}} : \prd{\rho:\Region}{C:\prd{c:\mathsf{nat}^{\mathcal S}\ \rho}\Sort \ell}{\vb e : \bm \epsilon'}{c:\Delta_\rho\ \mathsf{nat}}C\ (\mathsf{squash}\ \rho\ c) \]
+	\[ \mathsf{recb}_{\mathsf{nat}} : \prd{\rho:\Region}{C:\prd{c:\mathsf{nat}^{\mathcal S}\ \rho}\Sort \ell}{\vb e : \bm \epsilon'}{c:\Delta_\rho\ \mathsf{nat}}C\ (\mathsf{squash_{\mathsf{nat}}}\ \rho\ c) \]
 	where
 	\begin{align*}
 		\epsilon_1' = \epsilon_{\mathsf{zero}^{\mathcal S}}' &= C\ (\mathsf{zero}^{\mathcal S}\ \rho) \\
-		\epsilon_2' = \epsilon_{\mathsf{succ}^{\mathcal S}}' &= \prd{u:\Delta_\rho\ \mathsf{nat}}{v:C\ (\mathsf{squash}\ \rho\ u)} C\ (\mathsf{succ}^{\mathcal S}\ \rho\ u)
+		\epsilon_2' = \epsilon_{\mathsf{succ}^{\mathcal S}}' &= \prd{u:\Delta_\rho\ \mathsf{nat}}{v:C\ (\mathsf{squash_{\mathsf{nat}}}\ \rho\ u)} C\ (\mathsf{succ}^{\mathcal S}\ \rho\ u)
 	\end{align*}
 	Notice how the squashed types are used in the types of the minor premises to avoid having to create and immediately borrow a value; instead of \( \&_\rho\ \mathsf{zero} \), we can write \( \mathsf{zero}^{\mathcal S}\ \rho \).
+\end{eg}
+\begin{eg}[lists]
+	The squashed list type has intro rules
+	\begin{align*}
+		\mathsf{nil}^{\mathcal S} &: \prd{\rho:\Region}{T:!\Sort(u+1)} \mathsf{list}^{\mathcal S}\ \rho\ T \\
+		\mathsf{cons}^{\mathcal S} &: \prd{\rho:\Region}{T:!\Sort(u+1)}{b:\Delta_\rho\ T}{u:\Delta_\rho\ \mathsf{list}\ T} \mathsf{list}^{\mathcal S}\ \rho\ T
+	\end{align*}
+	We have
+	\[ \mathsf{recb}_{\mathsf{list}} : \prd{\rho:\Region}{T:!\Sort(u+1)}{C:\prd{c:\mathsf{list}^{\mathcal S}\ \rho\ T}\Sort \ell}{\vb e : \bm \epsilon'}{c:\Delta_\rho\ \mathsf{list}\ T} C\ (\mathsf{squash_{\mathsf{list}}}\ \rho\ T\ c) \]
+	where
+	\begin{align*}
+		\epsilon_1' = \epsilon_{\mathsf{nil}^{\mathcal S}}' &= C\ (\mathsf{nil}^{\mathcal S}\ \rho\ T) \\
+		\epsilon_2' = \epsilon_{\mathsf{cons}^{\mathcal S}}' &= \prd{b:\Delta_\rho\ T}{u:\Delta_\rho\ \mathsf{list}\ T}{v:C\ (\mathsf{squash}_{\mathsf{cons}}\ \rho\ T\ u)} C\ (\mathsf{list}^{\mathcal S}\ \rho\ T\ b\ u)
+	\end{align*}
+\end{eg}
+\begin{eg}[arrays]
+	The squashed array type has intro rules
+	\begin{align*}
+		\mathsf{anil}^{\mathcal S} &: \prd{\rho:\Region}{T:!\Sort(u+1)} \mathsf{array}^{\mathcal S}\ T\ \mathsf{zero} \\
+		\mathsf{acons}^{\mathcal S} &: \prd{\rho:\Region}{T:!\Sort(u+1)}{n:!\mathsf{nat}}{b:\Delta_\rho\ T}{u:\Delta_\rho\ \mathsf{array}\ T\ n} \mathsf{array}^{\mathcal S}\ T\ (\mathsf{succ}\ n)
+	\end{align*}
+	Note that since \( n \) is a compile time expression, it is not converted into a borrowed form here. This allows us to perform the \( \mathsf{succ} \) operation on it, and allows us to use it in the type of the recursive argument \( u:\Delta_\rho\ \mathsf{array}\ T\ n \).
+	The recursor is
+	\begin{align*}
+		\mathsf{recb}_{\mathsf{array}} &: \prd{\rho:\Region}{T:!\Sort(u+1)}{C:\prd{n:!\mathsf{nat}}{c:\mathsf{array}^{\mathcal S}\ \rho\ T\ n}\Sort \ell}\\
+		& \prd{\vb e : \bm \epsilon'}{n:!\mathsf{nat}}{c : \Delta_\rho\ \mathsf{array}\ T\ n} C\ n\ (\mathsf{squash}_{\mathsf{array}}\ \rho\ T\ n\ c)
+	\end{align*}
+	where
+	\begin{align*}
+		\epsilon_1' = \epsilon_{\mathsf{anil}^{\mathcal S}}' &= C\ \mathsf{zero}\ (\mathsf{anil}^{\mathcal S}\ \rho\ T) \\
+		\epsilon_2' = \epsilon_{\mathsf{acons}^{\mathcal S}}' &= \prd{n:!\mathsf{nat}}{b:\Delta_\rho\ T}{u:\Delta_\rho\ \mathsf{array}\ T\ n} \\
+		& \prd{(v:C\ n\ (\mathsf{squash}_{\mathsf{array}}\ \rho\ T\ n\ u))} C\ (\mathsf{succ}\ n)\ (\mathsf{acons}^{\mathcal S}\ \rho\ T\ n\ b\ u)
+	\end{align*}
+\end{eg}
+\begin{eg}[equality]
+	There is no squashed type for equality \( \mathsf{eq} \), since in the intro rule \( \mathsf{refl} : \prd{T:!\Sort u}{x:T} \mathsf{eq}\ T\ x\ x \), the parameter \( x \) is used in an index parameter, but it is neither compile time nor borrowed. There is therefore also no borrowed recursor.
+\end{eg}
+% TODO: What happens if there's a borrowed type in the definition of the type itself, I?
+\begin{eg}[\( \mathsf{W} \)-types]
+	The squashed type in this case is given by the intro rule
+	\[ \mathsf{W.mk}^{\mathcal S} : \prd{S:!\Sort(u+1)}{T:!S\to\Sort(v+1)}{x:\Delta_\rho\ S}{y:\Delta_\rho\ \prd{z:T\ x}\mathsf{W}\ S\ T} \mathsf{W}^{\mathcal S}\ S\ T \]
+	% how do we *possibly* define the recursor here without executing a borrowed function?
+	% need to distinguish Fn from FnOnce...
 \end{eg}
