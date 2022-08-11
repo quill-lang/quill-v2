@@ -23,7 +23,7 @@ where
 \begin{itemize}
 	\item \( \bm \beta \) and \( \bm \gamma \) are lists of types
 	\item each \( \gamma_i \) has the form
-	\[ \gamma_i = \prd{x:\bm \xi_i} I\ \vb A\ (p_i\ \vb A\ \vb b\ \vb x) \]
+	\[ \gamma_i = \prd{\vb x:\bm \xi_i} I\ \vb A\ (p_i\ \vb A\ \vb b\ \vb x) \]
 	where \( \bm \xi_i \) is a list of types that cannot contain \( I \) (this is known as the \textit{positivity constraint}), and
 	\[ p_i : \prd{\vb A : \bm \sigma}{\vb b : \bm \beta}{\vb x:\bm \xi_i} \bm \alpha \]
 	\item \( p \) has the form
@@ -68,21 +68,38 @@ To work with \( \Delta \) types of inductives, we create three new gadgets: squa
 Each is necessary to fully characterise the behaviour of \( \Delta \) types when the parameter is an inductive.
 
 To start, we define the squashed type \( I^{\mathcal S} \) of an inductive type \( I \) with parameters as above.
-We operate under the restriction that \( p \) and \( p_i \) are functions only of \( \vb A \) and not of \( \vb b \); instead of requiring that they are not functions of the recursive arguments, they must now not be functions of any of the arguments.
-It has the following properties:
+
+\begin{defn}
+	We define the function \( \mathcal D_\rho \) on binders \( (b_i : \beta_i) \) such that
+	\begin{itemize}
+		\item compile-time binders \( (b_i : !\beta_i) \) are mapped to themselves;
+		\item if \( \beta_i \) is of the form \( \Delta_{\rho'} \beta_i' \), the binder is mapped to itself (the \( \ast \)-reduction rule allows for this);
+		\item all other binders \( (b_i : \beta_i) \) are mapped to \( (b_i : \Delta_{\rho} \beta_i) \).
+	\end{itemize}
+	We further define the associated function \( \mathcal B_\rho \) on variables \( b_i \) bound in a binder \( (b_i : \beta_i) \) such that
+	\begin{itemize}
+		\item variables \( b_i \) bound in compile-time binders \( (b_i : !\beta_i) \) are mapped to themselves;
+		\item variables \( b_i \) of type \( \beta_i = \Delta_{\rho'} \beta_i' \) are mapped to themselves;
+		\item all other variables \( b_i \) are mapped to \( \&_{\rho} b_i \).
+	\end{itemize}
+	Hence, for a binder \( (b_i : \beta_i) \), the variable \( \mathcal B_\rho\ b_i \) is a valid parameter for the binder \( \mathcal D_\rho\ (b_i : \beta_i) \). These two functions are only used for defining squashed types; they have no place in Feather code itself.
+\end{defn}
+
+Let \( \vb b' \) be the subsequence of \( \vb b \) such that \( \mathcal B_\rho b_i = b_i \). That is, \( \vb b' \) is the subsequence such that either the associated binder \( (b_i : \beta_i) \) is marked as compile time: \( (b_i : !\beta_i) \), or \( \beta_i \) is already a borrowed type.
+We operate under the restriction that \( p \) and \( p_i \) are functions only of \( \vb A \) and \( \vb b' \); we may depend only on compile time or borrowed nonrecursive parameters.
+
+The squashed type has the following properties:
 \begin{itemize}
-	\item its name is \( q \) with a fixed suffix to denote that it is the squashed variant;
+	\item its name is \( q^{\mathcal S} \), defined as \( q \) but with a fixed suffix to denote that it is the squashed variant;
 	\item it has the same universe parameters \( U \);
 	\item its type is \( I^{\mathcal S} = \prd{\rho : \Region} I \);
 	\item its intro rules \( \mathsf{intro}_n^{\mathcal S} : i_n^{\mathcal S} \) have different types:
 \end{itemize}
-\[ i_n^{\mathcal S} = \prd{\rho : \Region}{\vb A : \bm \sigma}{\vb b : \Delta_\rho[\bm \beta]}{\vb u : \Delta_\rho[\bm \gamma]} I^{\mathcal S}\ \rho\ \vb A\ (p\ \vb A) \]
-where \( \Delta_\rho[\bm \beta] \) denotes the elementwise image of the \( \Delta_\rho \) map on \( \bm \beta \).
-For convenience (and due to the \( \ast \)-reduction rule), if any \( \beta_i \) is already of the form \( \Delta_{\rho'} \beta_i' \), we say that it is unchanged.
+\[ i_n^{\mathcal S} = \prd{\rho : \Region}{\vb A : \bm \sigma}{\mathcal D_\rho[\vb b : \bm \beta]}{\mathcal D_\rho[\vb u : \bm \gamma]} I^{\mathcal S}\ \rho\ \vb A\ (p\ \vb A\ \vb b') \]
 Since the \( \Delta \) map preserves universes, the recursor for the squashed type is almost identical:
 \[ \mathsf{rec}^{\mathcal S} : \prd{\rho : \Region}{\vb A : \bm \sigma}{C : \prd{\vb a : \bm \alpha}{c : I^{\mathcal S}\ \rho\ \vb A\ \vb a} \Sort \ell}{\vb e : \bm \epsilon^{\mathcal S}}{\vb a : \bm \alpha}{c : I^{\mathcal S}\ \rho\ \vb A\ \vb a} C\ \vb a\ c \]
 where
-\[ \epsilon_n^{\mathcal S} = \prd{\vb b : \Delta_\rho[\bm \beta]}{\vb u : \Delta_\rho[\bm \gamma]} C\ (p\ \vb A)\ (i_n\ \rho\ \vb A\ \vb b\ \vb u) \]
+\[ \epsilon_n^{\mathcal S} = \prd{\mathcal D_\rho[\vb b : \bm \beta]}{\mathcal D_\rho[\vb u : \bm \gamma]} C\ (p\ \vb A\ \vb b')\ (i_n^{\mathcal S}\ \rho\ \vb A\ \vb b\ \vb u) \]
 Note that there are no recursive (with respect to \( I^{\mathcal S} \), not \( I \)) arguments in the squashed type, since \( I^{\mathcal S} \) is defined after \( I \).
 Its computation rules are defined as above.
 We can now define the squash function
@@ -90,21 +107,27 @@ We can now define the squash function
 It has computation rules of the form
 \[ \inferrule*[right=$\mathsf{squash}$-\rcomp]
 	{\oftp\Gamma{\rho}{\Region} \and \oftp\Gamma{\vb A}{\bm \sigma} \and \oftp\Gamma{\vb b}{\bm \beta} \and \oftp\Gamma{\vb u}{\bm \gamma}}
-	{\jdeqtp\Gamma{\mathsf{squash}\ \rho\ \vb A\ \vb a\ (\&_\rho\ (\mathsf{intro}_n\ \vb A\ \vb b\ \vb u))}{\mathsf{intro}_n^{\mathcal S}\ \rho\ \vb A\ \&_\rho[\vb b]\ \&_\rho[\vb u]}{I^{\mathcal S}\ \rho\ \vb A\ (p\ \vb A)}} \]
-where \( \&_\rho[\vb b] \) denotes the elementwise image of the \( \&_\rho \) map on \( \vb b \), except if some \( \beta_i \) is already a \( \Delta \) type, \( b_i \) is unchanged.
+	{\jdeqtp\Gamma{\mathsf{squash}\ \rho\ \vb A\ \vb a\ (\&_\rho\ (\mathsf{intro}_n\ \vb A\ \vb b\ \vb u))}{\mathsf{intro}_n^{\mathcal S}\ \rho\ \vb A\ \mathcal B_\rho[\vb b]\ \mathcal B_\rho[\vb u]}{I^{\mathcal S}\ \rho\ \vb A\ (p\ \vb A\ \vb b')}} \]
 This function can be thought of as propagating the borrow into the elements of a type.
 The associated rewrite rule is called \( \mathcal S \)-reduction.
 \[ \inferrule
 	{\oftp\Gamma{\rho}{\Region} \and \oftp\Gamma{\vb A}{\bm \sigma} \and \oftp\Gamma{\vb b}{\bm \beta} \and \oftp\Gamma{\vb u}{\bm \gamma}}
-	{\mathsf{squash}\ \rho\ \vb A\ \vb a\ (\&_\rho\ (\mathsf{intro}_n\ \vb A\ \vb b\ \vb u)) \;\triangleright_{\mathcal S}\;\mathsf{intro}_n^{\mathcal S}\ \rho\ \vb A\ \&_\rho[\vb b]\ \&_\rho[\vb u]} \]
+	{\mathsf{squash}\ \rho\ \vb A\ \vb a\ (\&_\rho\ (\mathsf{intro}_n\ \vb A\ \vb b\ \vb u)) \;\triangleright_{\mathcal S}\;\mathsf{intro}_n^{\mathcal S}\ \rho\ \vb A\ \mathcal B_\rho[\vb b]\ \mathcal B_\rho[\vb u]} \]
+Note that since \( p \) is only allowed to depend on those \( b_i \) that were unchanged under the \( \mathcal B_\rho \) map, the squash function is type correct.
 
 \section{Borrowed form of the recursor}
 We now create another recursor for each type that has a squash function.
 It has type
 \[ \mathsf{recb} : \prd{\rho : \Region}{\vb A : \bm \sigma}{C : \prd{\vb a : \bm \alpha}{c : I^{\mathcal S}\ \rho\ \vb A\ \vb a} \Sort \ell}{\vb e : \bm \epsilon'}{\vb a : \bm \alpha}{c : \Delta_\rho\ I\ \vb A\ \vb a} C\ \vb a\ (\mathsf{squash}\ \rho\ \vb A\ \vb a\ c) \]
 where
-\[ \epsilon_n' = \prd{\vb b : \Delta_\rho[\bm \beta]}{\vb u : \Delta_\rho[\bm \gamma]}{\vb v : \bm \delta'} C\ (p\ \vb A)\ (i_n\ \vb A\ \vb b\ \vb u) \]
+\[ \epsilon_n' = \prd{\mathcal D_\rho[\vb b : \bm \beta]}{\mathcal D_\rho[\vb u : \bm \gamma]}{\vb v : \bm \delta'} C\ (p\ \vb A)\ (i_n\ \vb A\ \vb b\ \vb u) \]
 where \( \bm \delta' \) has the same length as \( \bm \gamma \), and
-\[ \delta_i' = \prd{\vb x:\bm \xi_i} C\ (p_i\ \vb A\ \vb x)\ (u_i\ \vb x) \]
-
-% TODO: figure out where the `x' goes in that last statement, and make sure gamma is done correctly, and not as a pi type
+\[ \delta_i' = \prd{\vb x:\bm \xi_i} C\ (p_i\ \vb A\ \vb b'\ \vb x)\ (u_i\ \vb x) \]
+The associated computation rules are of the form
+\[ \inferrule*[right=$\mathsf{recb}$-\rcomp]
+	{\oftp\Gamma{\rho}{\Region} \and \oftp\Gamma{\vb A}{\bm \sigma} \and \oftp\Gamma{C}{\prd{\vb a : \bm \alpha}{c : I^{\mathcal S}\ \rho\ \vb A\ \vb a} \Sort \ell} \\\\ \oftp\Gamma{\vb e}{\bm \epsilon'} \and \oftp\Gamma{\vb b}{\bm \beta} \and \oftp\Gamma{\vb u}{\bm \gamma}}
+	{\Gamma\vdash {\mathsf{recb}\ \rho\ \vb A\ C\ \vb e\ (p\ \vb A\ \vb b')\ (\&_\rho\ \mathsf{intro}_n\ \vb A\ \vb b\ \vb u)}\jdeq{e_i\ \mathcal B_\rho[\vb b]\ \mathcal B[\vb u]\ \vb v}} \]
+The reduction rule, \( \iota^{\mathcal S} \)-reduction, is
+\[ \inferrule*[right=$\mathsf{recb}$-\rcomp]
+	{\oftp\Gamma{\rho}{\Region} \and \oftp\Gamma{\vb A}{\bm \sigma} \and \oftp\Gamma{C}{\prd{\vb a : \bm \alpha}{c : I^{\mathcal S}\ \rho\ \vb A\ \vb a} \Sort \ell} \\\\ \oftp\Gamma{\vb e}{\bm \epsilon'} \and \oftp\Gamma{\vb b}{\bm \beta} \and \oftp\Gamma{\vb u}{\bm \gamma}}
+	{{\mathsf{recb}\ \rho\ \vb A\ C\ \vb e\ (p\ \vb A\ \vb b')\ (\&_\rho\ \mathsf{intro}_n\ \vb A\ \vb b\ \vb u)} \;\triangleright_{\iota^{\mathcal S}}\; {e_i\ \mathcal B_\rho[\vb b]\ \mathcal B[\vb u]\ \vb v}} \]

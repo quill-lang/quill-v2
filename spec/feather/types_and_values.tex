@@ -204,6 +204,7 @@ There is no way to create a `non-dependent function type'; it is simply a specia
 		{\oftp\Gamma{f}{\tprd{x:\alpha} \beta} \\ \oftp\Gamma{a}{\alpha}}
 		{\oftp\Gamma{f\ a}{\beta[a/x]}}
 \end{mathpar}
+\textit{(Note: the $\Pi$-\relim{} rule will be given an extra constraint in \cref{sec:comptime}.)}
 \( \lambda \) abstractions create dependent function types, and once more, \( x \) must be a name and not an arbitrary expression.
 The application of a dependent function to a suitably typed argument yields a result of the expected type.
 The syntax \( \beta[a/x] \) is as defined above in the case of universe expressions; replace all uses of the name \( x \) with the expression \( a \).
@@ -280,7 +281,30 @@ The corresponding rewrite rule is called \( \ast \)-reduction (read `dereference
 	{\oftp{\Gamma}{\rho_1}{\Region} \and \oftp{\Gamma}{\rho_2}{\Region} \and \oftp\Gamma{x}{\Delta_{\rho_2}\,\alpha}}
 	{\ast\,\&_{\rho_1}\,x \;\triangleright_\ast\; x} \]
 
+\section{Compile time and runtime expressions}
+\label{sec:comptime}
+There are some expressions for which borrow-checked semantics are not relevant; that is, those expressions which only exist at compile time. This is because the borrow-checker is a tool that lets the resulting binary be further optimised, and this is simply not a concern at compile time. For instance, types do not need borrow-checked semantics.
+
+\begin{defn}
+	Each expression \( e \) is endowed with a Boolean value \( \mathsf{iscomptime}(e) \) (read `\( e \) is compile time'), roughly meaning that this expression's value is definitely known at compile time. For \textit{most} expressions, we define that \( \mathsf{iscomptime}(e) \) is true when all of its sub-expressions \( f \) satisfy \( \mathsf{iscomptime}(f) \).
+	Compile time expressions \( e \) do not need to follow the borrow checker's rules or the ownership checker's rules, because they have no runtime representation.
+\end{defn}
+
+For example, all instanced definitions \( q\{V\} \) are compile time expressions, as they have no sub-expressions. All \( \Sort u \) expressions are compile time expressions. If \( f : \tprd{x:\alpha} \beta\ x \), then for \( x : \alpha \), we have \( \mathsf{iscomptime}(f\ x) \iff \mathsf{iscomptime}(f) \wedge \mathsf{iscomptime}(x) \).
+
+There is a pair of exceptions to this definition; \( \lambda \) and \( \Pi \) binders are able to define whether the new variable they bind is a compile time variable or not. We write, for example, \( \lam{x:!\alpha} y \) to signal that \( \alpha \) is marked as a compile time expression.
+
+We add an additional constraint to the \( \Pi \)-\relim{} rule; if the parameter to the function is marked as a compile time expression, the value supplied to the function must be a compile time expression. Hence, if \( f : \tprd{x:!\alpha} \beta \) and \( x : \alpha \), the expression \( f\ x \) type checks only if \( \mathsf{iscomptime}(x) \) holds.
+
+Note that the types of expressions are not necessarily known at compile time; consider the generalised identity function \( \lam{\alpha:\mathsf{Type}}{x:\alpha} x \). The type of \( x \) is not known at compile time. However, if the first \( \lambda \) abstraction defines its argument as a compile time expression, the type of \( x \) must be known at compile time.
+
+\begin{defn}
+	The process of \textit{monomorphisation} is the conversion of functions with type-valued arguments into finite families of functions with no type-valued arguments.
+	An expression is \textit{monomorphisable} if, for each recursive sub-expression \( e : \alpha \), we either have \( \mathsf{iscomptime}(\alpha) \), or \( \alpha : \Prop \).
+\end{defn}
+
+Roughly, an expression is monomorphisable if all types (whose values will not be erased at runtime) are known at compile time. Note that this \( \Prop \) exception only works due to proof irrelevance; proofs carry no runtime data so they do not need a runtime representation. Every valid Feather program must be monomorphisable, in order to compile the program to machine code.
+
 \section{Weak head normal form}
 
 \section{Definitional equality checker}
-
