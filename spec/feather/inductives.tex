@@ -100,7 +100,7 @@ Given the above, we construct the elimination rule
 	\end{itemize}
 \end{itemize}
 For each intro rule \( i_n \), we have a \textit{minor premise} \( e_n \), of type
-\[ \epsilon_n = \prd{\vb b : \bm \beta}{\vb u : \bm \gamma}{\vb v : \bm \delta} C\ (p\ \vb A\ \vb b)\ (i_n\ \vb A\ \vb b\ \vb u) \]
+\[ \epsilon_n = \prd{\vb b : \bm \beta}{\vb u : \bm \gamma}{\vb v : \bm \delta} C\ (p\ \vb A\ \vb b)\ (\mathsf{intro}_n\ \vb A\ \vb b\ \vb u) \]
 where \( \bm \delta \) has the same length as \( \bm \gamma \), and
 \[ \delta_i = \prd{\vb x:\bm \xi_i} C\ (p_i\ \vb A\ \vb b\ \vb x)\ (u_i\ \vb x) \]
 The computation rules for the recursor are of the form
@@ -215,9 +215,10 @@ We now create another recursor for each type that has a squash function.
 It has type
 \[ \mathsf{recb} : \prd{\rho : \Region}{\vb A : \bm \sigma}{C : \prd{\vb a : \bm \alpha}{c : I^{\mathcal S}\ \rho\ \vb A\ \vb a} \Sort \ell}{\vb e : \bm \epsilon'}{\vb a : \bm \alpha}{c : \Delta_\rho\ I\ \vb A\ \vb a} C\ \vb a\ (\mathsf{squash}\ \rho\ \vb A\ \vb a\ c) \]
 where
-\[ \epsilon_n' = \prd{\mathcal D_\rho[\vb b : \bm \beta]}{\mathcal D_\rho[\vb u : \bm \gamma]}{\vb v : \bm \delta'} C\ (p\ \vb A)\ (i_n^{\mathcal S}\ \vb A\ \vb b\ \vb u) \]
+\[ \epsilon_n' = \prd{\mathcal D_\rho[\vb b : \bm \beta]}{\mathcal D_\rho[\vb u : \bm \gamma]}{\vb v : \bm \delta'} C\ (p\ \vb A)\ (\mathsf{intro}_n^{\mathcal S}\ \rho\ \vb A\ \vb b\ \vb u) \]
 where \( \bm \delta' \) has the same length as \( \bm \gamma \), and
-\[ \delta_i' = \prd{\vb x:\bm \xi_i} C\ (p_i\ \vb A\ \vb b'\ \vb x)\ (u_i\ \vb x) \]
+\[ \delta_i' = \prd{\vb x:\bm \xi_i} C\ (p_i\ \vb A\ \vb b'\ \vb x)\ (\mathsf{squash}\ \rho\ \vb A\ (p_i\ \vb A\ \vb b'\ \vb x)\ (u_i\ \vb x)) \]
+% TODO: check this delta_i' type
 The associated computation rules are of the form
 \[ \inferrule*[right=$\mathsf{recb}$-\rcomp]
 	{\oftp\Gamma{\rho}{\Region} \and \oftp\Gamma{\vb A}{\bm \sigma} \and \oftp\Gamma{C}{\prd{\vb a : \bm \alpha}{c : I^{\mathcal S}\ \rho\ \vb A\ \vb a} \Sort \ell} \\\\ \oftp\Gamma{\vb e}{\bm \epsilon'} \and \oftp\Gamma{\vb b}{\bm \beta} \and \oftp\Gamma{\vb u}{\bm \gamma}}
@@ -226,3 +227,19 @@ The reduction rule, \( \iota^{\mathcal S} \)-reduction, is
 \[ \inferrule*[right=$\mathsf{recb}$-\rcomp]
 	{\oftp\Gamma{\rho}{\Region} \and \oftp\Gamma{\vb A}{\bm \sigma} \and \oftp\Gamma{C}{\prd{\vb a : \bm \alpha}{c : I^{\mathcal S}\ \rho\ \vb A\ \vb a} \Sort \ell} \\\\ \oftp\Gamma{\vb e}{\bm \epsilon'} \and \oftp\Gamma{\vb b}{\bm \beta} \and \oftp\Gamma{\vb u}{\bm \gamma}}
 	{{\mathsf{recb}\ \rho\ \vb A\ C\ \vb e\ (p\ \vb A\ \vb b')\ (\&_\rho\ \mathsf{intro}_n\ \vb A\ \vb b\ \vb u)} \;\triangleright_{\iota^{\mathcal S}}\; {e_i\ \mathcal B_\rho[\vb b]\ \mathcal B[\vb u]\ \vb v}} \]
+
+\begin{eg}[natural numbers]
+	The squashed type has intro rules
+	\begin{align*}
+		\mathsf{zero}^{\mathcal S} &: \prd{\rho:\Region} \mathsf{nat}^{\mathcal S} \\
+		\mathsf{succ}^{\mathcal S} &: \prd{\rho:\Region}{n:\Delta_\rho\ \mathsf{nat}} \mathsf{nat}^{\mathcal S}
+	\end{align*}
+	and the borrowed form of the recursor is
+	\[ \mathsf{recb}_{\mathsf{nat}} : \prd{\rho:\Region}{C:\prd{c:\mathsf{nat}^{\mathcal S}\ \rho}\Sort \ell}{\vb e : \bm \epsilon'}{c:\Delta_\rho\ \mathsf{nat}}C\ (\mathsf{squash}\ \rho\ c) \]
+	where
+	\begin{align*}
+		\epsilon_1' = \epsilon_{\mathsf{zero}^{\mathcal S}}' &= C\ (\mathsf{zero}^{\mathcal S}\ \rho) \\
+		\epsilon_2' = \epsilon_{\mathsf{succ}^{\mathcal S}}' &= \prd{u:\Delta_\rho\ \mathsf{nat}}{v:C\ (\mathsf{squash}\ \rho\ u)} C\ (\mathsf{succ}^{\mathcal S}\ \rho\ u)
+	\end{align*}
+	Notice how the squashed types are used in the types of the minor premises to avoid having to create and immediately borrow a value; instead of \( \&_\rho\ \mathsf{zero} \), we can write \( \mathsf{zero}^{\mathcal S}\ \rho \).
+\end{eg}
