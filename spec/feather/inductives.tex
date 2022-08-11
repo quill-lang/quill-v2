@@ -32,6 +32,56 @@ where
 We call \( \vb b \) the \textit{nonrecursive arguments} and \( \vb u \) the \textit{recursive arguments}.
 In our kernel, we do not enforce the order in which elements \( \vb b \) and \( \vb u \) may occur; the recursive and nonrecursive arguments may be interspersed.
 
+\begin{eg}[natural numbers]
+	Let
+	\begin{itemize}
+		\item \( q = \mathsf{nat} \);
+		\item \( U = [] \);
+		\item \( I = \Type \), so \( \bm \sigma = \bm \alpha = [] \) and \( u = 1 \);
+		\item \( \mathsf{intro}_1 = \mathsf{zero} : \mathsf{nat} \), so \( \bm \beta = \bm \gamma = [] \);
+		\item \( \mathsf{intro}_2 = \mathsf{succ} : \prd{n:\mathsf{nat}} \mathsf{nat} \), so \( \bm \beta = [] \) and \( \bm \gamma = [\mathsf{nat}] \).
+	\end{itemize}
+	This is the definition of the Peano natural numbers.
+\end{eg}
+\begin{eg}[lists]
+	Let
+	\begin{itemize}
+		\item \( q = \mathsf{list} \);
+		\item \( U = [u] \);
+		\item \( I = \prd{T:!\Sort (u + 1)} \Sort (u + 1) \), so \( \bm \sigma = [\Sort (u + 1)] \), \( \bm \alpha = [] \), and the universe parameter is \( u + 1 \);
+		\item \( \mathsf{intro}_1 = \mathsf{nil} : \prd{T:!\Sort (u + 1)} \mathsf{list}\ T \), so \( \bm \beta = \bm \gamma = [] \);
+		\item \( \mathsf{intro}_2 = \mathsf{cons} : \prd{T:!\Sort (u + 1)}{x:T}{t:\mathsf{list}\ T} \mathsf{list}\ T \), so \( \bm\beta = [T] \) and \( \bm\gamma = [\mathsf{list}\ T] \).
+	\end{itemize}
+\end{eg}
+\begin{eg}[arrays]
+	Let
+	\begin{itemize}
+		\item \( q = \mathsf{array} \);
+		\item \( U = [u] \);
+		\item \( I = \prd{T:!\Sort (u + 1)}{n:!\mathsf{nat}} \Sort (u + 1) \), so \( \bm \sigma = [\Sort (u + 1)] \), \( \bm \alpha = [\mathsf{nat}] \), and the universe parameter is \( u + 1 \);
+		\item \( \mathsf{intro}_1 = \mathsf{anil} : \prd{T:!\Sort (u + 1)} \mathsf{array}\ T\ \mathsf{zero} \), so \( \bm \beta = \bm \gamma = [] \);
+		\item \( \mathsf{intro}_2 = \mathsf{acons} : \prd{T:!\Sort (u + 1)}{n:!\mathsf{nat}}{x:T}{t:\mathsf{array}\ T\ n} \mathsf{array}\ T\ (\mathsf{succ}\ n) \), so \( \bm\beta = [\mathsf{nat}, T] \) and \( \bm\gamma = [\mathsf{array}\ T\ n] \).
+	\end{itemize}
+\end{eg}
+\begin{eg}[equality]
+	Let
+	\begin{itemize}
+		\item \( q = \mathsf{eq} \);
+		\item \( U = [u] \);
+		\item \( I = \prd{T:!\Sort u}{x:T}{y:T} \Prop \), so \( \bm \sigma = [\Sort u, T] \) and \( \bm \alpha = [T] \), and the universe parameter is zero;
+		\item \( \mathsf{intro}_1 = \mathsf{refl} : \prd{T:!\Sort u}{x:T}\mathsf{eq}\ T\ x\ x \), so \( \bm \beta = \bm \gamma = [] \).
+	\end{itemize}
+\end{eg}
+\begin{eg}[\( \mathsf{W} \)-types: well-founded trees]
+	Let
+	\begin{itemize}
+		\item \( q = \mathsf{W} \);
+		\item \( U = [u, v] \);
+		\item \( I = \prd{S:!\Sort (u + 1)}{T:!S \to \Sort (v + 1)} \Sort (\max\ u\ v + 1) \), so \( \bm \sigma = [\Sort (u + 1), S \to \Sort (v + 1)] \) and \( \bm \alpha = [] \), and the universe parameter is \( \max\ u\ v + 1 \), noting that \( S \to \Sort (v + 1) \) is shorthand for \( \prd{s:S} \Sort(v+1) \);
+		\item \( \mathsf{intro}_1 = \mathsf{W.mk} : \prd{S:!\Sort (u + 1)}{T:!S \to \Sort (v + 1)}{x:S}{y:\prd{z:T\ x} \mathsf{W}\ S\ T} \mathsf{W}\ S\ T \), so \( \bm \beta = [S] \) and \( \bm \gamma = \qty[\prd{z:T\ x}\mathsf{W}\ S\ T] \).
+	\end{itemize}
+\end{eg}
+
 \section{Elimination rule}
 Given the above, we construct the elimination rule
 \[ \mathsf{rec} : \prd{\vb A : \bm \sigma}{C : \prd{\vb a : \bm \alpha}{c : I\ \vb A\ \vb a} \Sort \ell}{\vb e : \bm \epsilon}{\vb a : \bm \alpha}{c : I\ \vb A\ \vb a} C\ \vb a\ c \]
@@ -62,6 +112,51 @@ This yields the \( \iota \)-reduction rule
 \[ \inferrule
 	{\oftp\Gamma{\vb A}{\bm \sigma} \and \oftp\Gamma{C}{\prd{\vb a : \bm \alpha}{c : I\ \vb A\ \vb a} \Sort \ell} \and \oftp\Gamma{\vb e}{\bm \epsilon} \and \oftp\Gamma{\vb b}{\bm \beta} \and \oftp\Gamma{\vb u}{\bm \gamma}}
 	{{\mathsf{rec}\ \vb A\ C\ \vb e\ (p\ \vb A\ \vb b)\ (\mathsf{intro}_n\ \vb A\ \vb b\ \vb u)}\;\triangleright_\iota\;{e_i\ \vb b\ \vb u\ \vb v}} \]
+
+\begin{eg}[natural numbers]
+	The elimination rule for natural numbers is
+	\[ \rec{\mathsf{nat}} : \prd{C:\prd{c:\mathsf{nat}} \Sort \ell}{\vb e : \bm \epsilon}{c : \mathsf{nat}} C\ c \]
+	where
+	\begin{align*}
+		\epsilon_1 = \epsilon_{\mathsf{zero}} &= C\ \mathsf{zero} \\
+		\epsilon_2 = \epsilon_{\mathsf{succ}} &= \prd{u:\mathsf{nat}}{v:C\ u} C\ (\mathsf{succ}\ u)
+	\end{align*}
+	This is precisely the induction principle for natural numbers; the minor premise \( \epsilon_{\mathsf{zero}} \) is the base case of the induction and \( \epsilon_{\mathsf{succ}} \) is the inductive step.
+\end{eg}
+\begin{eg}[lists]
+	The elimination rule for lists (of arbitrary length) is
+	\[ \rec{\mathsf{list}} : \prd{T:!\Sort (u+1)}{C:\prd{c:\mathsf{list}\ T} \Sort \ell}{\vb e : \bm \epsilon}{c:\mathsf{list}\ T} C\ c \]
+	where
+	\begin{align*}
+		\epsilon_1 = \epsilon_{\mathsf{nil}} &= C\ (\mathsf{nil}\ T) \\
+		\epsilon_2 = \epsilon_{\mathsf{cons}} &= \prd{b:T}{u:\mathsf{list}\ T}{v:C\ u} C\ (\mathsf{cons}\ T\ b\ u)
+	\end{align*}
+\end{eg}
+\begin{eg}[arrays]
+	The elimination rule for arrays of length given by an index parameter is
+	\[ \rec{\mathsf{array}} : \prd{T:!\Sort (u+1)}{C:\prd{n:!\mathsf{nat}}{c:\mathsf{array}\ T\ n}\Sort \ell}{\vb e : \bm \epsilon}{n:!\mathsf{nat}}{c:\mathsf{array}\ T\ n}C\ n\ c \]
+	where
+	\begin{align*}
+		\epsilon_1 = \epsilon_{\mathsf{anil}} &= C\ \mathsf{zero}\ (\mathsf{anil}\ T) \\
+		\epsilon_2 = \epsilon_{\mathsf{acons}} &= \prd{n:!\mathsf{nat}}{b:T}{u:\mathsf{array}\ T\ n}{v:C\ n\ u} C\ (\mathsf{succ}\ n)\ (\mathsf{acons}\ T\ b\ u)
+	\end{align*}
+	Note that the parameter \( n \) is marked as a compile time expression wherever it appears.
+\end{eg}
+\begin{eg}[equality]
+	The elimination rule for the equality type is
+	\[ \rec{\mathsf{eq}} : \prd{T:!\Sort u}{x:T}{C:\prd{y:T}{c:\mathsf{eq}\ T\ x\ y}\Sort \ell}{e : \epsilon}{y:T}{c:\mathsf{eq}\ T\ x\ y}C\ y\ x \]
+	where
+	\[ \epsilon = \epsilon_{\mathsf{refl}} = C\ x\ (\mathsf{refl}\ T\ x) \]
+	Informally, this says that if \( \mathsf{eq}\ T\ x\ y \), it suffices to assume that \( x \) and \( y \) are the same (definitionally equal, from the perspective of the minor premise).
+\end{eg}
+\begin{eg}[\( \mathsf{W} \)-types]
+	The elimination rule for the type of well-founded trees is
+	\[ \rec{\mathsf{W}} : \prd{S:!\Sort(u+1)}{T:!S\to\Sort(v+1)}{C:\prd{c:\mathsf{W}\ S\ T}\Sort \ell}{e:\epsilon}{c:\mathsf{W}\ S\ T}C\ c \]
+	where
+	\[ \epsilon = \prd{x:S}{y:\prd{z:T\ x}\mathsf{W}\ S\ T}{v:\prd{z:T\ x}C\ (y\ z)}C\ (\mathsf{W.mk}\ S\ T\ x\ y) \]
+\end{eg}
+
+% should C be marked comptime? no - because we may want to let C be in Prop, still allowed
 
 \section{Squashed types}
 To work with \( \Delta \) types of inductives, we create three new gadgets: squashed types, the squash function, and the borrowed form of the recursor.
@@ -120,7 +215,7 @@ We now create another recursor for each type that has a squash function.
 It has type
 \[ \mathsf{recb} : \prd{\rho : \Region}{\vb A : \bm \sigma}{C : \prd{\vb a : \bm \alpha}{c : I^{\mathcal S}\ \rho\ \vb A\ \vb a} \Sort \ell}{\vb e : \bm \epsilon'}{\vb a : \bm \alpha}{c : \Delta_\rho\ I\ \vb A\ \vb a} C\ \vb a\ (\mathsf{squash}\ \rho\ \vb A\ \vb a\ c) \]
 where
-\[ \epsilon_n' = \prd{\mathcal D_\rho[\vb b : \bm \beta]}{\mathcal D_\rho[\vb u : \bm \gamma]}{\vb v : \bm \delta'} C\ (p\ \vb A)\ (i_n\ \vb A\ \vb b\ \vb u) \]
+\[ \epsilon_n' = \prd{\mathcal D_\rho[\vb b : \bm \beta]}{\mathcal D_\rho[\vb u : \bm \gamma]}{\vb v : \bm \delta'} C\ (p\ \vb A)\ (i_n^{\mathcal S}\ \vb A\ \vb b\ \vb u) \]
 where \( \bm \delta' \) has the same length as \( \bm \gamma \), and
 \[ \delta_i' = \prd{\vb x:\bm \xi_i} C\ (p_i\ \vb A\ \vb b'\ \vb x)\ (u_i\ \vb x) \]
 The associated computation rules are of the form
